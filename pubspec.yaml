@@ -1,87 +1,90 @@
-name: immo_connect
-description: "Application mobile immobilière pour le Cameroun - ImmoConnect"
+name: sgk_home
+description: Application Immobilière SGK HOME - Cameroun
+publish_to: 'none'
 version: 1.0.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
-  flutter: ">=3.10.0"
 
 dependencies:
   flutter:
     sdk: flutter
 
-  # ── Fonts ──────────────────────────────────────────────
-  google_fonts: ^6.1.0          # Poppins et autres polices
-
-  # ── Navigation & State ─────────────────────────────────
-  provider: ^6.1.1              # State management
-  go_router: ^13.0.0            # Navigation avancée
-
-  # ── Carte & Géolocalisation (§4.1.2, §5.4) ─────────────
-  google_maps_flutter: ^2.5.3   # Carte Google Maps
-  geolocator: ^11.0.0           # GPS utilisateur
-
-  # ── Firebase (§5.1, §6.1.3, §7.2) ─────────────────────
-  firebase_core: ^2.27.0
-  firebase_auth: ^4.17.0        # Authentification prestataires
-  cloud_firestore: ^4.15.0      # Base de données temps réel
-  firebase_storage: ^11.6.0     # Stockage photos
-  firebase_messaging: ^14.7.17  # Notifications push FCM
-  firebase_analytics: ^10.8.0   # Analytics (§6.1.3)
-  firebase_crashlytics: ^3.4.16 # Crash reporting (§7.2)
-
-  # ── Chat temps réel (§4.1.5) ───────────────────────────
-  # Option 1 : Firebase Realtime DB (gratuit, inclus firebase_core)
-  firebase_database: ^10.4.5
-  # Option 2 : Stream.io (décommentez si préféré - §7.2 $99-299/mois)
-  # stream_chat_flutter: ^8.0.0
-
-  # ── Médias (§4.1.4, §4.1.5) ───────────────────────────
-  image_picker: ^1.0.7          # Sélection photos
-  file_picker: ^8.0.0         # Sélection documents PDF
-  cached_network_image: ^3.3.1  # Cache images réseau
-  photo_view: ^0.14.0           # Zoom photos (§4.1.4)
-
-  # ── Stockage local (mode hors ligne §5.4) ──────────────
-  hive: ^2.2.3                  # Stockage local rapide
-  hive_flutter: ^1.1.0
-  shared_preferences: ^2.2.2   # Préférences utilisateur
-
-  # ── Paiement (Phase 2 - §5.3, §6.1.2) ─────────────────
-  # Orange Money & MTN Mobile Money via CinetPay (agrégateur africain)
-  # cinetpay_api: (à intégrer Phase 2 - SDK non encore publié sur pub.dev)
-  # Documentation : https://cinetpay.com/documentation
-
-  # ── Partage réseaux sociaux (§3.1 UC-C07) ──────────────
-  share_plus: ^7.2.2            # WhatsApp, Facebook, X (Twitter)
-  url_launcher: ^6.2.5          # Ouvrir liens, appels tel:
-
-  # ── UI & UX ────────────────────────────────────────────
-  flutter_svg: ^2.0.9           # Icônes SVG
-  shimmer: ^3.0.0               # Effet chargement skeleton
-  badges: ^3.1.2                # Badge non lus messagerie
-  dotted_border: ^2.1.0         # Bordure pointillée upload
-
-  # ── Localisation FR/EN (§4.1.7) ───────────────────────
-  flutter_localizations:
-    sdk: flutter
-  intl: ^0.20.2
-
-  # ── Divers ─────────────────────────────────────────────
+  # UI & Icons
   cupertino_icons: ^1.0.6
-  flutter_launcher_icons: ^0.13.1
+  google_fonts: ^6.1.0
+  flutter_svg: ^2.0.9
+  cached_network_image: ^3.3.1
+  shimmer: ^3.0.0
+  carousel_slider: ^4.2.1
+  badges: ^3.1.2
+
+  # Navigation
+  go_router: ^12.1.1
+
+  # State Management
+  provider: ^6.1.1
+
+  # Firebase
+  firebase_core: ^2.24.2
+  firebase_auth: ^4.15.3
+  cloud_firestore: ^4.13.6
+  firebase_storage: ^11.5.6
+  firebase_messaging: ^14.7.9
+  firebase_analytics: ^10.7.4
+
+  # Google Sign-In & Facebook
+  google_sign_in: ^6.2.1
+  flutter_facebook_auth: ^6.2.0
+
+  # Maps
+  google_maps_flutter: ^2.5.3
+  geolocator: ^10.1.0
+  geocoding: ^2.1.1
+
+  # Network
+  http: ^1.1.2
+  dio: ^5.4.0
+
+  # Storage
+  shared_preferences: ^2.2.2
+  flutter_secure_storage: ^9.0.0
+
+  # Image
+  image_picker: ^1.0.7
+  photo_view: ^0.14.0
+
+  # Chat
+  dash_chat_2: ^0.0.21
+
+  # Utils
+  intl: ^0.19.0
+  url_launcher: ^6.2.2
+  share_plus: ^7.2.1
+  connectivity_plus: ^5.0.2
+  permission_handler: ^11.2.0
+  uuid: ^4.2.2
+  timeago: ^3.6.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
-  hive_generator: ^2.0.1
-  build_runner: ^2.4.8
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
+  adaptive_icon_background: "#0071C2"
+  adaptive_icon_foreground: "assets/images/logo.png"
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true
-
-  # Polices (§4.2 - "12 polices définies")
+  assets:
+    - assets/images/
+    - assets/icons/
   fonts:
     - family: Poppins
       fonts:
@@ -92,10 +95,3 @@ flutter:
           weight: 600
         - asset: assets/fonts/Poppins-Bold.ttf
           weight: 700
-        - asset: assets/fonts/Poppins-ExtraBold.ttf
-          weight: 800
-
-  assets:
-    - assets/images/
-    - assets/icons/
-    - assets/fonts/

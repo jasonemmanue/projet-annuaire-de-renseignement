@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../../services/auth_service.dart';
 
 // ============================================================
 // FICHIER : lib/screens/auth/login_screen.dart
@@ -16,7 +17,8 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _obscurePwd = true;
   bool _isLoading = false;
@@ -33,14 +35,20 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this, initialIndex: widget.isInscription ? 1 : 0);
+    _tabController = TabController(
+        length: 2,
+        vsync: this,
+        initialIndex: widget.isInscription ? 1 : 0);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    _emailCtrl.dispose(); _passwordCtrl.dispose();
-    _nomCtrl.dispose(); _prenomCtrl.dispose(); _telCtrl.dispose();
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    _nomCtrl.dispose();
+    _prenomCtrl.dispose();
+    _telCtrl.dispose();
     super.dispose();
   }
 
@@ -57,10 +65,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               padding: const EdgeInsets.fromLTRB(20, 32, 20, 0),
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                   colors: [AppColors.primaryDark, AppColors.primary],
                 ),
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(0)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -68,7 +76,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        icon:
+                            const Icon(Icons.arrow_back, color: Colors.white),
                         onPressed: () => Navigator.pop(context),
                       ),
                       const Spacer(),
@@ -76,7 +85,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   ),
                   const Text(
                     'Espace Prestataire',
-                    style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800),
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 4),
                   const Text(
@@ -90,8 +102,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     indicatorWeight: 3,
                     labelColor: Colors.white,
                     unselectedLabelColor: Colors.white54,
-                    labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                    tabs: const [Tab(text: 'Connexion'), Tab(text: 'Inscription')],
+                    labelStyle: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 14),
+                    tabs: const [
+                      Tab(text: 'Connexion'),
+                      Tab(text: 'Inscription')
+                    ],
                   ),
                 ],
               ),
@@ -108,10 +124,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     passwordCtrl: _passwordCtrl,
                     obscurePwd: _obscurePwd,
                     isLoading: _isLoading,
-                    onTogglePwd: () => setState(() => _obscurePwd = !_obscurePwd),
+                    onTogglePwd: () =>
+                        setState(() => _obscurePwd = !_obscurePwd),
                     onLogin: _connexion,
                     onSocial: _connexionSociale,
-                    onForgotPwd: () => _afficherReinitialisationMdp(context),
+                    onForgotPwd: () =>
+                        _afficherReinitialisationMdp(context),
                   ),
                   _OngletInscription(
                     formKey: _inscriptionFormKey,
@@ -122,7 +140,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     passwordCtrl: _passwordCtrl,
                     obscurePwd: _obscurePwd,
                     isLoading: _isLoading,
-                    onTogglePwd: () => setState(() => _obscurePwd = !_obscurePwd),
+                    onTogglePwd: () =>
+                        setState(() => _obscurePwd = !_obscurePwd),
                     onInscrire: _inscription,
                   ),
                 ],
@@ -134,14 +153,45 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     );
   }
 
+  // ── Connexion avec AuthService statique ───────────────────
   Future<void> _connexion() async {
     if (!_loginFormKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    // TODO: Intégrer Firebase Auth / API REST
-    await Future.delayed(const Duration(seconds: 1));
-    if (mounted) {
-      setState(() => _isLoading = false);
-      Navigator.pop(context); // Retour à l'écran principal
+
+    final result = await AuthService.instance.login(
+      _emailCtrl.text.trim(),
+      _passwordCtrl.text,
+    );
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    switch (result) {
+      case AuthResult.success:
+        Navigator.pop(context, true); // true = login réussi
+        break;
+      case AuthResult.wrongCredentials:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Identifiant ou mot de passe incorrect.'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+        break;
+      case AuthResult.networkError:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Erreur réseau. Réessayez.'),
+            backgroundColor: Colors.orange.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+        break;
     }
   }
 
@@ -151,18 +201,26 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     await Future.delayed(const Duration(seconds: 1));
     if (mounted) {
       setState(() => _isLoading = false);
-      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Inscription bientôt disponible.'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
     }
   }
 
   void _connexionSociale(String provider) {
-    // TODO: Intégrer google_sign_in / facebook_auth (§5.1 - inscription simplifiée)
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Connexion $provider bientôt disponible'),
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppColors.primary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
@@ -171,25 +229,31 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (_) => Padding(
-        padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+        padding: EdgeInsets.fromLTRB(
+            20, 20, 20, MediaQuery.of(context).viewInsets.bottom + 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Mot de passe oublié', style: AppTextStyles.h3),
             const SizedBox(height: 8),
-            const Text('Entrez votre email pour recevoir un lien de réinitialisation.', style: AppTextStyles.bodyMedium),
+            const Text(
+                'Entrez votre identifiant pour recevoir un lien de réinitialisation.',
+                style: AppTextStyles.bodyMedium),
             const SizedBox(height: 16),
             TextFormField(
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.email_outlined)),
+              decoration: const InputDecoration(
+                  labelText: 'Identifiant / Email',
+                  prefixIcon: Icon(Icons.person_outline)),
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: () { Navigator.pop(context); },
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 48)),
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48)),
               child: const Text('Envoyer le lien'),
             ),
           ],
@@ -206,13 +270,20 @@ class _OngletConnexion extends StatelessWidget {
   final GlobalKey<FormState> formKey;
   final TextEditingController emailCtrl, passwordCtrl;
   final bool obscurePwd, isLoading;
-  final VoidCallback onTogglePwd, onLogin, onForgotPwd;
-  final ValueChanged<String> onSocial;
+  final VoidCallback onTogglePwd, onLogin;
+  final void Function(String) onSocial;
+  final VoidCallback onForgotPwd;
 
   const _OngletConnexion({
-    required this.formKey, required this.emailCtrl, required this.passwordCtrl,
-    required this.obscurePwd, required this.isLoading, required this.onTogglePwd,
-    required this.onLogin, required this.onSocial, required this.onForgotPwd,
+    required this.formKey,
+    required this.emailCtrl,
+    required this.passwordCtrl,
+    required this.obscurePwd,
+    required this.isLoading,
+    required this.onTogglePwd,
+    required this.onLogin,
+    required this.onSocial,
+    required this.onForgotPwd,
   });
 
   @override
@@ -227,9 +298,15 @@ class _OngletConnexion extends StatelessWidget {
             const SizedBox(height: 8),
             TextFormField(
               controller: emailCtrl,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.email_outlined)),
-              validator: (v) => v!.isEmpty || !v.contains('@') ? 'Email invalide' : null,
+              keyboardType: TextInputType.text,
+              decoration: const InputDecoration(
+                labelText: 'Identifiant / Email',
+                prefixIcon: Icon(Icons.person_outline),
+              ),
+              // ── Pas de vérification "@" : l'identifiant peut
+              //    être un simple nom d'utilisateur (ex: sakamemmanuel)
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Champ requis' : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -239,11 +316,13 @@ class _OngletConnexion extends StatelessWidget {
                 labelText: 'Mot de passe',
                 prefixIcon: const Icon(Icons.lock_outline),
                 suffixIcon: IconButton(
-                  icon: Icon(obscurePwd ? Icons.visibility_off : Icons.visibility),
+                  icon: Icon(
+                      obscurePwd ? Icons.visibility_off : Icons.visibility),
                   onPressed: onTogglePwd,
                 ),
               ),
-              validator: (v) => v!.length < 6 ? 'Au moins 6 caractères' : null,
+              validator: (v) =>
+                  (v == null || v.length < 6) ? 'Au moins 6 caractères' : null,
             ),
             Align(
               alignment: Alignment.centerRight,
@@ -255,23 +334,39 @@ class _OngletConnexion extends StatelessWidget {
             const SizedBox(height: 8),
             ElevatedButton(
               onPressed: isLoading ? null : onLogin,
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+              style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50)),
               child: isLoading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Se connecter', style: TextStyle(fontSize: 16)),
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Text('Se connecter',
+                      style: TextStyle(fontSize: 16)),
             ),
             const SizedBox(height: 24),
             const Row(children: [
               Expanded(child: Divider()),
-              Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('ou continuer avec', style: AppTextStyles.caption)),
+              Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('ou continuer avec',
+                      style: AppTextStyles.caption)),
               Expanded(child: Divider()),
             ]),
             const SizedBox(height: 16),
-            // Connexion sociale (§5.1 - réduction frictions)
             Row(children: [
-              Expanded(child: _BoutonSocial(label: 'Google', emoji: '🔴', onTap: () => onSocial('Google'))),
+              Expanded(
+                  child: _BoutonSocial(
+                      label: 'Google',
+                      emoji: '🔴',
+                      onTap: () => onSocial('Google'))),
               const SizedBox(width: 12),
-              Expanded(child: _BoutonSocial(label: 'Facebook', emoji: '🔵', onTap: () => onSocial('Facebook'))),
+              Expanded(
+                  child: _BoutonSocial(
+                      label: 'Facebook',
+                      emoji: '🔵',
+                      onTap: () => onSocial('Facebook'))),
             ]),
           ],
         ),
@@ -285,14 +380,24 @@ class _OngletConnexion extends StatelessWidget {
 // ----------------------------------------------------------
 class _OngletInscription extends StatelessWidget {
   final GlobalKey<FormState> formKey;
-  final TextEditingController nomCtrl, prenomCtrl, emailCtrl, telCtrl, passwordCtrl;
+  final TextEditingController nomCtrl,
+      prenomCtrl,
+      emailCtrl,
+      telCtrl,
+      passwordCtrl;
   final bool obscurePwd, isLoading;
   final VoidCallback onTogglePwd, onInscrire;
 
   const _OngletInscription({
-    required this.formKey, required this.nomCtrl, required this.prenomCtrl,
-    required this.emailCtrl, required this.telCtrl, required this.passwordCtrl,
-    required this.obscurePwd, required this.isLoading, required this.onTogglePwd,
+    required this.formKey,
+    required this.nomCtrl,
+    required this.prenomCtrl,
+    required this.emailCtrl,
+    required this.telCtrl,
+    required this.passwordCtrl,
+    required this.obscurePwd,
+    required this.isLoading,
+    required this.onTogglePwd,
     required this.onInscrire,
   });
 
@@ -306,7 +411,6 @@ class _OngletInscription extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 8),
-            // Bandeau info (§1.2 - compte réservé prestataires)
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -320,7 +424,8 @@ class _OngletInscription extends StatelessWidget {
                   Expanded(
                     child: Text(
                       'Le compte est réservé aux propriétaires et agences.\nLes clients n\'ont pas besoin de compte.',
-                      style: TextStyle(color: AppColors.primary, fontSize: 12),
+                      style:
+                          TextStyle(color: AppColors.primary, fontSize: 12),
                     ),
                   ),
                 ],
@@ -328,13 +433,15 @@ class _OngletInscription extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Row(children: [
-              Expanded(child: TextFormField(
+              Expanded(
+                  child: TextFormField(
                 controller: prenomCtrl,
                 decoration: const InputDecoration(labelText: 'Prénom *'),
                 validator: (v) => v!.isEmpty ? 'Requis' : null,
               )),
               const SizedBox(width: 12),
-              Expanded(child: TextFormField(
+              Expanded(
+                  child: TextFormField(
                 controller: nomCtrl,
                 decoration: const InputDecoration(labelText: 'Nom *'),
                 validator: (v) => v!.isEmpty ? 'Requis' : null,
@@ -344,8 +451,11 @@ class _OngletInscription extends StatelessWidget {
             TextFormField(
               controller: emailCtrl,
               keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email *', prefixIcon: Icon(Icons.email_outlined)),
-              validator: (v) => v!.isEmpty || !v.contains('@') ? 'Email invalide' : null,
+              decoration: const InputDecoration(
+                  labelText: 'Email *',
+                  prefixIcon: Icon(Icons.email_outlined)),
+              validator: (v) =>
+                  (v == null || v.isEmpty) ? 'Email requis' : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -367,29 +477,41 @@ class _OngletInscription extends StatelessWidget {
                 labelText: 'Mot de passe *',
                 prefixIcon: const Icon(Icons.lock_outline),
                 suffixIcon: IconButton(
-                  icon: Icon(obscurePwd ? Icons.visibility_off : Icons.visibility),
+                  icon: Icon(
+                      obscurePwd ? Icons.visibility_off : Icons.visibility),
                   onPressed: onTogglePwd,
                 ),
               ),
-              validator: (v) => v!.length < 6 ? 'Au moins 6 caractères' : null,
+              validator: (v) =>
+                  v!.length < 6 ? 'Au moins 6 caractères' : null,
             ),
             const SizedBox(height: 20),
-            // CGU
             const Row(
               children: [
-                Icon(Icons.check_box_outlined, color: AppColors.primary, size: 18),
+                Icon(Icons.check_box_outlined,
+                    color: AppColors.primary, size: 18),
                 SizedBox(width: 8),
-                Expanded(child: Text("En créant un compte, j'accepte les conditions d'utilisation et la politique de confidentialité.",
-                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary))),
+                Expanded(
+                    child: Text(
+                  "En créant un compte, j'accepte les conditions d'utilisation et la politique de confidentialité.",
+                  style: TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary),
+                )),
               ],
             ),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: isLoading ? null : onInscrire,
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+              style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50)),
               child: isLoading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Créer mon compte gratuit', style: TextStyle(fontSize: 16)),
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Text('Créer mon compte gratuit',
+                      style: TextStyle(fontSize: 16)),
             ),
             const SizedBox(height: 40),
           ],
@@ -407,23 +529,28 @@ class _BoutonSocial extends StatelessWidget {
   final String emoji;
   final VoidCallback onTap;
 
-  const _BoutonSocial({required this.label, required this.emoji, required this.onTap});
+  const _BoutonSocial(
+      {required this.label, required this.emoji, required this.onTap});
 
   @override
   Widget build(BuildContext context) => OutlinedButton(
-    onPressed: onTap,
-    style: OutlinedButton.styleFrom(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      side: const BorderSide(color: AppColors.border),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-    ),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(emoji, style: const TextStyle(fontSize: 18)),
-        const SizedBox(width: 8),
-        Text(label, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
-      ],
-    ),
-  );
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          side: const BorderSide(color: AppColors.border),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 18)),
+            const SizedBox(width: 8),
+            Text(label,
+                style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w500)),
+          ],
+        ),
+      );
 }
