@@ -631,9 +631,6 @@ class EmptyState extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------
-// INDICATEUR DE CHARGEMENT STYLISE
-// ----------------------------------------------------------
 class LoadingWidget extends StatelessWidget {
   const LoadingWidget({super.key});
 
