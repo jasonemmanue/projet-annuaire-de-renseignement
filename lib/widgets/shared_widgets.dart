@@ -4,11 +4,11 @@ import '../models/models.dart';
 
 // ============================================================
 // FICHIER : lib/widgets/shared_widgets.dart
-// Composants réutilisables sur tous les écrans
+// Composants reutilisables sur tous les ecrans
 // ============================================================
 
 // ----------------------------------------------------------
-// CARTE LOGEMENT (utilisée en liste et carte)
+// CARTE LOGEMENT (utilisee en liste et carte)
 // ----------------------------------------------------------
 class LogementCard extends StatelessWidget {
   final Logement logement;
@@ -62,14 +62,12 @@ class LogementCard extends StatelessWidget {
                   )
                       : _placeholderImage(180),
                 ),
-                // Badge sponsorisé
                 if (logement.estSponsorie)
                   Positioned(
                     top: 10,
                     left: 10,
-                    child: _buildBadge('Sponsorisé', AppColors.accent, Colors.black87),
+                    child: _buildBadge('Sponsorise', AppColors.accent, Colors.black87),
                   ),
-                // Badge type
                 Positioned(
                   top: 10,
                   right: 10,
@@ -81,7 +79,6 @@ class LogementCard extends StatelessWidget {
                     Colors.white,
                   ),
                 ),
-                // Bouton favori
                 Positioned(
                   bottom: 10,
                   right: 10,
@@ -95,7 +92,7 @@ class LogementCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Titre + vérifié
+                  // Titre + verifie
                   Row(
                     children: [
                       Expanded(
@@ -119,21 +116,47 @@ class LogementCard extends StatelessWidget {
                     children: [
                       const Icon(Icons.location_on, size: 14, color: AppColors.textSecondary),
                       const SizedBox(width: 4),
-                      Text(
-                        '${logement.quartier}, ${logement.ville}',
-                        style: AppTextStyles.bodyMedium,
+                      // ✅ CORRIGE : Flexible pour eviter overflow sur texte long
+                      Flexible(
+                        child: Text(
+                          '${logement.quartier}, ${logement.ville}',
+                          style: AppTextStyles.bodyMedium,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  // Caractéristiques rapides
+                  // ✅ CORRIGE ligne 130 : Row caracteristiques avec Flexible sur chaque _IconInfo
                   Row(
                     children: [
-                      _IconInfo(icon: Icons.king_bed_outlined, label: '${logement.nbPieces} pièces'),
-                      const SizedBox(width: 12),
-                      _IconInfo(icon: Icons.straighten, label: '${logement.surface} m²'),
-                      const Spacer(),
-                      Text(logement.prixLabel, style: AppTextStyles.price),
+                      Flexible(
+                        child: _IconInfo(
+                          icon: Icons.king_bed_outlined,
+                          label: '${logement.nbPieces} pieces',
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: _IconInfo(
+                          icon: Icons.straighten,
+                          label: '${logement.surface} m²',
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Prix a droite avec Flexible + alignement right
+                      Flexible(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            logement.prixLabel,
+                            style: AppTextStyles.price,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -153,7 +176,11 @@ class LogementCard extends StatelessWidget {
           color: Theme.of(context).cardTheme.color,
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6, offset: const Offset(0, 2)),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Column(
@@ -164,13 +191,26 @@ class LogementCard extends StatelessWidget {
                 ClipRRect(
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                   child: logement.photos.isNotEmpty
-                      ? Image.network(logement.photos.first, height: 120, width: double.infinity, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _placeholderImage(120))
+                      ? Image.network(
+                    logement.photos.first,
+                    height: 120,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _placeholderImage(120),
+                  )
                       : _placeholderImage(120),
                 ),
                 if (logement.estVerifie)
-                  const Positioned(top: 6, right: 6, child: Icon(Icons.verified, color: Colors.white, size: 16)),
-                Positioned(bottom: 6, right: 6, child: _FavoriteButton(logementId: logement.id, small: true)),
+                  const Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Icon(Icons.verified, color: Colors.white, size: 16),
+                  ),
+                Positioned(
+                  bottom: 6,
+                  right: 6,
+                  child: _FavoriteButton(logementId: logement.id, small: true),
+                ),
               ],
             ),
             Padding(
@@ -178,12 +218,26 @@ class LogementCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(logement.titre, style: AppTextStyles.bodyLarge.copyWith(fontWeight: FontWeight.w600),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    logement.titre,
+                    style: AppTextStyles.bodyLarge.copyWith(fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   const SizedBox(height: 2),
-                  Text('${logement.quartier}, ${logement.ville}', style: AppTextStyles.caption, maxLines: 1),
+                  Text(
+                    '${logement.quartier}, ${logement.ville}',
+                    style: AppTextStyles.caption,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   const SizedBox(height: 4),
-                  Text(logement.prixLabel, style: AppTextStyles.priceSmall),
+                  Text(
+                    logement.prixLabel,
+                    style: AppTextStyles.priceSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ),
             ),
@@ -202,8 +256,14 @@ class LogementCard extends StatelessWidget {
 
   Widget _buildBadge(String label, Color bg, Color fg) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(6)),
-    child: Text(label, style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w600)),
+    decoration: BoxDecoration(
+      color: bg,
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w600),
+    ),
   );
 }
 
@@ -233,7 +293,9 @@ class _FavoriteButtonState extends State<_FavoriteButton> {
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.9),
           shape: BoxShape.circle,
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4)],
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4),
+          ],
         ),
         child: Icon(
           _isFavorite ? Icons.favorite : Icons.favorite_border,
@@ -246,7 +308,7 @@ class _FavoriteButtonState extends State<_FavoriteButton> {
 }
 
 // ----------------------------------------------------------
-// ICÔNE + LABEL (ex: 3 pièces, 45 m²)
+// ICONE + LABEL (ex: 3 pieces, 45 m²)
 // ----------------------------------------------------------
 class _IconInfo extends StatelessWidget {
   final IconData icon;
@@ -255,16 +317,24 @@ class _IconInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min, // ✅ ne prend que l'espace necessaire
     children: [
       Icon(icon, size: 14, color: AppColors.textSecondary),
       const SizedBox(width: 4),
-      Text(label, style: AppTextStyles.bodyMedium),
+      Flexible(
+        child: Text(
+          label,
+          style: AppTextStyles.bodyMedium,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
     ],
   );
 }
 
 // ----------------------------------------------------------
-// BARRE DE RECHERCHE PRINCIPALE (style Booking.com)
+// BARRE DE RECHERCHE PRINCIPALE
 // ----------------------------------------------------------
 class SearchBar extends StatelessWidget {
   final TextEditingController controller;
@@ -295,7 +365,8 @@ class SearchBar extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 borderSide: BorderSide.none,
               ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               hintStyle: AppTextStyles.bodyMedium,
             ),
           ),
@@ -393,13 +464,28 @@ class SectionTitle extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: AppTextStyles.h3),
+          // ✅ CORRIGE ligne 393 : Flexible pour eviter overflow sur titre long
+          Flexible(
+            child: Text(
+              title,
+              style: AppTextStyles.h3,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           if (onVoirTout != null)
             GestureDetector(
               onTap: onVoirTout,
-              child: const Text(
-                'Voir tout',
-                style: TextStyle(color: AppColors.primary, fontSize: 14, fontWeight: FontWeight.w600),
+              child: const Padding(
+                padding: EdgeInsets.only(left: 8),
+                child: Text(
+                  'Voir tout',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
         ],
@@ -409,7 +495,7 @@ class SectionTitle extends StatelessWidget {
 }
 
 // ----------------------------------------------------------
-// BANDEAU PUBLICITAIRE (§2.1.2 - 1 pub / 5 annonces)
+// BANDEAU PUBLICITAIRE
 // ----------------------------------------------------------
 class PubliciteBanner extends StatelessWidget {
   const PubliciteBanner({super.key});
@@ -434,8 +520,13 @@ class PubliciteBanner extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Publicité', style: TextStyle(fontSize: 10, color: AppColors.textHint)),
-                Text('Votre annonce ici · Contactez-nous', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                Text('Publicite', style: TextStyle(fontSize: 10, color: AppColors.textHint)),
+                Text(
+                  'Votre annonce ici · Contactez-nous',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
@@ -470,10 +561,26 @@ class MainBottomNav extends StatelessWidget {
       currentIndex: currentIndex,
       onTap: onTap,
       items: [
-        const BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Accueil'),
-        const BottomNavigationBarItem(icon: Icon(Icons.map_outlined), activeIcon: Icon(Icons.map), label: 'Carte'),
-        const BottomNavigationBarItem(icon: Icon(Icons.favorite_outline), activeIcon: Icon(Icons.favorite), label: 'Favoris'),
-        const BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), activeIcon: Icon(Icons.chat_bubble), label: 'Messages'),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.home_outlined),
+          activeIcon: Icon(Icons.home),
+          label: 'Accueil',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.map_outlined),
+          activeIcon: Icon(Icons.map),
+          label: 'Carte',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.favorite_outline),
+          activeIcon: Icon(Icons.favorite),
+          label: 'Favoris',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.chat_bubble_outline),
+          activeIcon: Icon(Icons.chat_bubble),
+          label: 'Messages',
+        ),
         BottomNavigationBarItem(
           icon: Icon(isPrestataire ? Icons.dashboard_outlined : Icons.person_outline),
           activeIcon: Icon(isPrestataire ? Icons.dashboard : Icons.person),
@@ -485,7 +592,7 @@ class MainBottomNav extends StatelessWidget {
 }
 
 // ----------------------------------------------------------
-// ÉTAT VIDE (liste vide, erreur, etc.)
+// ETAT VIDE
 // ----------------------------------------------------------
 class EmptyState extends StatelessWidget {
   final IconData icon;
@@ -525,7 +632,7 @@ class EmptyState extends StatelessWidget {
 }
 
 // ----------------------------------------------------------
-// INDICATEUR DE CHARGEMENT STYLISÉ
+// INDICATEUR DE CHARGEMENT STYLISE
 // ----------------------------------------------------------
 class LoadingWidget extends StatelessWidget {
   const LoadingWidget({super.key});
