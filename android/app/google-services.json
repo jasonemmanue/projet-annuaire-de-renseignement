@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "623906779506",
+    "project_id": "sgk-home",
+    "storage_bucket": "sgk-home.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:623906779506:android:25c3875728d2a668a52deb",
+        "android_client_info": {
+          "package_name": "com.example.app_renseignement"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDX7WhRXy09q0x8uGR3STEJ4XgTEcq7NIE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

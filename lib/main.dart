@@ -1,4 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'app_controller.dart';
 import 'theme/app_theme.dart';
 import 'screens/splash_screen.dart';
 import 'screens/accueil_screen.dart';
@@ -9,18 +13,29 @@ import 'screens/profil_screen.dart';
 import 'screens/dashboard_prestataire_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/notification_service.dart';
 import 'widgets/shared_widgets.dart' as sw;
 
-// ============================================================
-// FICHIER : lib/main.dart
-// Point d'entrée de l'application SGK HOME - Cameroun
-// Navigation principale + gestion thème clair/sombre
-// ============================================================
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-void main() {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  await AuthService.instance.init();
+  await NotificationService.init();
+
+  if (AuthService.instance.isLoggedIn) {
+    await NotificationService.saveToken(AuthService.instance.currentUser!.id);
+  }
+
   runApp(const ImmoConnectApp());
 }
 
+// ─────────────────────────────────────────────────────────────
+// App root — écoute AppController pour thème et langue
+// ─────────────────────────────────────────────────────────────
 class ImmoConnectApp extends StatefulWidget {
   const ImmoConnectApp({super.key});
 
@@ -29,14 +44,19 @@ class ImmoConnectApp extends StatefulWidget {
 }
 
 class _ImmoConnectAppState extends State<ImmoConnectApp> {
-  ThemeMode _themeMode = ThemeMode.light;
-
-  void toggleTheme() {
-    setState(() {
-      _themeMode =
-      _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
-    });
+  @override
+  void initState() {
+    super.initState();
+    AppController.instance.addListener(_onAppControllerChanged);
   }
+
+  @override
+  void dispose() {
+    AppController.instance.removeListener(_onAppControllerChanged);
+    super.dispose();
+  }
+
+  void _onAppControllerChanged() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
@@ -45,18 +65,77 @@ class _ImmoConnectAppState extends State<ImmoConnectApp> {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: _themeMode,
+      themeMode: AppController.instance.themeMode,
+      locale: AppController.instance.locale,
+      navigatorKey: navigatorKey,
+      onGenerateRoute: (settings) {
+        if (settings.name == '/chat') {
+          final args = settings.arguments as Map<String, dynamic>?;
+          final conversationId = args?['conversationId'] as String?;
+          if (conversationId != null) {
+            return MaterialPageRoute(
+              builder: (_) =>
+                  _ChatFromNotification(conversationId: conversationId),
+            );
+          }
+        }
+        return null;
+      },
       home: SplashScreen(nextScreen: const MainNavigationScreen()),
     );
   }
 }
 
-// ============================================================
-// FICHIER : lib/screens/main_navigation_screen.dart
-// Navigation principale Bottom Bar (§4.1.1)
-// Accueil | Carte | Favoris | Messages | Profil/Dashboard
-// ============================================================
+// ─────────────────────────────────────────────────────────────
+// Chat ouvert depuis une notification
+// ─────────────────────────────────────────────────────────────
+class _ChatFromNotification extends StatelessWidget {
+  final String conversationId;
+  const _ChatFromNotification({required this.conversationId});
 
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _loadConvData(),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        }
+        final data = snap.data!;
+        return ChatScreen(
+          conversationId: conversationId,
+          logementTitre: data['logement_titre'] ?? '',
+          logementPhoto: data['logement_photo'],
+          otherId: data['otherId'] ?? '',
+          currentUid: data['currentUid'] ?? '',
+        );
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> _loadConvData() async {
+    final auth = AuthService.instance;
+    final currentUid = auth.isLoggedIn
+        ? auth.currentUser!.id
+        : await getOrCreateVisitorId();
+
+    final doc = await FirebaseFirestore.instance
+        .collection('conversations')
+        .doc(conversationId)
+        .get();
+    final data = doc.data() ?? {};
+    final participants = List<String>.from(data['participants'] ?? []);
+    final otherId =
+        participants.firstWhere((p) => p != currentUid, orElse: () => '');
+
+    return {...data, 'otherId': otherId, 'currentUid': currentUid};
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Navigation principale
+// ─────────────────────────────────────────────────────────────
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
 
@@ -67,37 +146,40 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  // Indique si l'utilisateur est connecté comme prestataire
   bool get _isPrestataire =>
       AuthService.instance.isLoggedIn &&
-          AuthService.instance.currentUser!.isPrestataire;
+      AuthService.instance.currentUser!.isPrestataire;
 
-  // Reconstruit les onglets selon l'état d'auth
-  List<Widget> get _screens => [
-    const AccueilScreen(),      // Écran 1 - Accueil
-    const CarteScreen(),        // Écran 2 - Carte
-    const FavorisScreen(),      // Favoris
-    const MessagerieScreen(),   // Messagerie
-    _isPrestataire              // Dernier onglet : Dashboard ou Profil
-        ? const DashboardPrestataireScreen()
-        : _ProfilAvecLoginScreen(onLoginSuccess: _onLoginSuccess),
-  ];
+  /// Visiteur : Accueil | Carte | Favoris | Profil  (4 onglets)
+  /// Prestataire : Accueil | Carte | Favoris | Dashboard (4 onglets — Messages dans le Dashboard)
+  List<Widget> get _screens => _isPrestataire
+      ? [
+          const AccueilScreen(),
+          const CarteScreen(),
+          const FavorisScreen(),
+          const DashboardPrestataireScreen(),
+        ]
+      : [
+          const AccueilScreen(),
+          const CarteScreen(),
+          const FavorisScreen(),
+          _ProfilAvecLoginScreen(onLoginSuccess: _onLoginSuccess),
+        ];
 
-  // Appelé après un login réussi pour rafraîchir la nav
   void _onLoginSuccess() {
-    setState(() {
-      // Rester sur l'onglet Profil/Dashboard (index 4)
-      _currentIndex = 4;
-    });
+    setState(() => _currentIndex = 0);
+    if (AuthService.instance.isLoggedIn) {
+      NotificationService.saveToken(AuthService.instance.currentUser!.id);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final maxIndex = _screens.length - 1;
+    if (_currentIndex > maxIndex) _currentIndex = 0;
+
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
+      body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: sw.MainBottomNav(
         currentIndex: _currentIndex,
         onTap: (i) => setState(() => _currentIndex = i),
@@ -107,13 +189,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 }
 
-// ============================================================
-// Écran intermédiaire : affiche ProfilScreen si déconnecté,
-// avec un bouton flottant pour accéder au login prestataire.
-// ============================================================
+// ─────────────────────────────────────────────────────────────
+// Profil visiteur avec bouton accès espace prestataire
+// ─────────────────────────────────────────────────────────────
 class _ProfilAvecLoginScreen extends StatelessWidget {
   final VoidCallback onLoginSuccess;
-
   const _ProfilAvecLoginScreen({required this.onLoginSuccess});
 
   Future<void> _ouvrirLogin(BuildContext context) async {
@@ -121,18 +201,14 @@ class _ProfilAvecLoginScreen extends StatelessWidget {
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
-    if (result == true) {
-      onLoginSuccess();
-    }
+    if (result == true) onLoginSuccess();
   }
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Écran profil sans paramètre spécial
-        const ProfilScreen(),
-        // Bouton flottant "Espace Prestataire" en bas
+        const ProfilScreen(key: ValueKey('profil_visiteur')),
         Positioned(
           left: 16,
           right: 16,
@@ -146,8 +222,7 @@ class _ProfilAvecLoginScreen extends StatelessWidget {
               backgroundColor: const Color(0xFF0071C2),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ),

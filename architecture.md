@@ -208,5 +208,7 @@ GMSServices.provideAPIKey("VOTRE_CLE_API_GOOGLE_MAPS")
 | **Prestataire** | ✅ Obligatoire | + Publication annonces, dashboard, paiements |
 | **Administrateur** | ✅ Back-office | Modération, analytics, gestion publicités |
 
----
+---cd functions
+npm install firebase-admin firebase-functions
+firebase deploy --only functions
 

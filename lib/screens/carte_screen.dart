@@ -1,3 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../services/logement_service.dart';
+import '../services/geolocation_service.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
@@ -25,14 +29,15 @@ class _CarteScreenState extends State<CarteScreen> {
   // Distances disponibles pour le filtre (§4.1.2)
   final List<double> _distances = [0.5, 1.0, 5.0, 10.0];
 
-  // Mock data - à remplacer par appel API
-  final List<Logement> _logements = _mockLogements;
+  GoogleMapController? _mapController;
+  LatLng? _positionUtilisateur;
+  static const LatLng _yaoundeCenter = LatLng(3.8480, 11.5021);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Carte'),
+        title: const Text('Explorer la carte'),
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),
@@ -40,16 +45,31 @@ class _CarteScreenState extends State<CarteScreen> {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          // ─── CARTE PRINCIPALE ────────────────────────────────
-          // TODO: Remplacer par GoogleMap widget
-          // Nécessite : google_maps_flutter dans pubspec.yaml
-          // + Clé API Google Maps Platform (§7.2 - $0-200/mois)
-          _PlaceholderCarte(
-            logements: _logements,
-            onMarkerTap: (logement) => setState(() => _logementSelectionne = logement),
-          ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: LogementService.getLogements(),
+        builder: (ctx, snap) {
+          final logements = snap.hasData
+              ? snap.data!.docs.map((d) => Logement.fromMap(d.id, d.data() as Map<String, dynamic>)).toList()
+              : <Logement>[];
+
+          final markers = logements.map((l) => Marker(
+            markerId: MarkerId(l.id),
+            position: LatLng(l.latitude, l.longitude),
+            infoWindow: InfoWindow(title: l.titre, snippet: l.prixLabel),
+            onTap: () => setState(() => _logementSelectionne = l),
+          )).toSet();
+
+          return Stack(
+            children: [
+              // ─── CARTE GOOGLE MAPS RÉELLE ────────────────────
+              GoogleMap(
+                initialCameraPosition: const CameraPosition(target: LatLng(3.8480, 11.5021), zoom: 12),
+                onMapCreated: (ctrl) => _mapController = ctrl,
+                markers: markers,
+                myLocationEnabled: _positionUtilisateur != null,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+              ),
 
           // ─── FILTRE DISTANCE (§4.1.2) ─────────────────────────
           Positioned(
@@ -94,7 +114,7 @@ class _CarteScreenState extends State<CarteScreen> {
                 boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
               ),
               child: Text(
-                '${_logements.length} logements',
+                'ImmoConnect',
                 style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
               ),
             ),
@@ -118,16 +138,24 @@ class _CarteScreenState extends State<CarteScreen> {
               ),
             ),
         ],
+          );
+        },
       ),
     );
   }
 
   void _localiserUtilisateur() async {
     setState(() => _isLocating = true);
-    // TODO: Intégrer geolocator package
-    // final position = await Geolocator.getCurrentPosition();
-    await Future.delayed(const Duration(seconds: 1));
-    if (mounted) setState(() => _isLocating = false);
+    try {
+      final pos = await GeolocationService.getCurrentPosition();
+      if (pos != null && mounted) {
+        final latlng = LatLng(pos.latitude, pos.longitude);
+        setState(() => _positionUtilisateur = latlng);
+        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(latlng, 14));
+      }
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
   }
 
   void _afficherFiltreDistance(BuildContext context) {
@@ -221,7 +249,7 @@ class _GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.grey.withOpacity(0.15)
+      ..color = Colors.grey.withValues(alpha: 0.15)
       ..strokeWidth = 1;
     for (double x = 0; x < size.width; x += 40) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
@@ -310,7 +338,7 @@ class _FiltreDistanceWidget extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 6)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 6)],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -367,7 +395,7 @@ class _MapButton extends StatelessWidget {
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 6)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 6)],
       ),
       child: Icon(icon, color: iconColor, size: 20),
     ),
@@ -395,7 +423,7 @@ class _FicheResume extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 12, offset: const Offset(0, -2))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 12, offset: const Offset(0, -2))],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

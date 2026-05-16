@@ -38,7 +38,7 @@ class LogementCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -177,7 +177,7 @@ class LogementCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 6,
               offset: const Offset(0, 2),
             ),
@@ -291,10 +291,10 @@ class _FavoriteButtonState extends State<_FavoriteButton> {
         width: widget.small ? 30 : 36,
         height: widget.small ? 30 : 36,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.9),
+          color: Colors.white.withValues(alpha: 0.9),
           shape: BoxShape.circle,
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 4),
           ],
         ),
         child: Icon(
@@ -336,12 +336,12 @@ class _IconInfo extends StatelessWidget {
 // ----------------------------------------------------------
 // BARRE DE RECHERCHE PRINCIPALE
 // ----------------------------------------------------------
-class SearchBar extends StatelessWidget {
+class AppSearchBar extends StatelessWidget {
   final TextEditingController controller;
   final ValueChanged<String> onSearch;
   final VoidCallback? onFilterTap;
 
-  const SearchBar({
+  const AppSearchBar({
     super.key,
     required this.controller,
     required this.onSearch,
@@ -394,13 +394,13 @@ class SearchBar extends StatelessWidget {
 // ----------------------------------------------------------
 // CHIP FILTRE RAPIDE
 // ----------------------------------------------------------
-class FilterChip extends StatelessWidget {
+class AppFilterChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
   final IconData? icon;
 
-  const FilterChip({
+  const AppFilterChip({
     super.key,
     required this.label,
     required this.selected,
@@ -423,7 +423,7 @@ class FilterChip extends StatelessWidget {
             width: 1.5,
           ),
           boxShadow: selected
-              ? [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 6)]
+              ? [BoxShadow(color: AppColors.primary.withValues(alpha: 0.3), blurRadius: 6)]
               : null,
         ),
         child: Row(
@@ -508,7 +508,7 @@ class PubliciteBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.primaryLight,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -557,34 +557,79 @@ class MainBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final selectedColor = AppColors.primary;
+    final unselectedColor = isDark ? const Color(0xFF94A3B8) : AppColors.textSecondary;
+
+    // ─── Prestataire : 4 onglets (Messages dans le Dashboard) ────
+    if (isPrestataire) {
+      return BottomNavigationBar(
+        currentIndex: currentIndex,
+        onTap: onTap,
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: bgColor,
+        selectedItemColor: selectedColor,
+        unselectedItemColor: unselectedColor,
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 11),
+        elevation: 12,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home),
+            label: 'Accueil',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.map_outlined),
+            activeIcon: Icon(Icons.map),
+            label: 'Carte',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.favorite_outline),
+            activeIcon: Icon(Icons.favorite),
+            label: 'Favoris',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
+        ],
+      );
+    }
+
+    // ─── Visiteur : 4 onglets (pas de Messages) ───────────────────
     return BottomNavigationBar(
       currentIndex: currentIndex,
       onTap: onTap,
-      items: [
-        const BottomNavigationBarItem(
+      type: BottomNavigationBarType.fixed,
+      backgroundColor: bgColor,
+      selectedItemColor: selectedColor,
+      unselectedItemColor: unselectedColor,
+      selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+      unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 11),
+      elevation: 12,
+      items: const [
+        BottomNavigationBarItem(
           icon: Icon(Icons.home_outlined),
           activeIcon: Icon(Icons.home),
           label: 'Accueil',
         ),
-        const BottomNavigationBarItem(
+        BottomNavigationBarItem(
           icon: Icon(Icons.map_outlined),
           activeIcon: Icon(Icons.map),
           label: 'Carte',
         ),
-        const BottomNavigationBarItem(
+        BottomNavigationBarItem(
           icon: Icon(Icons.favorite_outline),
           activeIcon: Icon(Icons.favorite),
           label: 'Favoris',
         ),
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.chat_bubble_outline),
-          activeIcon: Icon(Icons.chat_bubble),
-          label: 'Messages',
-        ),
         BottomNavigationBarItem(
-          icon: Icon(isPrestataire ? Icons.dashboard_outlined : Icons.person_outline),
-          activeIcon: Icon(isPrestataire ? Icons.dashboard : Icons.person),
-          label: isPrestataire ? 'Dashboard' : 'Profil',
+          icon: Icon(Icons.person_outline),
+          activeIcon: Icon(Icons.person),
+          label: 'Profil',
         ),
       ],
     );

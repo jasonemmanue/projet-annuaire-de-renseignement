@@ -1,5 +1,5 @@
-name: sgk_home
-description: Application Immobilière SGK HOME - Cameroun
+name: immoconnect
+description: ImmoConnect - Application Immobilière Cameroun
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_local_notifications: ^17.0.0
 
   # UI & Icons
   cupertino_icons: ^1.0.6

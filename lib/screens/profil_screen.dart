@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_controller.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import 'auth/login_screen.dart';
@@ -110,8 +111,11 @@ class _ProfilScreenState extends State<ProfilScreen> {
                   title: const Text('Mode sombre', style: AppTextStyles.bodyLarge),
                   subtitle: Text(_modeSombre ? 'Activé' : 'Désactivé', style: AppTextStyles.bodyMedium),
                   value: _modeSombre,
-                  activeColor: AppColors.primary,
-                  onChanged: (v) => setState(() => _modeSombre = v),
+                  activeThumbColor: AppColors.primary,
+                  onChanged: (v) {
+                    setState(() => _modeSombre = v);
+                    AppController.instance.toggleTheme();
+                  },
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
               ],
@@ -126,7 +130,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                   title: const Text('Nouvelles annonces', style: AppTextStyles.bodyLarge),
                   subtitle: const Text('Alertes pour les biens correspondant à vos critères', style: TextStyle(fontSize: 12)),
                   value: _notifNouvellesAnnonces,
-                  activeColor: AppColors.primary,
+                  activeThumbColor: AppColors.primary,
                   onChanged: (v) => setState(() => _notifNouvellesAnnonces = v),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
@@ -136,7 +140,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                   title: const Text('Messages', style: AppTextStyles.bodyLarge),
                   subtitle: const Text('Nouveaux messages de prestataires', style: TextStyle(fontSize: 12)),
                   value: _notifMessages,
-                  activeColor: AppColors.primary,
+                  activeThumbColor: AppColors.primary,
                   onChanged: (v) => setState(() => _notifMessages = v),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
@@ -146,7 +150,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                   title: const Text('Baisses de prix', style: AppTextStyles.bodyLarge),
                   subtitle: const Text('Alertes quand un bien favori baisse de prix', style: TextStyle(fontSize: 12)),
                   value: _notifAlertesPrix,
-                  activeColor: AppColors.primary,
+                  activeThumbColor: AppColors.primary,
                   onChanged: (v) => setState(() => _notifAlertesPrix = v),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
@@ -233,13 +237,21 @@ class _ProfilScreenState extends State<ProfilScreen> {
               leading: const Text('🇫🇷', style: TextStyle(fontSize: 24)),
               title: const Text('Français'),
               trailing: _langue == 'Français' ? const Icon(Icons.check_circle, color: AppColors.primary) : null,
-              onTap: () { setState(() => _langue = 'Français'); Navigator.pop(context); },
+              onTap: () {
+                setState(() => _langue = 'Français');
+                AppController.instance.setLocale(const Locale('fr'));
+                Navigator.pop(context);
+              },
             ),
             ListTile(
               leading: const Text('🇬🇧', style: TextStyle(fontSize: 24)),
               title: const Text('English'),
               trailing: _langue == 'English' ? const Icon(Icons.check_circle, color: AppColors.primary) : null,
-              onTap: () { setState(() => _langue = 'English'); Navigator.pop(context); },
+              onTap: () {
+                setState(() => _langue = 'English');
+                AppController.instance.setLocale(const Locale('en'));
+                Navigator.pop(context);
+              },
             ),
             const SizedBox(height: 8),
           ],
@@ -319,7 +331,7 @@ class _EnteteProfil extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 40,
-            backgroundColor: Colors.white.withOpacity(0.2),
+            backgroundColor: Colors.white.withValues(alpha: 0.2),
             child: utilisateur?.photoUrl != null
                 ? null
                 : Text(
@@ -421,7 +433,7 @@ class _OptionTile extends StatelessWidget {
     leading: Container(
       width: 36, height: 36,
       decoration: BoxDecoration(
-        color: (color ?? AppColors.primary).withOpacity(0.1),
+        color: (color ?? AppColors.primary).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Icon(icon, color: color ?? AppColors.primary, size: 20),

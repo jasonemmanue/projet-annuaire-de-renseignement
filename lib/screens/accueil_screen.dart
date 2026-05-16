@@ -1,7 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/logement_service.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/shared_widgets.dart' as sw;
+import '../app_controller.dart';
 import 'liste_logements_screen.dart';
 import 'detail_logement_screen.dart';
 
@@ -22,22 +25,21 @@ class AccueilScreen extends StatefulWidget {
 class _AccueilScreenState extends State<AccueilScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _filtreTypeActif = 'Tous';
-  bool _isLoading = false;
 
-  // Types de biens pour les filtres rapides (§4.1.1)
+  // Types de biens pour les filtres rapides — valeurs réelles Firestore
   final List<Map<String, dynamic>> _typesBiens = [
     {'label': 'Tous', 'icon': Icons.apps},
     {'label': 'Studio', 'icon': Icons.single_bed},
-    {'label': 'F2/F3', 'icon': Icons.bed},
+    {'label': 'Appartement', 'icon': Icons.apartment},
     {'label': 'Villa', 'icon': Icons.villa},
     {'label': 'Terrain', 'icon': Icons.landscape},
     {'label': 'Location', 'icon': Icons.home_work_outlined},
     {'label': 'Vente', 'icon': Icons.sell_outlined},
   ];
 
-  // Données fictives pour le dev (à remplacer par API)
-  final List<Logement> _logementsSponsorises = _mockLogements.where((l) => l.estSponsorie).toList();
-  final List<Logement> _logementsProches = _mockLogements;
+  // Streams Firestore
+  Stream<QuerySnapshot> get _streamSponsored => LogementService.getSponsored();
+  Stream<QuerySnapshot> get _streamLogements => LogementService.getLogements();
 
   @override
   void dispose() {
@@ -59,7 +61,6 @@ class _AccueilScreenState extends State<AccueilScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -91,7 +92,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                // Logo SGK HOME
+                                // Logo ImmoConnect
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
                                   child: Image.asset(
@@ -116,7 +117,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: const [
                                     Text(
-                                      'SGK HOME',
+                                      'ImmoConnect',
                                       style: TextStyle(
                                         color: Colors.white,
                                         fontSize: 22,
@@ -156,7 +157,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
               child: Container(
                 height: 56,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: sw.SearchBar(
+                child: sw.AppSearchBar(
                   controller: _searchController,
                   onSearch: _lancerRecherche,
                   onFilterTap: () => _afficherFiltresAvances(context),
@@ -178,7 +179,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
                   itemBuilder: (_, i) {
                     final item = _typesBiens[i];
-                    return sw.FilterChip(
+                    return sw.AppFilterChip(
                       label: item['label'],
                       selected: _filtreTypeActif == item['label'],
                       icon: item['icon'],
@@ -196,61 +197,69 @@ class _AccueilScreenState extends State<AccueilScreen> {
           ),
 
           // ─── ANNONCES SPONSORISÉES (carrousel, max 3) ──────────
-          if (_logementsSponsorises.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  sw.SectionTitle(
-                    title: '⭐ Annonces à la une',
-                    onVoirTout: () => _lancerRecherche(''),
-                  ),
-                  SizedBox(
-                    height: 220,
-                    child: PageView.builder(
-                      controller: PageController(viewportFraction: 0.9),
-                      itemCount: _logementsSponsorises.take(3).length,
-                      itemBuilder: (_, i) => Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: _SponsoredCard(
-                          logement: _logementsSponsorises[i],
-                          onTap: () => _ouvrirDetail(_logementsSponsorises[i]),
-                        ),
+          // ─── ANNONCES SPONSORISÉES (Firestore) ─────────────────
+          SliverToBoxAdapter(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _streamSponsored,
+              builder: (ctx, snap) {
+                if (!snap.hasData || snap.data!.docs.isEmpty) return const SizedBox.shrink();
+                final docs = snap.data!.docs;
+                final sponsored = docs.map((d) => Logement.fromMap(d.id, d.data() as Map<String, dynamic>)).toList();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    sw.SectionTitle(title: '⭐ Annonces à la une', onVoirTout: () => _lancerRecherche('')),
+                    SizedBox(
+                      height: 220,
+                      child: PageView.builder(
+                        controller: PageController(viewportFraction: 0.9),
+                        itemCount: sponsored.length,
+                        itemBuilder: (_, i) => Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: _SponsoredCard(logement: sponsored[i], onTap: () => _ouvrirDetail(sponsored[i]))),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                );
+              },
             ),
+          ),
 
           // ─── PUBLICITÉ (1 pub toutes les 5 annonces - §2.1.2) ──
           const SliverToBoxAdapter(child: sw.PubliciteBanner()),
 
-          // ─── RECOMMANDÉS PRÈS DE VOUS ──────────────────────────
+          // ─── RECOMMANDÉS PRÈS DE VOUS (Firestore) ──────────────
           SliverToBoxAdapter(
-            child: sw.SectionTitle(
-              title: '📍 Recommandés près de vous',
-              onVoirTout: () => _lancerRecherche(''),
-            ),
-          ),
+            child: sw.SectionTitle(title: '📍 Recommandés près de vous', onVoirTout: () => _lancerRecherche(''))),
 
-          // Liste des logements proches
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
+          StreamBuilder<QuerySnapshot>(
+            stream: _streamLogements,
+            builder: (ctx, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const SliverToBoxAdapter(
+                    child: Padding(padding: EdgeInsets.all(32),
+                        child: Center(child: CircularProgressIndicator())));
+              }
+              if (!snap.hasData || snap.data!.docs.isEmpty) {
+                return const SliverToBoxAdapter(
+                    child: Padding(padding: EdgeInsets.all(32),
+                        child: Center(child: Text('Aucune annonce disponible'))));
+              }
+              final logements = snap.data!.docs
+                  .map((d) => Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
+                  .toList();
+              return SliverList(
+                delegate: SliverChildBuilderDelegate(
                   (_, i) {
-                // Insérer une pub toutes les 5 annonces (§2.1.2)
-                if (i > 0 && i % 5 == 0) {
-                  return const sw.PubliciteBanner();
-                }
-                final idx = i - (i ~/ 5);
-                if (idx >= _logementsProches.length) return null;
-                return sw.LogementCard(
-                  logement: _logementsProches[idx],
-                  onTap: () => _ouvrirDetail(_logementsProches[idx]),
-                );
-              },
-              childCount: _logementsProches.length + (_logementsProches.length ~/ 5),
-            ),
+                    if (i > 0 && i % 5 == 0) return const sw.PubliciteBanner();
+                    final idx = i - (i ~/ 5);
+                    if (idx >= logements.length) return null;
+                    return sw.LogementCard(logement: logements[idx], onTap: () => _ouvrirDetail(logements[idx]));
+                  },
+                  childCount: logements.length + (logements.length ~/ 5),
+                ),
+              );
+            },
           ),
 
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
@@ -295,7 +304,7 @@ class _SponsoredCard extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 10, offset: const Offset(0, 4))],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 10, offset: const Offset(0, 4))],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
@@ -361,33 +370,95 @@ class _SponsoredCard extends StatelessWidget {
 // ----------------------------------------------------------
 // SÉLECTEUR DE LANGUE (FR / EN - §3.1 UC-C10)
 // ----------------------------------------------------------
-class _LanguageSelector extends StatefulWidget {
-  @override
-  State<_LanguageSelector> createState() => _LanguageSelectorState();
-}
+class _LanguageSelector extends StatelessWidget {
+  const _LanguageSelector();
 
-class _LanguageSelectorState extends State<_LanguageSelector> {
-  String _lang = 'FR';
+  static const _langues = [
+    {'code': 'fr', 'flag': '🇫🇷', 'label': 'FR'},
+    {'code': 'en', 'flag': '🇬🇧', 'label': 'EN'},
+  ];
+
+  void _changerLangue(BuildContext context) {
+    final ctrl = AppController.instance;
+    final currentCode = ctrl.locale.languageCode;
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          const Text('Choisir la langue',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          const SizedBox(height: 8),
+          ..._langues.map((l) => ListTile(
+                leading: Text(l['flag']!, style: const TextStyle(fontSize: 24)),
+                title: Text(l['label'] == 'FR' ? 'Français' : 'English'),
+                trailing: currentCode == l['code']
+                    ? const Icon(Icons.check, color: AppColors.primary)
+                    : null,
+                onTap: () {
+                  ctrl.setLocale(Locale(l['code']!));
+                  Navigator.pop(context);
+                },
+              )),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => setState(() => _lang = _lang == 'FR' ? 'EN' : 'FR'),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: Colors.white38),
+    final ctrl = AppController.instance;
+    final langCode = ctrl.locale.languageCode;
+    final flag = _langues.firstWhere(
+        (l) => l['code'] == langCode,
+        orElse: () => _langues.first)['flag']!;
+    final isDark = ctrl.isDark;
+
+    return Row(
+      children: [
+        // ── Thème clair/sombre ──
+        GestureDetector(
+          onTap: () => ctrl.toggleTheme(),
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            margin: const EdgeInsets.only(right: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.white38),
+            ),
+            child: Icon(isDark ? Icons.light_mode : Icons.dark_mode,
+                color: Colors.white, size: 18),
+          ),
         ),
-        child: Row(
-          children: [
-            Text(_lang == 'FR' ? '🇫🇷' : '🇬🇧', style: const TextStyle(fontSize: 14)),
-            const SizedBox(width: 4),
-            Text(_lang, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
-          ],
+        // ── Drapeau / Langue ──
+        GestureDetector(
+          onTap: () => _changerLangue(context),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.white38),
+            ),
+            child: Row(
+              children: [
+                Text(flag, style: const TextStyle(fontSize: 14)),
+                const SizedBox(width: 4),
+                Text(langCode.toUpperCase(),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12)),
+              ],
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 }

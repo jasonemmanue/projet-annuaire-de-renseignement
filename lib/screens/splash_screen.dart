@@ -104,7 +104,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0071C2), // Bleu SGK HOME
+      backgroundColor: const Color(0xFF0071C2), // Bleu ImmoConnect
       body: FadeTransition(
         opacity: _fadeAnimation,
         child: Stack(
@@ -136,7 +136,7 @@ class _SplashScreenState extends State<SplashScreen>
                   FadeTransition(
                     opacity: _fadeTextAnimation,
                     child: const Text(
-                      'SGK HOME',
+                      'ImmoConnect',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 36,
@@ -210,13 +210,13 @@ class _SplashScreenState extends State<SplashScreen>
         borderRadius: BorderRadius.circular(36),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.25),
+            color: Colors.black.withValues(alpha: 0.25),
             blurRadius: 30,
             spreadRadius: 4,
             offset: const Offset(0, 10),
           ),
           BoxShadow(
-            color: Colors.white.withOpacity(0.15),
+            color: Colors.white.withValues(alpha: 0.15),
             blurRadius: 20,
             spreadRadius: -4,
             offset: const Offset(0, -5),
@@ -249,7 +249,7 @@ class _SplashScreenState extends State<SplashScreen>
             height: 280,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withOpacity(0.07),
+              color: Colors.white.withValues(alpha: 0.07),
             ),
           ),
         ),
@@ -262,7 +262,7 @@ class _SplashScreenState extends State<SplashScreen>
             height: 180,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withOpacity(0.05),
+              color: Colors.white.withValues(alpha: 0.05),
             ),
           ),
         ),
@@ -275,7 +275,7 @@ class _SplashScreenState extends State<SplashScreen>
             height: 300,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withOpacity(0.07),
+              color: Colors.white.withValues(alpha: 0.07),
             ),
           ),
         ),
@@ -288,7 +288,7 @@ class _SplashScreenState extends State<SplashScreen>
             height: 140,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withOpacity(0.05),
+              color: Colors.white.withValues(alpha: 0.05),
             ),
           ),
         ),

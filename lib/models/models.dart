@@ -69,6 +69,37 @@ class Logement {
   String get prixLabel =>
       typeLocation == 'location' ? '${prixFormate}/mois' : prixFormate;
 
+
+  // ── Firestore ────────────────────────────────────────────
+  factory Logement.fromMap(String docId, Map<String, dynamic> map) => Logement(
+    id: docId,
+    titre: map['titre'] ?? '',
+    description: map['description'] ?? '',
+    prix: (map['prix'] as num?)?.toDouble() ?? 0,
+    typeLocation: map['typeLocation'] ?? 'location',
+    typeBien: map['typeBien'] ?? 'Studio',
+    ville: map['ville'] ?? '',
+    quartier: map['quartier'] ?? '',
+    latitude: (map['latitude'] as num?)?.toDouble() ?? 0,
+    longitude: (map['longitude'] as num?)?.toDouble() ?? 0,
+    photos: List<String>.from(map['photos'] ?? []),
+    surface: (map['surface'] as num?)?.toInt() ?? 0,
+    nbPieces: (map['nbPieces'] as num?)?.toInt() ?? 1,
+    equipements: List<String>.from(map['equipements'] ?? []),
+    estVerifie: map['estVerifie'] ?? false,
+    estSponsorie: map['isSponsored'] ?? map['estSponsorie'] ?? false,
+    prestatireId: map['uid_prestataire'] ?? map['prestatireId'] ?? '',
+    prestatireNom: map['prestatireNom'] ?? '',
+    prestatirePhone: map['prestatirePhone'] ?? '',
+    prestatirePhoto: map['prestatirePhoto'],
+    datePublication: map['createdAt'] != null
+        ? (map['createdAt'] as dynamic).toDate()
+        : DateTime.now(),
+    nbVues: (map['vues'] as num?)?.toInt() ?? 0,
+    disponible: map['disponible'] ?? true,
+    documentPdf: map['documentPdf'],
+  );
+
   factory Logement.fromJson(Map<String, dynamic> json) => Logement(
     id: json['id'],
     titre: json['titre'],

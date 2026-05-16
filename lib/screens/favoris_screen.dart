@@ -62,7 +62,7 @@ class _FavorisScreenState extends State<FavorisScreen> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: AppColors.accent.withOpacity(0.15),
+              color: AppColors.accent.withValues(alpha: 0.15),
               child: const Row(
                 children: [
                   Icon(Icons.wifi_off, size: 14, color: Colors.brown),

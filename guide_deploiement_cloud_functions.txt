@@ -1,0 +1,220 @@
+================================================================
+  GUIDE DE DÉPLOIEMENT DES CLOUD FUNCTIONS — SGK HOME
+  Projet Firebase : sgk-home
+  Date : Mai 2026
+================================================================
+
+
+----------------------------------------------------------------
+PRÉREQUIS
+----------------------------------------------------------------
+
+1. Node.js installé (v18 ou supérieur)
+   → https://nodejs.org
+
+2. Firebase CLI installée
+   → npm install -g firebase-tools
+
+3. Être connecté à Firebase
+   → firebase login
+
+4. Avoir accès au projet sgk-home sur Google Cloud Console
+   → https://console.cloud.google.com
+
+
+----------------------------------------------------------------
+ÉTAPE 1 — STRUCTURE DU DOSSIER FUNCTIONS
+----------------------------------------------------------------
+
+app_renseignement/
+├── functions/
+│   ├── index.js          ← le code des fonctions
+│   ├── package.json
+│   └── node_modules/
+├── firebase.json
+└── .firebaserc
+
+
+----------------------------------------------------------------
+ÉTAPE 2 — CONTENU DE index.js
+----------------------------------------------------------------
+
+Le fichier utilise la syntaxe firebase-functions v2 (obligatoire).
+Les imports corrects sont :
+
+  const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+  const { onSchedule }        = require("firebase-functions/v2/scheduler");
+  const { setGlobalOptions }  = require("firebase-functions/v2");
+  const admin                 = require("firebase-admin");
+
+  admin.initializeApp();
+  setGlobalOptions({ region: "europe-west1" }); // fixe la région pour toutes les fonctions
+
+ERREUR FRÉQUENTE : utiliser l'ancienne syntaxe v1 :
+  ❌  functions.firestore.document(...).onCreate(...)   ← NE FONCTIONNE PLUS
+  ✅  onDocumentCreated("...", async (event) => {...})  ← CORRECT v2
+
+Signature du handler v2 :
+  - event.data.data()   → données du document créé
+  - event.params.convId → paramètres du chemin
+
+
+----------------------------------------------------------------
+ÉTAPE 3 — CRÉER LA BASE FIRESTORE (si pas encore fait)
+----------------------------------------------------------------
+
+Sans base Firestore, le déploiement échoue avec :
+  "Project or database '(default)' does not exist"
+
+→ Aller sur : https://console.firebase.google.com/project/sgk-home/firestore
+→ Cliquer "Créer une base de données"
+→ Choisir "Mode production"
+→ Région : eur3 (europe-west)
+→ Cliquer "Créer" et attendre ~1 minute
+
+
+----------------------------------------------------------------
+ÉTAPE 4 — INSTALLER LES DÉPENDANCES
+----------------------------------------------------------------
+
+Dans le dossier functions/ :
+
+  cd functions
+  npm install
+
+
+----------------------------------------------------------------
+ÉTAPE 5 — ACTIVER LES APIs GOOGLE CLOUD (si première fois)
+----------------------------------------------------------------
+
+Si des erreurs de permission apparaissent, activer manuellement :
+
+  gcloud services enable eventarc.googleapis.com --project=sgk-home
+  gcloud services enable cloudbuild.googleapis.com --project=sgk-home
+  gcloud services enable artifactregistry.googleapis.com --project=sgk-home
+
+Si gcloud n'est pas installé :
+  → https://cloud.google.com/sdk/docs/install
+
+
+----------------------------------------------------------------
+ÉTAPE 6 — CONFIGURER LES PERMISSIONS IAM (si première fois)
+----------------------------------------------------------------
+
+Sur https://console.cloud.google.com/iam-admin/iam?project=sgk-home :
+
+Compte 1 — Eventarc Service Agent :
+  service-623906779506@gcp-sa-eventarc.iam.gserviceaccount.com
+  → Rôle à ajouter : "Eventarc Service Agent"
+
+Compte 2 — Cloud Build :
+  623906779506@cloudbuild.gserviceaccount.com
+  → Rôles à vérifier :
+      - Cloud Build Service Account
+      - Cloud Functions Developer
+      - Artifact Registry Writer
+
+⚠️ Après avoir ajouté les rôles, attendre 2-3 minutes
+   avant de relancer le déploiement.
+
+
+----------------------------------------------------------------
+ÉTAPE 7 — DÉPLOYER LES FONCTIONS
+----------------------------------------------------------------
+
+Depuis la racine du projet (pas dans functions/) :
+
+  firebase deploy --only functions
+
+Répondre "1" à la question sur la cleanup policy
+(garde les images de build 1 jour, évite les frais inutiles).
+
+
+----------------------------------------------------------------
+ÉTAPE 8 — VÉRIFIER LE DÉPLOIEMENT
+----------------------------------------------------------------
+
+Succès = ces lignes dans le terminal :
+
+  ✔  functions[sendChatNotification(europe-west1)] Successful create operation.
+  ✔  functions[cleanupOldMessages(europe-west1)]   Successful create/update operation.
+  ✔  Deploy complete!
+
+Vérification en ligne :
+  → https://console.firebase.google.com/project/sgk-home/functions
+
+
+----------------------------------------------------------------
+FONCTIONS DÉPLOYÉES
+----------------------------------------------------------------
+
+1. sendChatNotification
+   - Région   : europe-west1
+   - Trigger  : Firestore onCreate sur conversations/{convId}/messages/{msgId}
+   - Rôle     : envoie une notification push FCM au destinataire
+                dès qu'un nouveau message est créé
+   - Visiteurs anonymes : pas de notification (pas de token FCM)
+
+2. cleanupOldMessages
+   - Région   : europe-west1
+   - Trigger  : planifiée toutes les 168 heures (1 fois par semaine)
+   - Rôle     : supprime les messages Firestore de plus de 90 jours
+                pour limiter les coûts de stockage
+
+
+----------------------------------------------------------------
+ERREURS CONNUES ET SOLUTIONS
+----------------------------------------------------------------
+
+ERREUR : functions.firestore.document is not a function
+→ Cause   : syntaxe firebase-functions v1 utilisée avec le SDK v2
+→ Solution: utiliser onDocumentCreated() (voir Étape 2)
+
+ERREUR : Project or database '(default)' does not exist
+→ Cause   : base Firestore non créée
+→ Solution: créer la base (voir Étape 3)
+
+ERREUR : Permission denied while using the Eventarc Service Agent
+→ Cause   : rôles IAM manquants, APIs pas encore propagées
+→ Solution: configurer les permissions (voir Étape 6)
+            puis attendre 2-3 minutes et relancer
+
+ERREUR : Build failed — missing permission on build service account
+→ Cause   : compte Cloud Build sans les droits nécessaires
+→ Solution: ajouter les rôles au compte Cloud Build (voir Étape 6)
+
+QUESTION : "How many days to keep container images?"
+→ Répondre : 1  (suffisant, évite les frais de stockage)
+
+Vérifie qu'il a bien ces rôles (ajoute ceux qui manquent) :
+
+Cloud Build Service Account
+Cloud Functions Developer
+Artifact Registry Writer
+dans mon cas
+----------------------------------------------------------------
+COMMANDES UTILES
+----------------------------------------------------------------
+
+Déployer uniquement les fonctions :
+  firebase deploy --only functions
+
+Déployer uniquement les règles Firestore :
+  firebase deploy --only firestore:rules
+
+Déployer uniquement les règles Storage :
+  firebase deploy --only storage
+
+Tout déployer :
+  firebase deploy
+
+Voir les logs des fonctions en temps réel :
+  firebase functions:log
+
+Lister les fonctions déployées :
+  firebase functions:list
+
+
+================================================================
+  FIN DU GUIDE
+================================================================
