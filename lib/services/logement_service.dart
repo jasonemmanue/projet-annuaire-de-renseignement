@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'notification_service.dart';
 
 class LogementService {
@@ -77,6 +78,42 @@ class LogementService {
 
   // Supprimer un logement
   static Future<void> deleteLogement(String id) async {
+    // 1. Supprime les photos du Storage
+    try {
+      final doc = await _db.collection('logements').doc(id).get();
+      final data = doc.data();
+      if (data != null) {
+        final photos = List<String>.from(data['photos'] ?? []);
+        for (final url in photos) {
+          try {
+            await FirebaseStorage.instance.refFromURL(url).delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+
+    // 2. Supprime toutes les conversations liées à ce logement
+    //    (les visiteurs ne voient plus la conv non plus)
+    try {
+      final convs = await _db
+          .collection('conversations')
+          .where('logement_id', isEqualTo: id)
+          .get();
+      for (final conv in convs.docs) {
+        // Supprime les messages de la sous-collection
+        final msgs = await conv.reference
+            .collection('messages')
+            .get();
+        final batch = _db.batch();
+        for (final msg in msgs.docs) {
+          batch.delete(msg.reference);
+        }
+        batch.delete(conv.reference);
+        await batch.commit();
+      }
+    } catch (_) {}
+
+    // 3. Supprime le document logement
     await _db.collection('logements').doc(id).delete();
   }
 

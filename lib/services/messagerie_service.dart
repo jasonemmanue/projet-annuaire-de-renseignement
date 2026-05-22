@@ -4,20 +4,12 @@ import 'dart:io';
 import 'notification_service.dart';
 import 'auth_service.dart';
 
-// ============================================================
-// FICHIER : lib/services/messagerie_service.dart
-// Les notifications push sont gérées automatiquement par
-// Cloud Functions (functions/index.js) à chaque nouveau
-// message écrit dans Firestore – rien à faire côté Flutter.
-// ============================================================
-
 class MessagerieService {
   static final _db = FirebaseFirestore.instance;
   static final _storage = FirebaseStorage.instance;
 
   // ============================================================
-  // Créer ou récupérer une conversation existante
-  // clientId : UID Firebase Auth OU identifiant visiteur anonyme
+  // Créer ou récupérer une conversation
   // ============================================================
   static Future<String> getOrCreateConversation({
     required String clientId,
@@ -26,35 +18,68 @@ class MessagerieService {
     required String logementTitre,
     String? logementPhoto,
   }) async {
-    // Cherche une conversation existante entre ces deux participants
+    // ── 1. Recherche conversation existante ──────────────────
     final existing = await _db
         .collection('conversations')
         .where('participants', arrayContains: clientId)
-        .where('logement_id', isEqualTo: logementId)
         .get();
 
     for (final doc in existing.docs) {
-      final participants = List<String>.from(doc['participants']);
-      if (participants.contains(prestataireId)) {
+      final d = doc.data();
+      final parts = List<String>.from(d['participants'] ?? []);
+      if (parts.contains(prestataireId) &&
+          d['logement_id'] == logementId) {
         return doc.id;
       }
     }
 
-    // Compte les conversations existantes du prestataire pour numéroter le contact
-    final existingConvs = await _db
-        .collection('conversations')
-        .where('participants', arrayContains: prestataireId)
-        .get();
-    final contactNumber = existingConvs.docs.length + 1;
+    // ── 2. Numérotation Contact N (visiteurs uniquement) ─────
+    String contactLabel = '';
+    int contactNumber = 0;
 
-    // Génère le label du contact visiteur
-    final contactLabel = clientId.startsWith('visiteur_')
-        ? 'Contact $contactNumber'
-        : null; // sera résolu depuis le profil Firebase Auth
+    if (clientId.startsWith('visiteur_')) {
+      // Récupère TOUTES les convs du prestataire
+      final allConvs = await _db
+          .collection('conversations')
+          .where('participants', arrayContains: prestataireId)
+          .get();
 
-    // Crée une nouvelle conversation
+      // Collecte les numéros déjà attribués aux visiteurs
+      // clé = visiteur_uid, valeur = numéro Contact
+      final Map<String, int> visiteurNumeros = {};
+      int maxNumero = 0;
+
+      for (final doc in allConvs.docs) {
+        final d = doc.data();
+        final uid = d['client_uid'] as String?;
+        final n = d['contact_number'] as int?;
+
+        // Compte uniquement les vrais visiteurs
+        if (uid != null &&
+            uid.startsWith('visiteur_') &&
+            n != null &&
+            n > 0) {
+          visiteurNumeros[uid] = n;
+          if (n > maxNumero) maxNumero = n;
+        }
+      }
+
+      if (visiteurNumeros.containsKey(clientId)) {
+        // Ce visiteur a déjà un numéro chez ce prestataire
+        contactNumber = visiteurNumeros[clientId]!;
+      } else {
+        // Nouveau visiteur → prochain numéro disponible
+        contactNumber = maxNumero + 1;
+      }
+
+      contactLabel = 'Contact$contactNumber';
+    }
+
+    // ── 3. Création de la conversation ───────────────────────
     final conv = await _db.collection('conversations').add({
       'participants': [clientId, prestataireId],
+      'client_uid': clientId,
+      'prestataire_uid': prestataireId,
       'logement_id': logementId,
       'logement_titre': logementTitre,
       'logement_photo': logementPhoto,
@@ -63,8 +88,9 @@ class MessagerieService {
       'unread_$clientId': 0,
       'unread_$prestataireId': 0,
       'createdAt': FieldValue.serverTimestamp(),
-      'contact_number': contactNumber,        // numéro séquentiel
-      if (contactLabel != null) 'contact_label': contactLabel, // "Contact N"
+      if (clientId.startsWith('visiteur_')) 'visitor_uid': clientId,
+      if (contactLabel.isNotEmpty) 'contact_label': contactLabel,
+      if (contactNumber > 0) 'contact_number': contactNumber,
     });
 
     return conv.id;
@@ -72,19 +98,16 @@ class MessagerieService {
 
   // ============================================================
   // Stream des conversations d'un utilisateur
-  // Tri côté client pour éviter l'index composite Firestore
   // ============================================================
   static Stream<QuerySnapshot> getConversations(String uid) {
     return _db
         .collection('conversations')
         .where('participants', arrayContains: uid)
-        // Pas d'orderBy → pas d'index composite requis
-        // Le tri par date est fait côté client dans le StreamBuilder
         .snapshots();
   }
 
   // ============================================================
-  // Stream des messages d'une conversation (temps réel)
+  // Stream des messages
   // ============================================================
   static Stream<QuerySnapshot> getMessages(String conversationId) {
     return _db
@@ -97,8 +120,6 @@ class MessagerieService {
 
   // ============================================================
   // Envoyer un message texte
-  // La Cloud Function sendChatNotification se déclenche
-  // automatiquement sur la création du document message.
   // ============================================================
   static Future<void> sendMessage({
     required String conversationId,
@@ -122,41 +143,39 @@ class MessagerieService {
       'isRead': false,
     });
 
-    final convRef = _db.collection('conversations').doc(conversationId);
-    batch.update(convRef, {
-      'lastMessage': text,
-      'lastMessageTime': FieldValue.serverTimestamp(),
-      'unread_$recipientId': FieldValue.increment(1),
-    });
+    batch.update(
+      _db.collection('conversations').doc(conversationId),
+      {
+        'lastMessage': text,
+        'lastMessageTime': FieldValue.serverTimestamp(),
+        'unread_$recipientId': FieldValue.increment(1),
+      },
+    );
 
     await batch.commit();
 
-    // ── Notification locale foreground pour le destinataire ──
-    // (la Cloud Function gère le push en background/terminated)
     try {
       final senderUser = AuthService.instance.currentUser;
       final senderName = senderUser != null
           ? '${senderUser.prenom} ${senderUser.nom}'.trim()
           : 'Visiteur';
-
-      // Récupère le titre du logement depuis la conversation
-      final convData = (await _db.collection('conversations').doc(conversationId).get()).data();
-      final logementTitre = convData?['logement_titre'] as String? ?? '';
-
+      final convData = (await _db
+              .collection('conversations')
+              .doc(conversationId)
+              .get())
+          .data();
       await NotificationService.showMessageNotification(
         senderName: senderName.isEmpty ? 'Visiteur' : senderName,
         messageText: text,
         conversationId: conversationId,
-        logementTitre: logementTitre,
+        logementTitre:
+            convData?['logement_titre'] as String? ?? '',
       );
-    } catch (_) {
-      // Non bloquant
-    }
-    // ✅ Cloud Function sendChatNotification gère le push distant.
+    } catch (_) {}
   }
 
   // ============================================================
-  // Envoyer une image
+  // Envoyer une image (prestataire uniquement)
   // ============================================================
   static Future<void> sendImage({
     required String conversationId,
@@ -164,43 +183,47 @@ class MessagerieService {
     required String recipientId,
     required File imageFile,
   }) async {
-    final ref = _storage.ref().child(
-        'messages/$conversationId/${DateTime.now().millisecondsSinceEpoch}.jpg');
+    final safeId =
+        senderId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+    final fileName =
+        '${DateTime.now().millisecondsSinceEpoch}_$safeId.jpg';
+    final ref = _storage
+        .ref()
+        .child('messages/$conversationId/images/$fileName');
 
     final task = await ref.putFile(
-      imageFile,
-      SettableMetadata(contentType: 'image/jpeg'),
-    );
+        imageFile,
+        SettableMetadata(contentType: 'image/jpeg'));
     final imageUrl = await task.ref.getDownloadURL();
 
     final batch = _db.batch();
-
-    final msgRef = _db
-        .collection('conversations')
-        .doc(conversationId)
-        .collection('messages')
-        .doc();
-
-    batch.set(msgRef, {
-      'senderId': senderId,
-      'imageUrl': imageUrl,
-      'type': 'image',
-      'timestamp': FieldValue.serverTimestamp(),
-      'isRead': false,
-    });
-
-    final convRef = _db.collection('conversations').doc(conversationId);
-    batch.update(convRef, {
-      'lastMessage': '📷 Photo',
-      'lastMessageTime': FieldValue.serverTimestamp(),
-      'unread_$recipientId': FieldValue.increment(1),
-    });
-
+    batch.set(
+      _db
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(),
+      {
+        'senderId': senderId,
+        'imageUrl': imageUrl,
+        'type': 'image',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+      },
+    );
+    batch.update(
+      _db.collection('conversations').doc(conversationId),
+      {
+        'lastMessage': '📷 Photo',
+        'lastMessageTime': FieldValue.serverTimestamp(),
+        'unread_$recipientId': FieldValue.increment(1),
+      },
+    );
     await batch.commit();
   }
 
   // ============================================================
-  // Envoyer un fichier (PDF, doc...)
+  // Envoyer un fichier (prestataire uniquement)
   // ============================================================
   static Future<void> sendFile({
     required String conversationId,
@@ -209,52 +232,53 @@ class MessagerieService {
     required File file,
     required String fileName,
   }) async {
+    final safeFileName =
+        '${DateTime.now().millisecondsSinceEpoch}_$fileName';
     final ref = _storage
         .ref()
-        .child('messages/$conversationId/files/$fileName');
+        .child('messages/$conversationId/files/$safeFileName');
 
     final task = await ref.putFile(file);
     final fileUrl = await task.ref.getDownloadURL();
 
     final batch = _db.batch();
-
-    final msgRef = _db
-        .collection('conversations')
-        .doc(conversationId)
-        .collection('messages')
-        .doc();
-
-    batch.set(msgRef, {
-      'senderId': senderId,
-      'fileUrl': fileUrl,
-      'fileName': fileName,
-      'type': 'file',
-      'timestamp': FieldValue.serverTimestamp(),
-      'isRead': false,
-    });
-
-    final convRef = _db.collection('conversations').doc(conversationId);
-    batch.update(convRef, {
-      'lastMessage': '📎 $fileName',
-      'lastMessageTime': FieldValue.serverTimestamp(),
-      'unread_$recipientId': FieldValue.increment(1),
-    });
-
+    batch.set(
+      _db
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(),
+      {
+        'senderId': senderId,
+        'fileUrl': fileUrl,
+        'fileName': fileName,
+        'type': 'file',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+      },
+    );
+    batch.update(
+      _db.collection('conversations').doc(conversationId),
+      {
+        'lastMessage': '📎 $fileName',
+        'lastMessageTime': FieldValue.serverTimestamp(),
+        'unread_$recipientId': FieldValue.increment(1),
+      },
+    );
     await batch.commit();
   }
 
   // ============================================================
-  // Marquer les messages comme lus + réinitialiser compteur
+  // Marquer comme lu
   // ============================================================
   static Future<void> markAsRead(
       String conversationId, String userId) async {
-    // Remet le compteur non-lus à 0
-    await _db.collection('conversations').doc(conversationId).update({
-      'unread_$userId': 0,
-    });
+    await _db
+        .collection('conversations')
+        .doc(conversationId)
+        .update({'unread_$userId': 0});
 
-    // Marque les messages individuels comme lus
-    final unreadMessages = await _db
+    final unread = await _db
         .collection('conversations')
         .doc(conversationId)
         .collection('messages')
@@ -262,12 +286,58 @@ class MessagerieService {
         .where('senderId', isNotEqualTo: userId)
         .get();
 
-    if (unreadMessages.docs.isEmpty) return;
-
+    if (unread.docs.isEmpty) return;
     final batch = _db.batch();
-    for (final doc in unreadMessages.docs) {
+    for (final doc in unread.docs) {
       batch.update(doc.reference, {'isRead': true});
     }
     await batch.commit();
+  }
+
+  // ============================================================
+  // Supprimer une conversation + ses messages
+  // ============================================================
+  static Future<void> deleteConversation(
+      String conversationId) async {
+    final messages = await _db
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .get();
+
+    final batch = _db.batch();
+    for (final doc in messages.docs) {
+      batch.delete(doc.reference);
+    }
+    try {
+      final notifs = await _db
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('visitor_notifications')
+          .get();
+      for (final doc in notifs.docs) {
+        batch.delete(doc.reference);
+      }
+    } catch (_) {}
+
+    batch.delete(
+        _db.collection('conversations').doc(conversationId));
+    await batch.commit();
+  }
+
+  // ============================================================
+  // Supprimer TOUTES les conversations d'un logement
+  // Appelé lors de la suppression d'une annonce
+  // ============================================================
+  static Future<void> deleteConversationsByLogement(
+      String logementId) async {
+    final convs = await _db
+        .collection('conversations')
+        .where('logement_id', isEqualTo: logementId)
+        .get();
+
+    for (final conv in convs.docs) {
+      await deleteConversation(conv.id);
+    }
   }
 }

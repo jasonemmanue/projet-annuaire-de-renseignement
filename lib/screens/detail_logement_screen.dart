@@ -427,7 +427,20 @@ class _DetailLogementScreenState extends State<DetailLogementScreen> {
     setState(() => _contactLoading = true);
     try {
       final auth = AuthService.instance;
-      final currentUid = auth.isLoggedIn ? auth.currentUser!.id : await getOrCreateVisitorId();
+      final currentUid = auth.isLoggedIn
+          ? auth.currentUser!.id
+          : await getOrCreateVisitorId();
+
+      // Empêcher un prestataire de se contacter lui-même
+      if (currentUid == l.prestatireId) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Vous ne pouvez pas contacter votre propre annonce.'),
+          behavior: SnackBarBehavior.floating,
+        ));
+        return;
+      }
+
       final conversationId = await MessagerieService.getOrCreateConversation(
         clientId: currentUid,
         prestataireId: l.prestatireId,
@@ -436,6 +449,11 @@ class _DetailLogementScreenState extends State<DetailLogementScreen> {
         logementPhoto: l.photos.isNotEmpty ? l.photos.first : null,
       );
       if (!mounted) return;
+
+      // Collecte tous les UIDs connus pour isMe correct
+      final myUids = await getAllMyUids();
+      if (!mounted) return;
+
       Navigator.push(context, MaterialPageRoute(
         builder: (_) => ChatScreen(
           conversationId: conversationId,
@@ -443,6 +461,9 @@ class _DetailLogementScreenState extends State<DetailLogementScreen> {
           logementPhoto: l.photos.isNotEmpty ? l.photos.first : null,
           otherId: l.prestatireId,
           currentUid: currentUid,
+          myUids: myUids,
+          isOtherVisitor: false,
+          isCurrentUserPrestataire: auth.isLoggedIn,
         ),
       ));
     } catch (e) {

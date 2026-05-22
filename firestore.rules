@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Vérifie que l'uid authentifié est le prestataire du logement
+    function isOwner(logementData) {
+      return isAuthenticated()
+        && (logementData.uid_prestataire == request.auth.uid
+            || logementData.prestatireId == request.auth.uid);
+    }
+
+    // Vérifie que l'uid authentifié est participant de la conversation
+    function isParticipant(convData) {
+      return isAuthenticated() && request.auth.uid in convData.participants;
+    }
+
+    // ================================================================
+    // COLLECTION : users
+    // ================================================================
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+
+      match /notifications/{notifId} {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      }
+      match /favoris/{favId} {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      }
+    }
+
+    // ================================================================
+    // COLLECTION : logements
+    // ================================================================
+    match /logements/{logementId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+
+      // FIX : le champ dans Firestore est "uid_prestataire" (pas "prestatireId")
+      // On accepte les deux noms pour compatibilité avec les anciens documents
+      allow update, delete: if isOwner(resource.data);
+    }
+
+    // ================================================================
+    // COLLECTION : conversations
+    // ================================================================
+    match /conversations/{convId} {
+
+      // Lecture : participant authentifié OU visiteur anonyme
+      allow read: if
+        (isAuthenticated() && request.auth.uid in resource.data.participants)
+        || (!isAuthenticated());
+
+      // Création : tout le monde (visiteurs + prestataires)
+      allow create: if
+        request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2;
+
+      // Mise à jour : participant auth OU visiteur anonyme
+      allow update: if
+        isParticipant(resource.data)
+        || (!isAuthenticated());
+
+      // Suppression : participant authentifié OU visiteur anonyme
+      // Le prestataire (participant auth) peut donc supprimer la conversation
+      allow delete: if
+        isParticipant(resource.data)
+        || (!isAuthenticated());
+
+      // ── messages ──────────────────────────────────────────────────
+      // FIX : participant auth OU visiteur anonyme peuvent supprimer les messages
+      match /messages/{msgId} {
+        allow read, create, update, delete: if
+          (isAuthenticated() && request.auth.uid in
+            get(/databases/$(database)/documents/conversations/$(convId)).data.participants)
+          || (!isAuthenticated());
+      }
+
+      // ── visitor_notifications ─────────────────────────────────────
+      match /visitor_notifications/{notifId} {
+        allow read, create, update, delete: if
+          (isAuthenticated() && request.auth.uid in
+            get(/databases/$(database)/documents/conversations/$(convId)).data.participants)
+          || (!isAuthenticated());
+      }
+    }
+  }
+}

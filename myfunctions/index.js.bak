@@ -1,0 +1,259 @@
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const admin = require("firebase-admin");
+
+admin.initializeApp();
+
+// ================================================================
+// CLOUD FUNCTION 1 : sendChatNotification
+// Résolution correcte du nom expéditeur (visiteur ou prestataire)
+// et redirection vers la conversation au clic.
+// ================================================================
+exports.sendChatNotification = onDocumentCreated(
+  "conversations/{convId}/messages/{msgId}",
+  async (event) => {
+    const msg = event.data.data();
+    const convId = event.params.convId;
+
+    const senderId = msg.senderId;
+    const text = msg.text ?? "";
+    const type = msg.type ?? "text";
+
+    let notifBody;
+    if (type === "image") {
+      notifBody = "📷 Vous a envoyé une photo";
+    } else if (type === "file") {
+      notifBody = `📎 ${msg.fileName ?? "Fichier"}`;
+    } else {
+      notifBody = text.length > 100 ? text.substring(0, 100) + "…" : text;
+    }
+
+    try {
+      // 1. Charge la conversation
+      const convDoc = await admin.firestore()
+        .collection("conversations")
+        .doc(convId)
+        .get();
+
+      if (!convDoc.exists) return null;
+
+      const conv = convDoc.data();
+      const participants = conv.participants ?? [];
+
+      // 2. Identifie le destinataire
+      const recipientId = participants.find((p) => p !== senderId);
+      if (!recipientId) return null;
+
+      // Pas de push possible vers un visiteur anonyme (pas de token FCM)
+      if (recipientId.startsWith("visiteur_")) {
+        console.log("Destinataire visiteur anonyme, pas de push");
+        return null;
+      }
+
+      // 3. Résolution du NOM DE L'EXPÉDITEUR
+      //    C'est le nom qui apparaît dans la notification.
+      let senderName = "Nouveau message";
+
+      if (senderId.startsWith("visiteur_")) {
+        // Visiteur : priorité visitor_display_name > contact_label > fallback
+        const rawName =
+          (conv.visitor_display_name && conv.visitor_display_name.trim()) ||
+          (conv.contact_label && conv.contact_label.trim()) ||
+          "Visiteur";
+        senderName = rawName;
+      } else {
+        // Utilisateur Auth : lit son profil Firestore
+        try {
+          const senderDoc = await admin.firestore()
+            .collection("users")
+            .doc(senderId)
+            .get();
+          if (senderDoc.exists) {
+            const d = senderDoc.data();
+            const fullName = `${d.prenom ?? ""} ${d.nom ?? ""}`.trim();
+            senderName = fullName || d.email || "Prestataire";
+          }
+        } catch (e) {
+          console.warn("Lecture profil expéditeur échouée :", e);
+        }
+      }
+
+      // 4. Récupère le token FCM du destinataire
+      const recipientDoc = await admin.firestore()
+        .collection("users")
+        .doc(recipientId)
+        .get();
+
+      if (!recipientDoc.exists) return null;
+
+      const token = recipientDoc.data()?.fcmToken;
+      if (!token) {
+        console.log("Pas de token FCM pour :", recipientId);
+        return null;
+      }
+
+      // 5. Construit et envoie la notification
+      const notifTitle = `💬 ${senderName}`;
+      const logementTitre = conv.logement_titre ?? "";
+
+      const payload = {
+        token,
+        notification: {
+          title: notifTitle,
+          body: notifBody,
+        },
+        // data : permet à l'app Flutter de naviguer vers le bon chat au clic
+        data: {
+          type: "message",
+          conversationId: convId,
+          logementTitre: logementTitre,
+          senderId: senderId,
+          senderName: senderName,
+        },
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "sgkhome_messages",
+            clickAction: "FLUTTER_NOTIFICATION_CLICK",
+            sound: "default",
+            priority: "max",
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: { title: notifTitle, body: notifBody },
+              sound: "default",
+              badge: 1,
+            },
+          },
+        },
+      };
+
+      const response = await admin.messaging().send(payload);
+      console.log(`Notif envoyée à ${recipientId} de "${senderName}" :`, response);
+      return response;
+
+    } catch (error) {
+      console.error("Erreur sendChatNotification :", error);
+      return null;
+    }
+  }
+);
+
+// ================================================================
+// CLOUD FUNCTION 2 : sendNouvelleAnnonceNotification
+// ================================================================
+exports.sendNouvelleAnnonceNotification = onDocumentCreated(
+  "logements/{logementId}",
+  async (event) => {
+    const logement = event.data.data();
+    const logementId = event.params.logementId;
+
+    const titre = logement.titre ?? "Nouvelle annonce";
+    const ville = logement.ville ?? "";
+    const quartier = logement.quartier ?? "";
+
+    const notifTitle = "🏠 Nouvelle annonce";
+    const notifBody = `${titre} – ${quartier}, ${ville}`;
+
+    try {
+      const usersSnap = await admin.firestore().collection("users").get();
+      const tokens = usersSnap.docs
+        .map((d) => d.data().fcmToken)
+        .filter((t) => !!t && typeof t === "string");
+
+      if (tokens.length === 0) return null;
+
+      const chunkSize = 500;
+      for (let i = 0; i < tokens.length; i += chunkSize) {
+        const chunk = tokens.slice(i, i + chunkSize);
+        const result = await admin.messaging().sendEachForMulticast({
+          tokens: chunk,
+          notification: { title: notifTitle, body: notifBody },
+          data: {
+            type: "annonce",
+            logementId: logementId,
+            titre: titre,
+            ville: ville,
+            quartier: quartier,
+          },
+          android: {
+            priority: "high",
+            notification: {
+              channelId: "sgkhome_annonces",
+              clickAction: "FLUTTER_NOTIFICATION_CLICK",
+              sound: "default",
+            },
+          },
+          apns: {
+            payload: {
+              aps: {
+                alert: { title: notifTitle, body: notifBody },
+                sound: "default",
+                badge: 1,
+              },
+            },
+          },
+        });
+
+        console.log(`Annonce : ${result.successCount} ok, ${result.failureCount} échecs`);
+
+        // Nettoie les tokens invalides
+        const failedTokens = [];
+        result.responses.forEach((resp, idx) => {
+          if (!resp.success) {
+            const code = resp.error?.code;
+            if (
+              code === "messaging/invalid-registration-token" ||
+              code === "messaging/registration-token-not-registered"
+            ) {
+              failedTokens.push(chunk[idx]);
+            }
+          }
+        });
+        if (failedTokens.length > 0) {
+          const badUsers = await admin.firestore()
+            .collection("users")
+            .where("fcmToken", "in", failedTokens)
+            .get();
+          const cleanBatch = admin.firestore().batch();
+          badUsers.docs.forEach((doc) =>
+            cleanBatch.update(doc.ref, { fcmToken: null })
+          );
+          await cleanBatch.commit();
+          console.log(`${failedTokens.length} tokens invalides supprimés`);
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("Erreur sendNouvelleAnnonceNotification :", error);
+      return null;
+    }
+  }
+);
+
+// ================================================================
+// CLOUD FUNCTION 3 : cleanupOldMessages (chaque semaine)
+// ================================================================
+exports.cleanupOldMessages = onSchedule("every 168 hours", async () => {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+
+  const conversations = await admin.firestore().collection("conversations").get();
+  const deletePromises = [];
+
+  for (const conv of conversations.docs) {
+    const oldMsgs = await admin.firestore()
+      .collection("conversations")
+      .doc(conv.id)
+      .collection("messages")
+      .where("timestamp", "<", cutoff)
+      .get();
+    oldMsgs.docs.forEach((doc) => deletePromises.push(doc.reference.delete()));
+  }
+
+  await Promise.all(deletePromises);
+  console.log(`Nettoyage : ${deletePromises.length} messages supprimés`);
+  return null;
+});
