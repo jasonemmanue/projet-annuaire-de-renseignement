@@ -1,5 +1,0 @@
-node_modules/
-*.local
-functions/sgk-home-firebase-adminsdk-fbsvc-e646ad046b.json
-.env
-*.log
