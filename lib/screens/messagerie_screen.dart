@@ -577,6 +577,13 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _envoyerVideo() async {
+    // Implémentation complète : commit vidéo
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Envoi vidéo bientôt disponible')),
+    );
+  }
+
   Future<void> _envoyerDocument() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -836,6 +843,7 @@ class _ChatScreenState extends State<ChatScreen> {
             controller: _msgController,
             onSend: _envoyerMessage,
             onPhoto: _envoyerPhoto,
+            onVideo: _envoyerVideo,
             onDocument: _envoyerDocument,
             isUploading: _isUploading,
             isPrestataire: widget.isCurrentUserPrestataire,
@@ -1140,6 +1148,7 @@ class _SaisieBar extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
   final VoidCallback? onPhoto;
+  final VoidCallback? onVideo;
   final VoidCallback? onDocument;
   final bool isUploading;
   final bool isPrestataire;
@@ -1149,6 +1158,7 @@ class _SaisieBar extends StatelessWidget {
     required this.onSend,
     required this.isPrestataire,
     this.onPhoto,
+    this.onVideo,
     this.onDocument,
     this.isUploading = false,
   });
@@ -1169,6 +1179,11 @@ class _SaisieBar extends StatelessWidget {
               icon: Icon(Icons.photo_camera_outlined,
                   color: context.appTextSecondary),
               onPressed: isUploading ? null : onPhoto,
+            ),
+            IconButton(
+              icon: Icon(Icons.videocam_outlined,
+                  color: context.appTextSecondary),
+              onPressed: isUploading ? null : onVideo,
             ),
             IconButton(
               icon: Icon(Icons.attach_file,
