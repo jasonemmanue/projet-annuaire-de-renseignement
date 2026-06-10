@@ -269,6 +269,52 @@ class MessagerieService {
   }
 
   // ============================================================
+  // Envoyer une vidéo (prestataire uniquement)
+  // ============================================================
+  static Future<void> sendVideo({
+    required String conversationId,
+    required String senderId,
+    required String recipientId,
+    required File videoFile,
+  }) async {
+    final safeId = senderId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+    final fileName =
+        '${DateTime.now().millisecondsSinceEpoch}_$safeId.mp4';
+    final ref = _storage
+        .ref()
+        .child('messages/$conversationId/videos/$fileName');
+
+    final task = await ref.putFile(
+        videoFile, SettableMetadata(contentType: 'video/mp4'));
+    final videoUrl = await task.ref.getDownloadURL();
+
+    final batch = _db.batch();
+    batch.set(
+      _db
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(),
+      {
+        'senderId': senderId,
+        'videoUrl': videoUrl,
+        'type': 'video',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+      },
+    );
+    batch.update(
+      _db.collection('conversations').doc(conversationId),
+      {
+        'lastMessage': '🎬 Vidéo',
+        'lastMessageTime': FieldValue.serverTimestamp(),
+        'unread_$recipientId': FieldValue.increment(1),
+      },
+    );
+    await batch.commit();
+  }
+
+  // ============================================================
   // Marquer comme lu
   // ============================================================
   static Future<void> markAsRead(

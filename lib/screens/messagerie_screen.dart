@@ -18,6 +18,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
+import 'package:video_player/video_player.dart';
 import 'dart:io';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
@@ -578,10 +579,27 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _envoyerVideo() async {
-    // Implémentation complète : commit vidéo
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Envoi vidéo bientôt disponible')),
-    );
+    final picker = ImagePicker();
+    final picked =
+        await picker.pickVideo(source: ImageSource.gallery);
+    if (picked == null || !mounted) return;
+    setState(() => _isUploading = true);
+    try {
+      await MessagerieService.sendVideo(
+        conversationId: widget.conversationId,
+        senderId: widget.currentUid,
+        recipientId: widget.otherId,
+        videoFile: File(picked.path),
+      );
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur envoi vidéo : $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
   }
 
   Future<void> _envoyerDocument() async {
@@ -823,6 +841,8 @@ class _ChatScreenState extends State<ChatScreen> {
                           text: data['text'] as String? ?? '',
                           imageUrl:
                               data['imageUrl'] as String?,
+                          videoUrl:
+                              data['videoUrl'] as String?,
                           fileUrl:
                               data['fileUrl'] as String?,
                           fileName:
@@ -960,6 +980,7 @@ class _LogementHeader extends StatelessWidget {
 class _MessageBubble extends StatelessWidget {
   final String text;
   final String? imageUrl;
+  final String? videoUrl;
   final String? fileUrl;
   final String? fileName;
   final String type;
@@ -974,6 +995,7 @@ class _MessageBubble extends StatelessWidget {
     required this.timestamp,
     required this.isRead,
     this.imageUrl,
+    this.videoUrl,
     this.fileUrl,
     this.fileName,
   });
@@ -1041,6 +1063,8 @@ class _MessageBubble extends StatelessWidget {
                                           CircularProgressIndicator()))),
                 ),
               )
+            else if (type == 'video' && videoUrl != null)
+              _VideoMessageWidget(videoUrl: videoUrl!, isMe: isMe)
             else if (type == 'file' && fileName != null)
               GestureDetector(
                 onTap: fileUrl != null
@@ -1099,6 +1123,104 @@ class _MessageBubble extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ============================================================
+// LECTEUR VIDÉO INLINE (message de type 'video')
+// ============================================================
+class _VideoMessageWidget extends StatefulWidget {
+  final String videoUrl;
+  final bool isMe;
+  const _VideoMessageWidget({required this.videoUrl, required this.isMe});
+
+  @override
+  State<_VideoMessageWidget> createState() => _VideoMessageWidgetState();
+}
+
+class _VideoMessageWidgetState extends State<_VideoMessageWidget> {
+  VideoPlayerController? _ctrl;
+  bool _initialized = false;
+
+  @override
+  void dispose() {
+    _ctrl?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initAndPlay() async {
+    final ctrl =
+        VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+    _ctrl = ctrl;
+    await ctrl.initialize();
+    if (mounted) {
+      setState(() => _initialized = true);
+      ctrl.play();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = _ctrl;
+    if (ctrl == null) {
+      return GestureDetector(
+        onTap: _initAndPlay,
+        child: Container(
+          width: 200,
+          height: 120,
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Center(
+            child: Icon(Icons.play_circle_fill,
+                color: Colors.white, size: 48),
+          ),
+        ),
+      );
+    }
+    if (!_initialized) {
+      return const SizedBox(
+          width: 200,
+          height: 120,
+          child: Center(
+              child: CircularProgressIndicator(color: Colors.white)));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            width: 200,
+            height: 120,
+            child: VideoPlayer(ctrl),
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: VideoProgressIndicator(ctrl,
+              allowScrubbing: true,
+              colors: VideoProgressColors(
+                  playedColor: widget.isMe
+                      ? Colors.white
+                      : AppColors.primary)),
+        ),
+        ValueListenableBuilder<VideoPlayerValue>(
+          valueListenable: ctrl,
+          builder: (_, value, __) => IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            icon: Icon(
+                value.isPlaying ? Icons.pause : Icons.play_arrow,
+                color: widget.isMe ? Colors.white : AppColors.primary,
+                size: 22),
+            onPressed: () =>
+                value.isPlaying ? ctrl.pause() : ctrl.play(),
+          ),
+        ),
+      ],
     );
   }
 }
