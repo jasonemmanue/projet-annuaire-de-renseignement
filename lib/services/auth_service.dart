@@ -131,9 +131,10 @@ class AuthService {
       if (firebaseUser != null) {
         final minimal = UserModel(
           id: uid,
-          email: firebaseUser.email ?? '',
+          email: firebaseUser.email,
           nom: '',
           prenom: '',
+          telephone: firebaseUser.phoneNumber ?? '',
           role: UserRole.prestataire,
         );
         await _db.collection('users').doc(uid).set({
@@ -152,8 +153,12 @@ class AuthService {
     await AnalyticsService.instance.setUserRole(role);
   }
 
-  // ─── CONNEXION ─────────────────────────────────────────────────────────
+  // ─── CONNEXION (EMAIL/MOT DE PASSE — DÉPRÉCIÉ) ────────────────────────
 
+  @Deprecated(
+    'Remplacé par envoyerOtp + verifierOtp. '
+    'Conservé uniquement pour les comptes email/password existants.',
+  )
   Future<AuthResult> login(String email, String password) async {
     // Recharger l'état persisté (cas redémarrage entre tentatives)
     await _loadBruteForceState();
@@ -207,14 +212,9 @@ class AuthService {
     }
   }
 
-  // ─── RÉINITIALISATION MOT DE PASSE ─────────────────────────────────────
+  // ─── RÉINITIALISATION MOT DE PASSE (DÉPRÉCIÉ) ─────────────────────────
 
-  /// Envoie un email de réinitialisation de mot de passe.
-  ///
-  /// Retourne :
-  ///   [AuthResult.success]          → email envoyé avec succès
-  ///   [AuthResult.wrongCredentials] → adresse email introuvable
-  ///   [AuthResult.networkError]     → problème réseau ou autre erreur
+  @Deprecated('Sans objet avec l\'authentification OTP.')
   Future<AuthResult> sendPasswordReset(String email) async {
     try {
       await FirebaseAuth.instance
@@ -230,9 +230,12 @@ class AuthService {
     }
   }
 
-  // ─── INSCRIPTION ───────────────────────────────────────────────────────
+  // ─── INSCRIPTION (EMAIL/MOT DE PASSE — DÉPRÉCIÉ) ─────────────────────
 
-  /// Inscription prestataire avec photo de profil optionnelle.
+  @Deprecated(
+    'Remplacé par envoyerOtp + verifierOtp + updateProfile. '
+    'L\'inscription nominale passe désormais par OTP.',
+  )
   Future<AuthResult> register({
     required String email,
     required String password,
@@ -278,6 +281,174 @@ class AuthService {
     }
   }
 
+  // ─── OTP PHONE AUTH ───────────────────────────────────────────────────
+
+  /// Envoie un SMS OTP via Firebase Phone Auth.
+  /// [telephone] doit être au format E.164, ex. « +237612345678 ».
+  Future<void> envoyerOtp({
+    required String telephone,
+    required void Function(String verificationId) onCodeSent,
+    required void Function(FirebaseAuthException) onError,
+    void Function(PhoneAuthCredential)? onAutoVerified,
+  }) async {
+    try {
+      await _auth.verifyPhoneNumber(
+        phoneNumber: telephone,
+        timeout: const Duration(seconds: 30),
+        verificationCompleted: (PhoneAuthCredential credential) {
+          onAutoVerified?.call(credential);
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          onError(e);
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          onCodeSent(verificationId);
+        },
+        codeAutoRetrievalTimeout: (_) {},
+      );
+    } on FirebaseAuthException catch (e) {
+      onError(e);
+    } catch (e) {
+      onError(FirebaseAuthException(
+        code: 'network-request-failed',
+        message: 'Impossible de joindre le serveur : $e',
+      ));
+    }
+  }
+
+  /// Vérifie le code OTP saisi manuellement.
+  /// Applique l'anti-brute-force sur les codes invalides.
+  Future<AuthResult> verifierOtp({
+    required String verificationId,
+    required String smsCode,
+  }) async {
+    await _loadBruteForceState();
+    if (isBlocked) return AuthResult.tooManyAttempts;
+
+    try {
+      final credential = PhoneAuthProvider.credential(
+        verificationId: verificationId,
+        smsCode: smsCode,
+      );
+      return await _doPhoneSignIn(credential, countFailure: true);
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'invalid-verification-code' ||
+          e.code == 'invalid-verification-id') {
+        await _recordFailedAttempt();
+        return AuthResult.wrongCredentials;
+      }
+      if (e.code == 'session-expired') return AuthResult.otpExpired;
+      return AuthResult.networkError;
+    } catch (_) {
+      return AuthResult.networkError;
+    }
+  }
+
+  /// Connexion avec un credential pré-construit (cas auto-vérification Android).
+  /// Pas d'anti-brute-force : la vérification est faite par le système.
+  Future<AuthResult> signInWithPhoneCredential(
+      PhoneAuthCredential credential) async {
+    try {
+      return await _doPhoneSignIn(credential, countFailure: false);
+    } on FirebaseAuthException catch (_) {
+      return AuthResult.networkError;
+    } catch (_) {
+      return AuthResult.networkError;
+    }
+  }
+
+  Future<AuthResult> _doPhoneSignIn(
+    PhoneAuthCredential credential, {
+    required bool countFailure,
+  }) async {
+    final cred = await _auth.signInWithCredential(credential);
+    await _loadUserFromFirestore(cred.user!.uid);
+
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token != null) {
+      await _db.collection('users').doc(cred.user!.uid).set(
+        {'fcmToken': token},
+        SetOptions(merge: true),
+      );
+    }
+
+    if (_currentUser?.role != UserRole.prestataire &&
+        _currentUser?.role != UserRole.admin) {
+      await _auth.signOut();
+      _currentUser = null;
+      if (countFailure) await _recordFailedAttempt();
+      return AuthResult.wrongCredentials;
+    }
+
+    // Marque le téléphone vérifié la première fois seulement
+    if (_currentUser?.phoneVerified != true) {
+      await _db.collection('users').doc(cred.user!.uid).set(
+        {
+          'phoneVerified':   true,
+          'phoneVerifiedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      _currentUser = UserModel(
+        id:              _currentUser!.id,
+        email:           _currentUser!.email,
+        nom:             _currentUser!.nom,
+        prenom:          _currentUser!.prenom,
+        telephone:       _currentUser!.telephone,
+        role:            _currentUser!.role,
+        isPremium:       _currentUser!.isPremium,
+        photoUrl:        _currentUser!.photoUrl,
+        fcmToken:        _currentUser!.fcmToken,
+        isVerifie:       _currentUser!.isVerifie,
+        premiumExpiry:   _currentUser!.premiumExpiry,
+        phoneVerified:   true,
+        phoneVerifiedAt: DateTime.now(),
+      );
+    }
+
+    await _resetBruteForce();
+    await AnalyticsService.instance.logConnexionPrestataire();
+    return AuthResult.success;
+  }
+
+  // ─── MISE À JOUR PROFIL ───────────────────────────────────────────────
+
+  /// Met à jour les champs de profil passés (merge Firestore + cache mémoire).
+  Future<void> updateProfile({
+    String? nom,
+    String? prenom,
+    String? email,
+    String? photoUrl,
+  }) async {
+    if (_currentUser == null) return;
+    final updates = <String, dynamic>{};
+    if (nom != null)      updates['nom']      = nom;
+    if (prenom != null)   updates['prenom']   = prenom;
+    if (email != null)    updates['email']    = email;
+    if (photoUrl != null) updates['photoUrl'] = photoUrl;
+    if (updates.isEmpty)  return;
+
+    await _db.collection('users').doc(_currentUser!.id).set(
+      updates,
+      SetOptions(merge: true),
+    );
+    _currentUser = UserModel(
+      id:              _currentUser!.id,
+      email:           email    ?? _currentUser!.email,
+      nom:             nom      ?? _currentUser!.nom,
+      prenom:          prenom   ?? _currentUser!.prenom,
+      telephone:       _currentUser!.telephone,
+      role:            _currentUser!.role,
+      isPremium:       _currentUser!.isPremium,
+      photoUrl:        photoUrl ?? _currentUser!.photoUrl,
+      fcmToken:        _currentUser!.fcmToken,
+      isVerifie:       _currentUser!.isVerifie,
+      premiumExpiry:   _currentUser!.premiumExpiry,
+      phoneVerified:   _currentUser!.phoneVerified,
+      phoneVerifiedAt: _currentUser!.phoneVerifiedAt,
+    );
+  }
+
   // ─── MISE À JOUR PHOTO ────────────────────────────────────────────────
 
   /// Met à jour la photo de profil dans Firestore et en mémoire.
@@ -288,17 +459,19 @@ class AuthService {
       SetOptions(merge: true),
     );
     _currentUser = UserModel(
-      id:            _currentUser!.id,
-      email:         _currentUser!.email,
-      nom:           _currentUser!.nom,
-      prenom:        _currentUser!.prenom,
-      telephone:     _currentUser!.telephone,
-      role:          _currentUser!.role,
-      isPremium:     _currentUser!.isPremium,
-      photoUrl:      photoUrl,
-      fcmToken:      _currentUser!.fcmToken,
-      isVerifie:     _currentUser!.isVerifie,
-      premiumExpiry: _currentUser!.premiumExpiry,
+      id:              _currentUser!.id,
+      email:           _currentUser!.email,
+      nom:             _currentUser!.nom,
+      prenom:          _currentUser!.prenom,
+      telephone:       _currentUser!.telephone,
+      role:            _currentUser!.role,
+      isPremium:       _currentUser!.isPremium,
+      photoUrl:        photoUrl,
+      fcmToken:        _currentUser!.fcmToken,
+      isVerifie:       _currentUser!.isVerifie,
+      premiumExpiry:   _currentUser!.premiumExpiry,
+      phoneVerified:   _currentUser!.phoneVerified,
+      phoneVerifiedAt: _currentUser!.phoneVerifiedAt,
     );
   }
 
@@ -317,4 +490,6 @@ enum AuthResult {
   networkError,
   /// Compte temporairement verrouillé (anti-brute-force)
   tooManyAttempts,
+  /// Session OTP expirée (Firebase session-expired)
+  otpExpired,
 }

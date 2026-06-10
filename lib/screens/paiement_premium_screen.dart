@@ -10,7 +10,7 @@ import '../l10n/app_localizations.dart';
 
 // ============================================================
 // FICHIER : lib/screens/paiement_premium_screen.dart
-// Paiement du Pack Premium (200 XAF/mois) via GeniusPay.
+// Paiement du Pack Premium (200 XAF/mois) via Mobile Money.
 // Opérateurs Cameroun : Orange Money, MTN Mobile Money.
 // Flux : présentation → choix opérateur + n° +237 → Mobile Money
 //        → écran d'attente (polling 120 s) → succès.
@@ -105,7 +105,7 @@ class _PaiementPremiumScreenState extends State<PaiementPremiumScreen> {
 
     _reference = result.reference;
 
-    // Ouvre éventuellement une URL de paiement (si GeniusPay en redirige une)
+    // Ouvre éventuellement une URL de paiement externe.
     if (result.checkoutUrl != null && result.checkoutUrl!.isNotEmpty) {
       try {
         await launchUrl(Uri.parse(result.checkoutUrl!),
@@ -136,7 +136,7 @@ class _PaiementPremiumScreenState extends State<PaiementPremiumScreen> {
       }
     });
 
-    // (2) Vérification ACTIVE toutes les 5 s auprès de GeniusPay
+    // (2) Vérification ACTIVE toutes les 5 s auprès du serveur
     //     (indépendante du webhook — c'est elle qui garantit l'activation).
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       if (!mounted) return;

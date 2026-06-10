@@ -893,7 +893,7 @@ class _ProfilPrestataireHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  user!.email,
+                  user!.email ?? '',
                   style: const TextStyle(color: Colors.white70, fontSize: 11),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -2222,7 +2222,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
           if (u != null) ...[
             _InfoRowProfil(icon: Icons.person_outline, label: _loc.t('prest_info_name'),
                 value: '${u.prenom} ${u.nom}'.trim()),
-            _InfoRowProfil(icon: Icons.email_outlined, label: _loc.t('prest_info_email'), value: u.email),
+            _InfoRowProfil(icon: Icons.email_outlined, label: _loc.t('prest_info_email'), value: u.email ?? ''),
             if (u.telephone.isNotEmpty)
               _InfoRowProfil(icon: Icons.phone_outlined, label: _loc.t('prest_info_phone'), value: u.telephone),
           ],

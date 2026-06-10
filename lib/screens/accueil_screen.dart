@@ -1,17 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../l10n/app_localizations.dart';
 import '../services/logement_service.dart';
 import '../services/analytics_service.dart';
 import '../services/cache_service.dart';
+import '../services/messagerie_service.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/shared_widgets.dart' as sw;
 import '../app_controller.dart';
 import 'liste_logements_screen.dart';
 import 'detail_logement_screen.dart';
+import 'messagerie_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/accueil_screen.dart
@@ -50,6 +53,9 @@ class _AccueilScreenState extends State<AccueilScreen> {
   DateTime? _dateDernierCache;
   late StreamSubscription<List<ConnectivityResult>> _connectivitySub;
 
+  // ── Messagerie ───────────────────────────────────────────────
+  String? _currentUid;
+
   // ── Filtres & recherche ──────────────────────────────────────
   String _filtreTypeActif = 'Tous';
   final TextEditingController _searchController = TextEditingController();
@@ -75,6 +81,9 @@ class _AccueilScreenState extends State<AccueilScreen> {
     AnalyticsService.instance.logScreenView('accueil');
     _initConnectivite();
     _chargerDonnees();
+    resolveCurrentUid().then((uid) {
+      if (mounted) setState(() => _currentUid = uid);
+    });
   }
 
   @override
@@ -239,6 +248,58 @@ class _AccueilScreenState extends State<AccueilScreen> {
     );
   }
 
+  // ── Bouton messagerie avec badge ─────────────────────────────
+  Widget _buildMessagesBtn() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _currentUid != null
+          ? MessagerieService.getConversations(_currentUid!)
+          : const Stream.empty(),
+      builder: (context, snap) {
+        int unread = 0;
+        if (snap.hasData && _currentUid != null) {
+          for (final doc in snap.data!.docs) {
+            final d = doc.data() as Map<String, dynamic>;
+            if ((d['unread_$_currentUid'] as int? ?? 0) > 0) unread++;
+          }
+        }
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
+              tooltip: _l.t('messages_title'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MessagerieScreen()),
+              ),
+            ),
+            if (unread > 0)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  child: Text(
+                    unread > 9 ? '9+' : '$unread',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   // ── Corps scrollable ─────────────────────────────────────────
   Widget _buildCorps() {
     final filtres    = _logementsFiltres;
@@ -255,6 +316,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
             expandedHeight: 180,
             pinned: true,
             backgroundColor: AppColors.primary,
+            actions: [_buildMessagesBtn(), const _LanguageSelector()],
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
                 decoration: const BoxDecoration(
@@ -313,8 +375,6 @@ class _AccueilScreenState extends State<AccueilScreen> {
                               ),
                             ],
                           ),
-                          // Sélecteur langue + toggle thème
-                          const _LanguageSelector(),
                         ],
                       ),
                       const SizedBox(height: 8),

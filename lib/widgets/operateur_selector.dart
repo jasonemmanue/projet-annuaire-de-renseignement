@@ -38,7 +38,7 @@ class _OperateurSelectorState extends State<OperateurSelector> {
   final _ctrl = TextEditingController();
   String? _operateur; // 'orange' | 'mtn'
 
-  // Logos officiels (SVG locaux fournis par GeniusPay).
+  // Logos opérateurs.
   static const _logoOrange = 'assets/images/operateurs/orange.svg';
   static const _logoMtn = 'assets/images/operateurs/mtn.svg';
 

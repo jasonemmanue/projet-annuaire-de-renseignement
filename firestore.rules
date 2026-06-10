@@ -23,12 +23,6 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid in convData.participants;
     }
 
-    // Retourne true si le document est en cours de création
-    // (resource.data n'existe pas encore).
-    function isCreating() {
-      return !exists(request.path) || resource == null;
-    }
-
     // Vérifie que l'utilisateur connecté a le rôle 'admin'
     function isAdmin() {
       return isAuthenticated()
@@ -84,10 +78,7 @@ service cloud.firestore {
       //    transférer (uid_prestataire immuable après création).
       //  • Cas 2 — n'importe qui (y compris visiteur anonyme) peut incrémenter
       //    UNIQUEMENT les compteurs publics `vues` / `contacts`, sans toucher
-      //    à aucun autre champ. Indispensable pour le comptage des vues côté
-      //    visiteur (cf. detail_logement_screen._incrementerVues), dont
-      //    dépendent les statistiques prestataire et les notifications
-      //    "milestone de vues".
+      //    à aucun autre champ.
       allow update: if
         (
           isOwner(resource.data)
@@ -108,22 +99,15 @@ service cloud.firestore {
     // ================================================================
     match /signalements/{sigId} {
 
-      // ── Création : ouverte à TOUS (visiteurs anonymes + prestataires) ──
-      // Règle volontairement permissive pour maximiser les remontées terrain.
-      // La lutte contre le spam est gérée côté app (SharedPreferences locale)
-      // et côté back-office (traitement admin).
+      // Création : ouverte à TOUS (visiteurs anonymes + prestataires)
       allow create: if true;
 
-      // ── Lecture, mise à jour, suppression : réservées aux admins ──
-      // Un admin est un utilisateur authentifié dont le champ `role`
-      // vaut 'admin' dans /users/{uid}. La modification du rôle étant
-      // bloquée côté client (voir règle users.update), ce champ ne peut
-      // être positionné que via Firebase Admin SDK (back-office sécurisé).
+      // Lecture, mise à jour, suppression : réservées aux admins
       allow read, update, delete: if isAdmin();
     }
 
     // ================================================================
-    // COLLECTION : transactions (paiements GeniusPay — Premium / Sponsorisation)
+    // COLLECTION : transactions (paiements Mobile Money — Premium / Sponsorisation)
     // ================================================================
     match /transactions/{txId} {
       // Lecture : le prestataire propriétaire (pour le polling du statut)
@@ -132,9 +116,9 @@ service cloud.firestore {
         && (resource.data.uid == request.auth.uid || isAdmin());
 
       // Écriture INTERDITE côté client : seules les Cloud Functions
-      // (Admin SDK, qui contournent les règles) créent/mettent à jour
-      // les transactions. Empêche un utilisateur de s'auto-octroyer
-      // le statut Premium ou de marquer une transaction "reussi".
+      // (Admin SDK) créent/mettent à jour les transactions.
+      // Empêche un utilisateur de s'auto-octroyer le statut Premium
+      // ou de marquer une transaction "reussi".
       allow create, update, delete: if false;
     }
 
@@ -154,7 +138,6 @@ service cloud.firestore {
       allow create: if
         request.resource.data.participants is list
         && request.resource.data.participants.size() == 2
-        // ✅ Si authentifié, le créateur doit figurer dans les participants
         && (
           !isAuthenticated()
           || request.auth.uid in request.resource.data.participants
@@ -171,6 +154,7 @@ service cloud.firestore {
         || (!isAuthenticated());
 
       // ── messages ──────────────────────────────────────────────────
+      // Couvre tous les types : text, image, video, file, + champ replyTo optionnel.
       match /messages/{msgId} {
         allow read, create, update, delete: if
           (isAuthenticated() && request.auth.uid in

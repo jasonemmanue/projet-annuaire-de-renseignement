@@ -318,6 +318,41 @@ class MessagerieService {
   }
 
   // ============================================================
+  // Modifier un message texte
+  // ============================================================
+  static Future<void> editMessage({
+    required String conversationId,
+    required String messageId,
+    required String newText,
+  }) async {
+    await _db
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .doc(messageId)
+        .update({'text': newText, 'edited': true});
+  }
+
+  // ============================================================
+  // Supprimer un message (soft delete)
+  // ============================================================
+  static Future<void> deleteMessage({
+    required String conversationId,
+    required String messageId,
+  }) async {
+    await _db
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+      'deleted': true,
+      'text': '',
+      'type': 'deleted',
+    });
+  }
+
+  // ============================================================
   // Marquer comme lu
   // ============================================================
   static Future<void> markAsRead(

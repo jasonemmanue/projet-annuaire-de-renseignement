@@ -18,6 +18,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter/services.dart';
+import 'package:photo_view/photo_view.dart';
 import 'package:video_player/video_player.dart';
 import 'dart:io';
 import '../l10n/app_localizations.dart';
@@ -480,6 +482,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isUploading = false;
   late List<String> _myUids;
   ReplyTo? _pendingReply;
+  String? _editingMessageId;
+  String? _editingOriginalText;
 
   @override
   void initState() {
@@ -517,10 +521,42 @@ class _ChatScreenState extends State<ChatScreen> {
   void _setReply(ReplyTo reply) => setState(() => _pendingReply = reply);
   void _clearReply() => setState(() => _pendingReply = null);
 
+  void _startEditing(String messageId, String text) {
+    setState(() {
+      _editingMessageId = messageId;
+      _editingOriginalText = text;
+      _pendingReply = null;
+    });
+    _msgController.text = text;
+    _msgController.selection = TextSelection.fromPosition(
+        TextPosition(offset: text.length));
+  }
+
+  void _cancelEditing() {
+    setState(() {
+      _editingMessageId = null;
+      _editingOriginalText = null;
+    });
+    _msgController.clear();
+  }
+
   Future<void> _envoyerMessage() async {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
     _msgController.clear();
+
+    // Mode édition
+    if (_editingMessageId != null) {
+      final messageId = _editingMessageId!;
+      _cancelEditing();
+      await MessagerieService.editMessage(
+        conversationId: widget.conversationId,
+        messageId: messageId,
+        newText: text,
+      );
+      return;
+    }
+
     final replyTo = _pendingReply;
     _clearReply();
 
@@ -692,6 +728,74 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  void _showMessageOptions({
+    required String messageId,
+    required String text,
+    required String type,
+    required DateTime timestamp,
+  }) {
+    final age = DateTime.now().difference(timestamp);
+    final withinWindow = age < const Duration(minutes: 2);
+    final canEdit = withinWindow && type == 'text';
+    final canDelete = withinWindow;
+
+    if (!canEdit && !canDelete) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Modification impossible après 2 minutes'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: const Duration(seconds: 2),
+      ));
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            if (canEdit)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined,
+                    color: AppColors.primary),
+                title: const Text('Modifier'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _startEditing(messageId, text);
+                },
+              ),
+            if (canDelete)
+              ListTile(
+                leading: Icon(Icons.delete_outline,
+                    color: Colors.red.shade700),
+                title: Text('Supprimer',
+                    style: TextStyle(color: Colors.red.shade700)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await MessagerieService.deleteMessage(
+                    conversationId: widget.conversationId,
+                    messageId: messageId,
+                  );
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildAppBarTitle() {
     if (widget.isOtherVisitor) {
       return _AppBarTitleContent(
@@ -847,6 +951,10 @@ class _ChatScreenState extends State<ChatScreen> {
                         ? ReplyTo.fromMap(replyRaw)
                         : null;
 
+                    final deleted =
+                        data['deleted'] as bool? ?? false;
+                    final edited =
+                        data['edited'] as bool? ?? false;
                     final text =
                         data['text'] as String? ?? '';
                     final extrait = text.length > 60
@@ -858,16 +966,28 @@ class _ChatScreenState extends State<ChatScreen> {
                         if (showDate)
                           _DateSeparator(date: timestamp),
                         GestureDetector(
-                          onLongPress:
-                              widget.isCurrentUserPrestataire
-                                  ? () => _setReply(ReplyTo(
-                                        messageId: docs[i].id,
-                                        extrait: extrait.isNotEmpty
-                                            ? extrait
-                                            : '📎 Pièce jointe',
-                                        senderId: senderId,
-                                      ))
-                                  : null,
+                          onHorizontalDragEnd: (details) {
+                            if (deleted) return;
+                            final v = details.primaryVelocity ?? 0;
+                            if ((!isMe && v > 250) ||
+                                (isMe && v < -250)) {
+                              _setReply(ReplyTo(
+                                messageId: docs[i].id,
+                                extrait: extrait.isNotEmpty
+                                    ? extrait
+                                    : '📎 Pièce jointe',
+                                senderId: senderId,
+                              ));
+                            }
+                          },
+                          onLongPress: isMe && !deleted
+                              ? () => _showMessageOptions(
+                                    messageId: docs[i].id,
+                                    text: text,
+                                    type: type,
+                                    timestamp: timestamp,
+                                  )
+                              : null,
                           child: _MessageBubble(
                             text: text,
                             imageUrl:
@@ -883,6 +1003,8 @@ class _ChatScreenState extends State<ChatScreen> {
                             timestamp: timestamp,
                             isRead: isRead,
                             replyTo: replyTo,
+                            deleted: deleted,
+                            edited: edited,
                           ),
                         ),
                       ],
@@ -892,6 +1014,10 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
+          if (_editingMessageId != null)
+            _EditBanner(
+                originalText: _editingOriginalText ?? '',
+                onClose: _cancelEditing),
           if (_pendingReply != null)
             _ReplyBanner(
                 reply: _pendingReply!, onClose: _clearReply),
@@ -1024,6 +1150,8 @@ class _MessageBubble extends StatelessWidget {
   final DateTime timestamp;
   final bool isRead;
   final ReplyTo? replyTo;
+  final bool deleted;
+  final bool edited;
 
   const _MessageBubble({
     required this.text,
@@ -1036,6 +1164,8 @@ class _MessageBubble extends StatelessWidget {
     this.fileUrl,
     this.fileName,
     this.replyTo,
+    this.deleted = false,
+    this.edited = false,
   });
 
   Future<void> _openUrl(BuildContext context, String url) async {
@@ -1051,6 +1181,48 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Message supprimé
+    if (deleted) {
+      return Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isMe
+                ? AppColors.primary.withValues(alpha: 0.35)
+                : (Theme.of(context).brightness == Brightness.dark
+                    ? AppColors.darkCard
+                    : Colors.grey.shade100),
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(16),
+              topRight: const Radius.circular(16),
+              bottomLeft: Radius.circular(isMe ? 16 : 4),
+              bottomRight: Radius.circular(isMe ? 4 : 16),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.block,
+                  size: 13,
+                  color: isMe ? Colors.white54 : AppColors.textHint),
+              const SizedBox(width: 6),
+              Text(
+                'Message supprimé',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                    color:
+                        isMe ? Colors.white54 : AppColors.textHint),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Align(
       alignment:
           isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -1118,7 +1290,9 @@ class _MessageBubble extends StatelessWidget {
               ),
             if (type == 'image' && imageUrl != null)
               GestureDetector(
-                onTap: () => _openUrl(context, imageUrl!),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => _MediaViewerPage(imageUrl: imageUrl!),
+                )),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(imageUrl!,
@@ -1183,12 +1357,23 @@ class _MessageBubble extends StatelessWidget {
                           : AppColors.textHint,
                       fontSize: 10),
                 ),
+                if (edited) ...[
+                  const SizedBox(width: 4),
+                  Text('modifié',
+                      style: TextStyle(
+                          fontSize: 9,
+                          fontStyle: FontStyle.italic,
+                          color: isMe
+                              ? Colors.white54
+                              : AppColors.textHint)),
+                ],
                 if (isMe) ...[
                   const SizedBox(width: 4),
                   Icon(isRead ? Icons.done_all : Icons.done,
                       size: 14,
-                      color:
-                          isRead ? Colors.white : Colors.white60),
+                      color: isRead
+                          ? const Color(0xFF4ADE80)
+                          : Colors.white60),
                 ],
               ],
             ),
@@ -1254,7 +1439,60 @@ class _ReplyBanner extends StatelessWidget {
 }
 
 // ============================================================
-// LECTEUR VIDÉO INLINE (message de type 'video')
+// BANNIÈRE D'ÉDITION (au-dessus de la barre de saisie)
+// ============================================================
+class _EditBanner extends StatelessWidget {
+  final String originalText;
+  final VoidCallback onClose;
+  const _EditBanner({required this.originalText, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: AppColors.primary.withValues(alpha: 0.08),
+      child: Row(
+        children: [
+          Container(width: 3, height: 36, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Row(children: [
+                  Icon(Icons.edit, size: 12, color: AppColors.primary),
+                  SizedBox(width: 4),
+                  Text('Modification',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary)),
+                ]),
+                Text(
+                  originalText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 12, color: context.appTextSecondary),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: onClose,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// VIGNETTE VIDÉO — affiche le 1er frame, tap → plein écran
 // ============================================================
 class _VideoMessageWidget extends StatefulWidget {
   final String videoUrl;
@@ -1267,7 +1505,27 @@ class _VideoMessageWidget extends StatefulWidget {
 
 class _VideoMessageWidgetState extends State<_VideoMessageWidget> {
   VideoPlayerController? _ctrl;
-  bool _initialized = false;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadThumbnail();
+  }
+
+  Future<void> _loadThumbnail() async {
+    final ctrl =
+        VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+    _ctrl = ctrl;
+    try {
+      await ctrl.initialize();
+      await ctrl.seekTo(Duration.zero);
+      await ctrl.pause();
+      if (mounted) setState(() => _ready = true);
+    } catch (_) {
+      // URL invalide ou réseau — on garde l'état _ready=false
+    }
+  }
 
   @override
   void dispose() {
@@ -1275,75 +1533,163 @@ class _VideoMessageWidgetState extends State<_VideoMessageWidget> {
     super.dispose();
   }
 
-  Future<void> _initAndPlay() async {
-    final ctrl =
-        VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
-    _ctrl = ctrl;
-    await ctrl.initialize();
-    if (mounted) {
-      setState(() => _initialized = true);
-      ctrl.play();
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => _MediaViewerPage(videoUrl: widget.videoUrl),
+      )),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: 200,
+          height: 120,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_ready && _ctrl != null)
+                VideoPlayer(_ctrl!)
+              else
+                Container(color: Colors.black45,
+                    child: const Center(
+                      child: SizedBox(
+                        width: 24, height: 24,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2),
+                      ),
+                    )),
+              // Voile léger pour lisibilité des icônes
+              Container(color: Colors.black.withValues(alpha: 0.25)),
+              const Center(
+                child: Icon(Icons.play_circle_fill,
+                    color: Colors.white, size: 48),
+              ),
+              Positioned(
+                bottom: 6, right: 6,
+                child: Icon(Icons.fullscreen,
+                    color: Colors.white.withValues(alpha: 0.8), size: 18),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// VISIONNEUSE PLEIN ÉCRAN — photos & vidéos
+// ============================================================
+class _MediaViewerPage extends StatefulWidget {
+  final String? imageUrl;
+  final String? videoUrl;
+  const _MediaViewerPage({this.imageUrl, this.videoUrl});
+
+  @override
+  State<_MediaViewerPage> createState() => _MediaViewerPageState();
+}
+
+class _MediaViewerPageState extends State<_MediaViewerPage> {
+  VideoPlayerController? _ctrl;
+  bool _videoReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    if (widget.videoUrl != null) {
+      _ctrl =
+          VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl!))
+            ..initialize().then((_) {
+              if (mounted) {
+                setState(() => _videoReady = true);
+                _ctrl!.play();
+              }
+            });
     }
   }
 
   @override
+  void dispose() {
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    _ctrl?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final ctrl = _ctrl;
-    if (ctrl == null) {
-      return GestureDetector(
-        onTap: _initAndPlay,
-        child: Container(
-          width: 200,
-          height: 120,
-          decoration: BoxDecoration(
-            color: Colors.black54,
-            borderRadius: BorderRadius.circular(8),
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: widget.imageUrl != null
+                ? PhotoView(
+                    imageProvider: NetworkImage(widget.imageUrl!),
+                    backgroundDecoration:
+                        const BoxDecoration(color: Colors.black),
+                    minScale: PhotoViewComputedScale.contained,
+                    maxScale: PhotoViewComputedScale.covered * 3,
+                    loadingBuilder: (_, __) => const Center(
+                        child: CircularProgressIndicator(
+                            color: Colors.white)),
+                  )
+                : _buildVideo(),
           ),
-          child: const Center(
-            child: Icon(Icons.play_circle_fill,
-                color: Colors.white, size: 48),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Material(
+                  color: Colors.black45,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back,
+                        color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
-      );
-    }
-    if (!_initialized) {
-      return const SizedBox(
-          width: 200,
-          height: 120,
-          child: Center(
-              child: CircularProgressIndicator(color: Colors.white)));
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVideo() {
+    if (!_videoReady || _ctrl == null) {
+      return const CircularProgressIndicator(color: Colors.white);
     }
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: SizedBox(
-            width: 200,
-            height: 120,
-            child: VideoPlayer(ctrl),
-          ),
+        AspectRatio(
+          aspectRatio: _ctrl!.value.aspectRatio,
+          child: VideoPlayer(_ctrl!),
         ),
-        SizedBox(
-          width: 200,
-          child: VideoProgressIndicator(ctrl,
-              allowScrubbing: true,
-              colors: VideoProgressColors(
-                  playedColor: widget.isMe
-                      ? Colors.white
-                      : AppColors.primary)),
+        VideoProgressIndicator(
+          _ctrl!,
+          allowScrubbing: true,
+          colors:
+              const VideoProgressColors(playedColor: AppColors.primary),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         ),
         ValueListenableBuilder<VideoPlayerValue>(
-          valueListenable: ctrl,
+          valueListenable: _ctrl!,
           builder: (_, value, __) => IconButton(
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
             icon: Icon(
                 value.isPlaying ? Icons.pause : Icons.play_arrow,
-                color: widget.isMe ? Colors.white : AppColors.primary,
-                size: 22),
+                color: Colors.white,
+                size: 36),
             onPressed: () =>
-                value.isPlaying ? ctrl.pause() : ctrl.play(),
+                value.isPlaying ? _ctrl!.pause() : _ctrl!.play(),
           ),
         ),
       ],
@@ -1432,11 +1778,6 @@ class _SaisieBar extends StatelessWidget {
               icon: Icon(Icons.videocam_outlined,
                   color: context.appTextSecondary),
               onPressed: isUploading ? null : onVideo,
-            ),
-            IconButton(
-              icon: Icon(Icons.attach_file,
-                  color: context.appTextSecondary),
-              onPressed: isUploading ? null : onDocument,
             ),
           ],
           Expanded(

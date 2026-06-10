@@ -80,7 +80,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                 title: l.t('profil_my_info'),
                 children: [
                   _InfoTile(label: 'Nom', value: widget.utilisateur!.nomComplet),
-                  _InfoTile(label: 'Email', value: widget.utilisateur!.email),
+                  _InfoTile(label: 'Email', value: widget.utilisateur!.email ?? ''),
                   _InfoTile(label: 'Téléphone', value: widget.utilisateur!.telephone),
                   _OptionTile(
                     icon: Icons.edit_outlined,
@@ -361,7 +361,7 @@ class _EnteteProfil extends StatelessWidget {
             style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
           ),
           if (utilisateur != null)
-            Text(utilisateur!.email, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            Text(utilisateur!.email ?? '', style: const TextStyle(color: Colors.white70, fontSize: 13)),
           const SizedBox(height: 8),
           if (isPrestataire)
             Row(

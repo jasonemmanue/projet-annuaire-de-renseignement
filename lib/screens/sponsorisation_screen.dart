@@ -5,11 +5,12 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/paiement_service.dart';
+import '../widgets/operateur_selector.dart';
 import '../l10n/app_localizations.dart';
 
 // ============================================================
 // FICHIER : lib/screens/sponsorisation_screen.dart
-// Sponsorisation d'une annonce via GeniusPay (self-service).
+// Sponsorisation d'une annonce via Mobile Money (self-service).
 // 1 sem = 7 500 XAF · 2 sem = 12 000 XAF · 1 mois = 20 000 XAF.
 // ============================================================
 
@@ -49,7 +50,6 @@ class SponsorisationScreen extends StatefulWidget {
 
 class _SponsorisationScreenState extends State<SponsorisationScreen> {
   final _service = PaiementService.instance;
-  final _phoneCtrl = TextEditingController();
   late AppLocalizations _loc;
 
   _Etape _etape = _Etape.formulaire;
@@ -58,6 +58,8 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
   String? _erreurForm;
   String? _reference;
   String? _operateur;
+  String? _telephoneComplet;
+  String? _telephoneInitial;
 
   int _restant = _kTimeoutSecondes;
   Timer? _timer;
@@ -76,44 +78,26 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
   void initState() {
     super.initState();
     final tel = AuthService.instance.currentUser?.telephone ?? '';
-    if (tel.isNotEmpty) {
-      _phoneCtrl.text = tel;
-      _operateur = _detecterOperateur(tel);
-    }
-    _phoneCtrl.addListener(() {
-      final op = _detecterOperateur(_phoneCtrl.text);
-      if (op != _operateur) setState(() => _operateur = op);
-    });
+    if (tel.isNotEmpty) _telephoneInitial = tel;
   }
 
   @override
   void dispose() {
     _timer?.cancel();
     _sub?.cancel();
-    _phoneCtrl.dispose();
     super.dispose();
   }
 
-  // ─── Opérateur (best-effort, Cameroun) ──
-  String? _detecterOperateur(String raw) {
-    final local = _numeroLocal(raw);
-    if (local == null) return null;
-    if (RegExp(r'^6(7\d|5[0-4]|8[0-4])').hasMatch(local)) return 'mtn_money';
-    if (RegExp(r'^6(9\d|5[5-9]|8[5-9])').hasMatch(local)) return 'orange_money';
-    return null;
-  }
-
-  String? _numeroLocal(String raw) {
-    var d = raw.replaceAll(RegExp(r'\D'), '');
-    if (d.startsWith('237')) d = d.substring(3);
-    if (RegExp(r'^6[5-9]\d{7}$').hasMatch(d)) return d;
-    return null;
-  }
+  String _labelOperateur(String? op) =>
+      op == 'mtn' ? 'MTN MoMo' : op == 'orange' ? 'Orange Money' : 'Mobile Money';
 
   Future<void> _payer() async {
-    final local = _numeroLocal(_phoneCtrl.text);
-    if (local == null) {
-      setState(() => _erreurForm = _loc.t('sponsor_invalid_number'));
+    if (_operateur == null) {
+      setState(() => _erreurForm = _loc.t('urgence_operator_hint'));
+      return;
+    }
+    if (_telephoneComplet == null) {
+      setState(() => _erreurForm = _loc.t('urgence_invalid_number'));
       return;
     }
     setState(() {
@@ -123,7 +107,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
 
     final result = await _service.initierSponsorisation(
       logementId: widget.logementId,
-      telephone: '+237$local',
+      telephone: _telephoneComplet!,
       channel: _operateur,
     );
 
@@ -217,8 +201,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
   }
 
   Widget _buildFormulaire() {
-    final local = _numeroLocal(_phoneCtrl.text);
-    final peutPayer = local != null && !_loading;
+    final peutPayer = _operateur != null && _telephoneComplet != null && !_loading;
 
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -282,18 +265,12 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
         ),
         const SizedBox(height: 20),
 
-        Text(_loc.t('sponsor_phone_label'),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _phoneCtrl,
-          keyboardType: TextInputType.phone,
-          decoration: InputDecoration(
-            labelText: _loc.t('sponsor_phone_hint'),
-            hintText: '+237 6XX XX XX XX',
-            prefixIcon: const Icon(Icons.phone_android),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-          ),
+        OperateurSelector(
+          telephoneInitial: _telephoneInitial,
+          onChanged: (op, tel) => setState(() {
+            _operateur = op;
+            _telephoneComplet = tel;
+          }),
         ),
         if (_erreurForm != null) ...[
           const SizedBox(height: 8),
@@ -315,7 +292,8 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
                   height: 22,
                   child: CircularProgressIndicator(
                       color: Colors.white, strokeWidth: 2))
-              : Text('${_loc.t('sponsor_pay_prefix')} $_montant XAF',
+              : Text(
+                  '${_loc.t('sponsor_pay_prefix')} $_montant XAF via ${_labelOperateur(_operateur)}',
                   style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w700)),
         ),
@@ -461,7 +439,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
           Text(
             kSimulationPaiement
                 ? _loc.t('sponsor_sim_desc')
-                : '${_loc.t('sponsor_confirm_geniuspay')} (${_phoneCtrl.text.trim()}).\n${_loc.t('sponsor_timeout_msg')}',
+                : '${_loc.t('sponsor_confirm_geniuspay')} (${_telephoneComplet ?? ''}).\n${_loc.t('sponsor_timeout_msg')}',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, height: 1.5, color: context.appTextSecondary),
           ),
