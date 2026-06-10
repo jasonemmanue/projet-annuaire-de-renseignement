@@ -8,7 +8,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 // ============================================================
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  debugPrint('[FCM Background] \${message.notification?.title}');
+  debugPrint('[FCM Background] ${message.notification?.title}');
 }
 
 // NavigatorKey global – partagé avec main.dart
@@ -72,16 +72,22 @@ class NotificationService {
     );
 
     final androidPlugin = _local
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+        .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(_channelMessages);
     await androidPlugin?.createNotificationChannel(_channelAnnonces);
 
     FirebaseMessaging.onMessage.listen(_onForegroundMessage);
+
+    // ── App au premier plan puis tappée (background → foreground) ──
     FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
 
+    // ── App complètement fermée (cold start depuis notification) ──
+    // On attend que le widget tree soit prêt avant de naviguer.
     final initial = await _fcm.getInitialMessage();
     if (initial != null) {
-      await Future.delayed(const Duration(milliseconds: 800));
+      // Délai suffisant pour que NavigatorState soit monté.
+      await Future.delayed(const Duration(milliseconds: 1000));
       _routeFromData(initial.data);
     }
   }
@@ -93,7 +99,10 @@ class NotificationService {
     final notif = message.notification;
     final type = message.data['type'] ?? 'message';
     if (notif == null) return;
-    final isAnnonce = type == 'annonce';
+
+    final isAnnonce =
+        type == 'annonce' || type == 'nouvelle_annonce';
+
     _local.show(
       notif.hashCode,
       notif.title,
@@ -128,7 +137,7 @@ class NotificationService {
   }) async {
     await _local.show(
       conversationId.hashCode,
-      '💬 \$senderName',
+      '💬 $senderName',
       messageText,
       NotificationDetails(
         android: AndroidNotificationDetails(
@@ -145,7 +154,7 @@ class NotificationService {
           presentAlert: true, presentBadge: true, presentSound: true,
         ),
       ),
-      payload: 'chat:\$conversationId',
+      payload: 'chat:$conversationId',
     );
   }
 
@@ -161,7 +170,7 @@ class NotificationService {
     await _local.show(
       logementId.hashCode,
       '🏠 Nouvelle annonce',
-      '\$titre – \$quartier, \$ville',
+      '$titre – $quartier, $ville',
       NotificationDetails(
         android: AndroidNotificationDetails(
           _chanAnnonces, 'Nouvelles annonces',
@@ -169,21 +178,27 @@ class NotificationService {
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
           color: const Color(0xFF0071C2),
-          styleInformation: BigTextStyleInformation('\$titre\n📍 \$quartier, \$ville'),
+          styleInformation:
+          BigTextStyleInformation('$titre\n📍 $quartier, $ville'),
           ticker: 'Nouvelle annonce disponible',
         ),
         iOS: const DarwinNotificationDetails(
           presentAlert: true, presentBadge: true, presentSound: true,
         ),
       ),
-      payload: 'logement:\$logementId',
+      // ── Payload mis à jour pour inclure logementId ──
+      payload: 'logement:$logementId',
     );
   }
 
   // ============================================================
   // ROUTING
   // ============================================================
-  static void _onMessageOpenedApp(RemoteMessage message) => _routeFromData(message.data);
+
+  /// Appelé quand l'app était en background et que l'utilisateur tappe
+  /// sur la notification (système ou FCM).
+  static void _onMessageOpenedApp(RemoteMessage message) =>
+      _routeFromData(message.data);
 
   static void _onLocalTap(NotificationResponse r) {
     if (r.payload != null) _routeFromPayload(r.payload!);
@@ -194,15 +209,39 @@ class NotificationService {
     if (r.payload != null) _routeFromPayload(r.payload!);
   }
 
+  /// Résout le type de message FCM et pousse la bonne route.
   static void _routeFromData(Map<String, dynamic> data) {
     final type = data['type'] ?? '';
+
+    // ── Messages chat ──
     if (type == 'message' || data['conversationId'] != null) {
-      _navigateTo('/chat', {'conversationId': data['conversationId']});
-    } else if (type == 'annonce' && data['logementId'] != null) {
-      _navigateTo('/logement', {'logementId': data['logementId']});
+      final convId = data['conversationId'] as String?;
+      if (convId != null) {
+        _navigateTo('/chat', {'conversationId': convId});
+      }
+      return;
+    }
+
+    // ── Nouvelle annonce (type mis à jour dans la Cloud Function) ──
+    if (type == 'nouvelle_annonce' || type == 'annonce') {
+      final logementId = data['logementId'] as String?;
+      if (logementId != null) {
+        _navigateTo('/logement', {'logementId': logementId});
+      }
+      return;
+    }
+
+    // ── Mise à jour logement (vues milestone) ──
+    if (type == 'logement_update') {
+      final logementId = data['logementId'] as String?;
+      if (logementId != null) {
+        _navigateTo('/logement', {'logementId': logementId});
+      }
+      return;
     }
   }
 
+  /// Résout un payload local (chaîne préfixée) vers la bonne route.
   static void _routeFromPayload(String payload) {
     if (payload.startsWith('chat:')) {
       _navigateTo('/chat', {'conversationId': payload.substring(5)});
@@ -215,9 +254,14 @@ class NotificationService {
     navigatorKey.currentState?.pushNamed(route, arguments: args);
   }
 
+  /// Construit la chaîne payload pour flutter_local_notifications.
   static String _buildPayload(Map<String, dynamic> data) {
-    if (data['conversationId'] != null) return 'chat:${data['conversationId']}';
-    if (data['logementId'] != null) return 'logement:${data['logementId']}';
+    if (data['conversationId'] != null) {
+      return 'chat:${data['conversationId']}';
+    }
+    if (data['logementId'] != null) {
+      return 'logement:${data['logementId']}';
+    }
     return '';
   }
 
@@ -228,15 +272,23 @@ class NotificationService {
     final token = await _fcm.getToken();
     if (token == null) return;
     await _db.collection('users').doc(uid).set(
-      {'fcmToken': token}, SetOptions(merge: true),
+      {'fcmToken': token},
+      SetOptions(merge: true),
     );
+    // Rafraîchissement automatique du token (rotation FCM)
     _fcm.onTokenRefresh.listen((t) async {
-      await _db.collection('users').doc(uid).set({'fcmToken': t}, SetOptions(merge: true));
+      await _db
+          .collection('users')
+          .doc(uid)
+          .set({'fcmToken': t}, SetOptions(merge: true));
     });
   }
 
   static Future<void> clearToken(String uid) async {
-    await _db.collection('users').doc(uid).set({'fcmToken': null}, SetOptions(merge: true));
+    await _db.collection('users').doc(uid).set(
+      {'fcmToken': null},
+      SetOptions(merge: true),
+    );
     await _fcm.deleteToken();
   }
 }

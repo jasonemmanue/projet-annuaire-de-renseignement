@@ -13,6 +13,12 @@ dependencies:
     sdk: flutter
   flutter_local_notifications: ^17.0.0
 
+  # Charts
+  fl_chart: ^0.68.0
+
+  # Publicités
+  google_mobile_ads: ^5.1.0
+
   # UI & Icons
   cupertino_icons: ^1.0.6
   google_fonts: ^6.1.0
@@ -50,7 +56,7 @@ dependencies:
   dio: ^5.4.0
 
   # Storage
-  shared_preferences: ^2.2.2
+  shared_preferences: ^2.3.2
   flutter_secure_storage: ^9.0.0
 
   # Image
@@ -90,6 +96,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/images/operateurs/
     - assets/icons/
   fonts:
     - family: Poppins

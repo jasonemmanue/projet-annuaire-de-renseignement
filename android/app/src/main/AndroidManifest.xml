@@ -25,6 +25,13 @@
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyCiaCA-3EazbF-Ekh3D3GcdtHDZVMko9_Q"/>
 
+        <!-- AdMob App ID -->
+        <!-- ⚠️ Valeur de TEST Google. REMPLACER par votre vrai App ID AdMob
+             (format ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX) avant publication. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713"/>
+
         <!-- Canal de notification Firebase FCM -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'visitor_onboarding_screen.dart';
+import '../l10n/app_localizations.dart';
 
 // ============================================================
 // FICHIER : lib/screens/splash_screen.dart
@@ -96,6 +97,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFF0071C2),
       body: FadeTransition(
@@ -134,9 +136,9 @@ class _SplashScreenState extends State<SplashScreen>
                   const SizedBox(height: 8),
                   FadeTransition(
                     opacity: _fadeTextAnimation,
-                    child: const Text(
-                      'Votre Immobilier au Cameroun',
-                      style: TextStyle(
+                    child: Text(
+                      l.t('splash_subtitle'),
+                      style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
                         fontWeight: FontWeight.w400,
@@ -153,18 +155,17 @@ class _SplashScreenState extends State<SplashScreen>
               right: 0,
               child: FadeTransition(
                 opacity: _fadeTextAnimation,
-                child: const Column(
+                child: Column(
                   children: [
-                    SizedBox(
+                    const SizedBox(
                       width: 40,
                       height: 40,
                       child: CircularProgressIndicator(
                           color: Colors.white, strokeWidth: 2.5),
                     ),
-                    SizedBox(height: 16),
-                    Text('Chargement...',
-                        style:
-                            TextStyle(color: Colors.white60, fontSize: 13)),
+                    const SizedBox(height: 16),
+                    Text(l.t('splash_loading'),
+                        style: const TextStyle(color: Colors.white60, fontSize: 13)),
                   ],
                 ),
               ),
@@ -176,31 +177,14 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Widget _buildLogo() {
-    return Container(
-      width: 160,
-      height: 160,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(36),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.25),
-              blurRadius: 30,
-              spreadRadius: 4,
-              offset: const Offset(0, 10)),
-          BoxShadow(
-              color: Colors.white.withValues(alpha: 0.15),
-              blurRadius: 20,
-              spreadRadius: -4,
-              offset: const Offset(0, -5)),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(36),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Image.asset('assets/images/logo.png', fit: BoxFit.contain),
-        ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(36),
+      child: Image.asset(
+        'assets/images/logo.png',
+        width: 180,
+        height: 180,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.high,
       ),
     );
   }
@@ -223,10 +207,10 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Widget _circle(double size, double opacity) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: opacity)),
-      );
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white.withValues(alpha: opacity)),
+  );
 }

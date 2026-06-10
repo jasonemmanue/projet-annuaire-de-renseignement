@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 enum UserRole { client, prestataire, admin }
 
 class UserModel {
@@ -11,6 +13,7 @@ class UserModel {
   final String? photoUrl;
   final String? fcmToken;
   final bool isVerifie; // ✅ Statut vérifié prestataire
+  final DateTime? premiumExpiry; // ✅ Date d'expiration du Pack Premium
 
   UserModel({
     required this.id,
@@ -23,9 +26,16 @@ class UserModel {
     this.photoUrl,
     this.fcmToken,
     this.isVerifie = false,
+    this.premiumExpiry,
   });
 
+  /// Vrai si l'abonnement Premium est actif ET non expiré.
+  bool get isPremiumActif =>
+      isPremium &&
+      (premiumExpiry == null || premiumExpiry!.isAfter(DateTime.now()));
+
   bool get isPrestataire => role == UserRole.prestataire;
+  bool get isAdmin => role == UserRole.admin;
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
     return UserModel(
@@ -43,6 +53,9 @@ class UserModel {
       photoUrl: map['photoUrl'],
       fcmToken: map['fcmToken'],
       isVerifie: map['isVerifie'] ?? false,
+      premiumExpiry: map['premiumExpiry'] is Timestamp
+          ? (map['premiumExpiry'] as Timestamp).toDate()
+          : null,
     );
   }
 
@@ -62,6 +75,8 @@ class UserModel {
       'photoUrl': photoUrl,
       'fcmToken': fcmToken,
       'isVerifie': isVerifie,
+      if (premiumExpiry != null)
+        'premiumExpiry': Timestamp.fromDate(premiumExpiry!),
     };
   }
 }

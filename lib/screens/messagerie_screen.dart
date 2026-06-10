@@ -19,9 +19,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:io';
+import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/messagerie_service.dart';
+import '../services/analytics_service.dart';
+import '../services/logement_service.dart';
 
 // ─── UID visiteur persisté ────────────────────────────────────
 Future<String> getOrCreateVisitorId() async {
@@ -100,16 +103,17 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Messages'),
+        title: Text(l.t('messages_title')),
         actions: [
           if (_uid != null)
             Padding(
               padding: const EdgeInsets.only(right: 12),
               child: Chip(
                 label: Text(
-                  _isPrestataire ? 'Prestataire' : 'Visiteur',
+                  _isPrestataire ? l.t('role_prestataire') : l.t('role_visiteur'),
                   style: const TextStyle(
                       fontSize: 11,
                       color: Colors.white,
@@ -133,17 +137,17 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return const Center(
+                  return Center(
                     child: Padding(
-                      padding: EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(24),
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.wifi_off_outlined,
+                        const Icon(Icons.wifi_off_outlined,
                             size: 48, color: AppColors.textHint),
-                        SizedBox(height: 12),
-                        Text('Impossible de charger les messages.',
+                        const SizedBox(height: 12),
+                        Text(l.t('messages_error'),
                             textAlign: TextAlign.center,
                             style:
-                                TextStyle(color: AppColors.textSecondary)),
+                                TextStyle(color: context.appTextSecondary)),
                       ]),
                     ),
                   );
@@ -169,15 +173,14 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                         const Icon(Icons.chat_bubble_outline,
                             size: 64, color: AppColors.textHint),
                         const SizedBox(height: 16),
-                        const Text('Aucun message',
-                            style: AppTextStyles.h3),
+                        Text(l.t('messages_empty'), style: AppTextStyles.h3),
                         const SizedBox(height: 8),
                         Text(
                           _isPrestataire
-                              ? 'Vos visiteurs vous contacteront ici'
-                              : 'Contactez un prestataire depuis une annonce',
-                          style: const TextStyle(
-                              color: AppColors.textSecondary),
+                              ? l.t('messages_empty_prestataire')
+                              : l.t('messages_empty_desc'),
+                          style: TextStyle(
+                              color: context.appTextSecondary),
                           textAlign: TextAlign.center,
                         ),
                       ],
@@ -348,7 +351,7 @@ class _ConversationTile extends StatelessWidget {
             radius: 28,
             backgroundColor: isOtherVisitor
                 ? AppColors.success.withValues(alpha: 0.15)
-                : AppColors.primaryLight,
+                : context.appPrimaryLight,
             backgroundImage:
                 photoUrl != null ? NetworkImage(photoUrl) : null,
             child: photoUrl == null
@@ -394,8 +397,8 @@ class _ConversationTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             color: hasUnread
-                ? AppColors.textPrimary
-                : AppColors.textSecondary,
+                ? context.appTextPrimary
+                : context.appTextSecondary,
             fontWeight:
                 hasUnread ? FontWeight.w600 : FontWeight.normal,
             fontSize: 13,
@@ -449,6 +452,7 @@ class ChatScreen extends StatefulWidget {
   final String? contactLabel;
   final bool isOtherVisitor;
   final bool isCurrentUserPrestataire;
+  final String? logementId; // [ANALYTICS] nouveau
 
   const ChatScreen({
     super.key,
@@ -461,6 +465,7 @@ class ChatScreen extends StatefulWidget {
     this.contactLabel,
     this.isOtherVisitor = false,
     this.isCurrentUserPrestataire = false,
+    this.logementId, // [ANALYTICS] optionnel
   });
 
   @override
@@ -510,6 +515,35 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
     _msgController.clear();
+
+    // [ANALYTICS] Détecter le 1er message de la conversation
+    // On vérifie AVANT l'envoi si la collection messages est vide.
+    // Seuls les visiteurs (non-prestataires) génèrent le lead.
+    if (!widget.isCurrentUserPrestataire) {
+      try {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('conversations')
+            .doc(widget.conversationId)
+            .collection('messages')
+            .limit(1)
+            .get();
+        if (snapshot.docs.isEmpty) {
+          // C'est bien le tout premier message : on logue generate_lead
+          AnalyticsService.instance.logContactPrestataire(
+            widget.logementId ?? widget.conversationId,
+            widget.otherId,
+          );
+          // Incrémente le compteur `contacts` du logement → alimente le
+          // taux de conversion et les graphiques du dashboard prestataire.
+          if (widget.logementId != null && widget.logementId!.isNotEmpty) {
+            LogementService.incrementContacts(widget.logementId!);
+          }
+        }
+      } catch (_) {
+        // Non bloquant — analytics silencieuse
+      }
+    }
+
     await MessagerieService.sendMessage(
       conversationId: widget.conversationId,
       senderId: widget.currentUid,
@@ -708,7 +742,7 @@ class _ChatScreenState extends State<ChatScreen> {
               logementPhoto: widget.logementPhoto),
           if (_isUploading)
             Container(
-              color: AppColors.primaryLight,
+              color: context.appPrimaryLight,
               padding: const EdgeInsets.symmetric(
                   horizontal: 16, vertical: 8),
               child: const Row(children: [
@@ -833,7 +867,7 @@ class _AppBarTitleContent extends StatelessWidget {
           radius: 18,
           backgroundColor: isVisitor
               ? AppColors.success.withValues(alpha: 0.3)
-              : AppColors.primaryLight,
+              : context.appPrimaryLight,
           child: Text(
             name.isNotEmpty ? name[0].toUpperCase() : '?',
             style: TextStyle(
@@ -879,7 +913,7 @@ class _LogementHeader extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(
             horizontal: 12, vertical: 8),
-        color: AppColors.primaryLight,
+        color: context.appPrimaryLight,
         child: Row(
           children: [
             ClipRRect(
@@ -1018,7 +1052,7 @@ class _MessageBubble extends StatelessWidget {
                           style: TextStyle(
                               color: isMe
                                   ? Colors.white
-                                  : AppColors.textPrimary,
+                                  : context.appTextPrimary,
                               fontSize: 13,
                               decoration:
                                   TextDecoration.underline)),
@@ -1031,7 +1065,7 @@ class _MessageBubble extends StatelessWidget {
                   style: TextStyle(
                       color: isMe
                           ? Colors.white
-                          : AppColors.textPrimary,
+                          : context.appTextPrimary,
                       fontSize: 14)),
             const SizedBox(height: 4),
             Row(
@@ -1132,13 +1166,13 @@ class _SaisieBar extends StatelessWidget {
           // Boutons média : prestataire uniquement
           if (isPrestataire) ...[
             IconButton(
-              icon: const Icon(Icons.photo_camera_outlined,
-                  color: AppColors.textSecondary),
+              icon: Icon(Icons.photo_camera_outlined,
+                  color: context.appTextSecondary),
               onPressed: isUploading ? null : onPhoto,
             ),
             IconButton(
-              icon: const Icon(Icons.attach_file,
-                  color: AppColors.textSecondary),
+              icon: Icon(Icons.attach_file,
+                  color: context.appTextSecondary),
               onPressed: isUploading ? null : onDocument,
             ),
           ],

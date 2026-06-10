@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paiement non abouti — ImmoConnect</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #005a9e 0%, #0071C2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      color: #fff;
+    }
+    .card {
+      background: #fff;
+      color: #1a1a1a;
+      border-radius: 24px;
+      max-width: 420px;
+      width: 100%;
+      padding: 40px 28px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    }
+    .x-circle {
+      width: 96px;
+      height: 96px;
+      margin: 0 auto 24px;
+      border-radius: 50%;
+      background: #dc2626;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .x-circle svg { width: 48px; height: 48px; }
+    h1 { font-size: 24px; font-weight: 800; margin-bottom: 12px; color: #dc2626; }
+    .sub { font-size: 14px; color: #666; line-height: 1.6; margin-bottom: 24px; }
+    .info {
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 13px;
+      color: #991b1b;
+      line-height: 1.6;
+    }
+    .brand { margin-top: 28px; font-size: 13px; color: #999; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="x-circle">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </div>
+    <h1>Paiement non abouti</h1>
+    <p class="sub">
+      Votre paiement n'a pas pu être finalisé.
+    </p>
+    <div class="info">
+      Vérifiez votre solde Mobile Money puis <strong>réessayez depuis l'application</strong> ImmoConnect.
+    </div>
+    <p class="brand">ImmoConnect — Votre Immobilier en Côte d'Ivoire</p>
+  </div>
+</body>
+</html>

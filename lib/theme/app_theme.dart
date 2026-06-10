@@ -52,6 +52,14 @@ class AppTheme {
       error: AppColors.error,
     ),
     fontFamily: 'Poppins',
+    textTheme: const TextTheme(
+      displayLarge: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+      titleLarge:   TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+      titleMedium:  TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+      bodyLarge:    TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: AppColors.textPrimary),
+      bodyMedium:   TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: AppColors.textSecondary),
+      bodySmall:    TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: AppColors.textHint),
+    ),
     appBarTheme: const AppBarTheme(
       backgroundColor: AppColors.primary,
       foregroundColor: AppColors.white,
@@ -70,7 +78,7 @@ class AppTheme {
         foregroundColor: AppColors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-        textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, inherit: false),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
@@ -118,10 +126,51 @@ class AppTheme {
       error: AppColors.error,
     ),
     fontFamily: 'Poppins',
+    textTheme: const TextTheme(
+      displayLarge: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.darkTextPrimary),
+      titleLarge:   TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.darkTextPrimary),
+      titleMedium:  TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.darkTextPrimary),
+      bodyLarge:    TextStyle(fontSize: 16, fontWeight: FontWeight.w400, color: AppColors.darkTextPrimary),
+      bodyMedium:   TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: AppColors.darkTextSecondary),
+      bodySmall:    TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: AppColors.darkTextSecondary),
+    ),
     appBarTheme: const AppBarTheme(
       backgroundColor: AppColors.darkCard,
       foregroundColor: AppColors.darkTextPrimary,
       elevation: 0,
+      titleTextStyle: TextStyle(
+        fontFamily: 'Poppins',
+        fontWeight: FontWeight.w600,
+        fontSize: 18,
+        color: AppColors.darkTextPrimary,
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, inherit: false),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: AppColors.darkCard,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.darkBorder),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.darkBorder),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.primary, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      labelStyle: const TextStyle(color: AppColors.darkTextSecondary),
     ),
     // ✅ CORRIGÉ : CardTheme → CardThemeData
     cardTheme: CardThemeData(
@@ -138,29 +187,38 @@ class AppTheme {
   );
 }
 
+/// Extension BuildContext : couleurs adaptatives light/dark
+/// Usage : context.appTextPrimary, context.appCard, etc.
+extension AppThemeExt on BuildContext {
+  Brightness get _brightness => Theme.of(this).brightness;
+  bool get isDarkMode => _brightness == Brightness.dark;
+
+  Color get appTextPrimary =>
+      isDarkMode ? AppColors.darkTextPrimary : AppColors.textPrimary;
+  Color get appTextSecondary =>
+      isDarkMode ? AppColors.darkTextSecondary : AppColors.textSecondary;
+  Color get appTextHint =>
+      isDarkMode ? const Color(0xFF64748B) : AppColors.textHint;
+  Color get appBackground => Theme.of(this).scaffoldBackgroundColor;
+  Color get appCard => Theme.of(this).cardColor;
+  Color get appBorder =>
+      isDarkMode ? AppColors.darkBorder : AppColors.border;
+  Color get appPrimaryLight =>
+      isDarkMode ? AppColors.primary.withValues(alpha: 0.15) : AppColors.primaryLight;
+  Color get appSurface =>
+      isDarkMode ? AppColors.darkCard : AppColors.cardBg;
+}
+
 class AppTextStyles {
-  static const TextStyle h1 = TextStyle(
-    fontSize: 28, fontWeight: FontWeight.w700, color: AppColors.textPrimary,
-  );
-  static const TextStyle h2 = TextStyle(
-    fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.textPrimary,
-  );
-  static const TextStyle h3 = TextStyle(
-    fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.textPrimary,
-  );
-  static const TextStyle bodyLarge = TextStyle(
-    fontSize: 16, fontWeight: FontWeight.w400, color: AppColors.textPrimary,
-  );
-  static const TextStyle bodyMedium = TextStyle(
-    fontSize: 14, fontWeight: FontWeight.w400, color: AppColors.textSecondary,
-  );
-  static const TextStyle caption = TextStyle(
-    fontSize: 12, fontWeight: FontWeight.w400, color: AppColors.textHint,
-  );
-  static const TextStyle price = TextStyle(
-    fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.primary,
-  );
-  static const TextStyle priceSmall = TextStyle(
-    fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.primary,
-  );
+  // Styles sans couleur : héritent du textTheme (adaptatif light/dark)
+  static const TextStyle h1 = TextStyle(fontSize: 28, fontWeight: FontWeight.w700);
+  static const TextStyle h2 = TextStyle(fontSize: 22, fontWeight: FontWeight.w700);
+  static const TextStyle h3 = TextStyle(fontSize: 18, fontWeight: FontWeight.w600);
+  static const TextStyle bodyLarge  = TextStyle(fontSize: 16, fontWeight: FontWeight.w400);
+  static const TextStyle bodyMedium = TextStyle(fontSize: 14, fontWeight: FontWeight.w400);
+  static const TextStyle caption    = TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: AppColors.textHint);
+
+  // Styles sémantiques : couleur fixe indépendante du thème
+  static const TextStyle price      = TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.primary);
+  static const TextStyle priceSmall = TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.primary);
 }

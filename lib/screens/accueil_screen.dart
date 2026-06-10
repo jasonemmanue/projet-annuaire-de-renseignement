@@ -1,6 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../services/logement_service.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:intl/intl.dart';
+import '../l10n/app_localizations.dart';
+import '../services/logement_service.dart';
+import '../services/analytics_service.dart';
+import '../services/cache_service.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/shared_widgets.dart' as sw;
@@ -10,9 +15,21 @@ import 'detail_logement_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/accueil_screen.dart
-// Écran 1 - Page d'accueil / Menu principal (§4.1.1)
-// Inspiré Booking.com : barre de recherche proéminente,
-// catégories, annonces sponsorisées, recommandés près de vous
+// Écran 1 – Page d'accueil / Menu principal
+//
+// Fonctionnalités :
+//   ✅ Chargement Firestore (Future) + fallback cache offline
+//   ✅ Bandeau hors-connexion animé avec date du dernier cache
+//   ✅ Reconnexion automatique → rechargement Firestore
+//   ✅ Pull-to-refresh
+//   ✅ Analytics : vue écran + recherche (AnalyticsService)
+//   ✅ Sélecteur de langue FR / EN (AppController)
+//   ✅ Toggle thème clair / sombre (AppController)
+//   ✅ Filtres rapides horizontaux par type de bien
+//   ✅ Bottom sheet filtres avancés (prix, type, vérifié)
+//   ✅ Carrousel annonces sponsorisées (_SponsoredCard)
+//   ✅ Bannières publicitaires intercalées (1 / 5 annonces)
+//   ✅ Liste "Recommandés près de vous" avec filtrage local
 // ============================================================
 
 class AccueilScreen extends StatefulWidget {
@@ -23,31 +40,146 @@ class AccueilScreen extends StatefulWidget {
 }
 
 class _AccueilScreenState extends State<AccueilScreen> {
-  final TextEditingController _searchController = TextEditingController();
-  String _filtreTypeActif = 'Tous';
+  // ── Données ──────────────────────────────────────────────────
+  List<Logement> _logements = [];
+  bool _isLoading = true;
+  bool _erreurSansCache = false;
 
-  // Types de biens pour les filtres rapides — valeurs réelles Firestore
-  final List<Map<String, dynamic>> _typesBiens = [
-    {'label': 'Tous', 'icon': Icons.apps},
-    {'label': 'Studio', 'icon': Icons.single_bed},
-    {'label': 'Appartement', 'icon': Icons.apartment},
-    {'label': 'Villa', 'icon': Icons.villa},
-    {'label': 'Terrain', 'icon': Icons.landscape},
-    {'label': 'Location', 'icon': Icons.home_work_outlined},
-    {'label': 'Vente', 'icon': Icons.sell_outlined},
+  // ── Connectivité & cache ─────────────────────────────────────
+  bool _estConnecte = true;
+  DateTime? _dateDernierCache;
+  late StreamSubscription<List<ConnectivityResult>> _connectivitySub;
+
+  // ── Filtres & recherche ──────────────────────────────────────
+  String _filtreTypeActif = 'Tous';
+  final TextEditingController _searchController = TextEditingController();
+
+  // 'value' = valeur interne (correspond à typeBien/typeLocation Firestore, en FR)
+  // 'key'   = clé i18n pour l'affichage traduit
+  final List<Map<String, dynamic>> _typesBiens = const [
+    {'value': 'Tous',        'key': 'type_tous',        'icon': Icons.apps},
+    {'value': 'Studio',      'key': 'type_studio',      'icon': Icons.single_bed},
+    {'value': 'Appartement', 'key': 'type_appartement', 'icon': Icons.apartment},
+    {'value': 'Villa',       'key': 'type_villa',       'icon': Icons.villa},
+    {'value': 'Terrain',     'key': 'type_terrain',     'icon': Icons.landscape},
+    {'value': 'location',    'key': 'type_location',    'icon': Icons.home_work_outlined},
+    {'value': 'vente',       'key': 'type_vente',       'icon': Icons.sell_outlined},
   ];
 
-  // Streams Firestore
-  Stream<QuerySnapshot> get _streamSponsored => LogementService.getSponsored();
-  Stream<QuerySnapshot> get _streamLogements => LogementService.getLogements();
+  late AppLocalizations _l;
+
+  // ── Cycle de vie ─────────────────────────────────────────────
+  @override
+  void initState() {
+    super.initState();
+    AnalyticsService.instance.logScreenView('accueil');
+    _initConnectivite();
+    _chargerDonnees();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _l = AppLocalizations.of(context);
+  }
 
   @override
   void dispose() {
+    _connectivitySub.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
+  // ── Connectivité ─────────────────────────────────────────────
+  void _initConnectivite() {
+    _connectivitySub = Connectivity()
+        .onConnectivityChanged
+        .listen((List<ConnectivityResult> results) async {
+      final connecte = results.any((r) => r != ConnectivityResult.none);
+      if (!mounted) return;
+      final etaitDeconnecte = !_estConnecte;
+      setState(() => _estConnecte = connecte);
+      // Connexion retrouvée → actualiser depuis Firestore
+      if (connecte && etaitDeconnecte) {
+        await _chargerDepuisFirestore(mettreAJourUI: true);
+      }
+    });
+  }
+
+  Future<bool> _verifierConnexion() async {
+    final results = await Connectivity().checkConnectivity();
+    return results.any((r) => r != ConnectivityResult.none);
+  }
+
+  // ── Chargement des données ───────────────────────────────────
+  Future<void> _chargerDonnees() async {
+    setState(() {
+      _isLoading = true;
+      _erreurSansCache = false;
+    });
+    _estConnecte = await _verifierConnexion();
+    if (_estConnecte) {
+      await _chargerDepuisFirestore(mettreAJourUI: false);
+    } else {
+      await _chargerDepuisCache();
+    }
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  /// Charge depuis Firestore puis met en cache.
+  /// [mettreAJourUI] : si true, met aussi _isLoading à false dans cette méthode.
+  Future<void> _chargerDepuisFirestore({required bool mettreAJourUI}) async {
+    try {
+      // Chargement Firestore : retourne Future<List<Logement>>
+      final logements = await LogementService.getFutureLogements();
+      await CacheService.sauvegarderLogements(logements);
+      if (mounted) {
+        setState(() {
+          _logements = logements;
+          _erreurSansCache = false;
+          if (mettreAJourUI) _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('[AccueilScreen] Erreur Firestore : $e');
+      // Firestore a échoué → fallback cache
+      await _chargerDepuisCache();
+    }
+  }
+
+  /// Charge depuis le cache local (SharedPreferences via CacheService).
+  Future<void> _chargerDepuisCache() async {
+    final cached = await CacheService.chargerLogements();
+    _dateDernierCache = await CacheService.getCacheDate();
+    if (mounted) {
+      setState(() {
+        if (cached.isNotEmpty) {
+          _logements = cached;
+          _erreurSansCache = false;
+        } else {
+          _logements = [];
+          _erreurSansCache = true;
+        }
+      });
+    }
+  }
+
+  // ── Filtrage local ───────────────────────────────────────────
+  List<Logement> get _logementsFiltres {
+    if (_filtreTypeActif == 'Tous') return List.of(_logements);
+    return _logements
+        .where((l) =>
+    l.typeBien.toLowerCase().contains(_filtreTypeActif.toLowerCase()) ||
+        l.typeLocation.toLowerCase().contains(_filtreTypeActif.toLowerCase()))
+        .toList();
+  }
+
+  // ── Actions ──────────────────────────────────────────────────
   void _lancerRecherche(String query) {
+    AnalyticsService.instance.logRechercheLogement(
+      ville: query.isNotEmpty ? query : null,
+      type: _filtreTypeActif == 'Tous' ? null : _filtreTypeActif,
+    );
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -59,14 +191,66 @@ class _AccueilScreenState extends State<AccueilScreen> {
     );
   }
 
+  void _ouvrirDetail(Logement logement) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DetailLogementScreen(logement: logement)),
+    );
+  }
+
+  void _afficherFiltresAvances() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const _FiltresAvancesSheet(),
+    );
+  }
+
+  // ── Build principal ──────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: CustomScrollView(
+      body: SafeArea(
+        child: Column(
+          children: [
+            // ① Bandeau offline – toujours visible au-dessus du scroll
+            _BandeauOffline(
+              visible: !_estConnecte,
+              dateDernierCache: _dateDernierCache,
+            ),
+            // ② Corps principal
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              )
+                  : _erreurSansCache
+                  ? _buildErreurSansCache()
+                  : _buildCorps(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Corps scrollable ─────────────────────────────────────────
+  Widget _buildCorps() {
+    final filtres    = _logementsFiltres;
+    final sponsories = _logements.where((l) => l.estSponsorie).toList();
+
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: _chargerDonnees,
+      child: CustomScrollView(
         slivers: [
-          // ─── APP BAR avec recherche intégrée ───────────────────
+
+          // ─── APP BAR gradient + barre de recherche ────────────
           SliverAppBar(
             expandedHeight: 180,
             pinned: true,
@@ -80,74 +264,69 @@ class _AccueilScreenState extends State<AccueilScreen> {
                     colors: [AppColors.primaryDark, AppColors.primary],
                   ),
                 ),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 60),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                // Logo ImmoConnect
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.asset(
-                                    'assets/images/logo.png',
-                                    width: 40,
-                                    height: 40,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      width: 40,
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white24,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Icon(Icons.home,
-                                          color: Colors.white, size: 24),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 60),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // Logo
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.asset(
+                                  'assets/images/logo.png',
+                                  width: 40, height: 40, fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 40, height: 40,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white24,
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
+                                    child: const Icon(Icons.home,
+                                        color: Colors.white, size: 24),
                                   ),
                                 ),
-                                const SizedBox(width: 10),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: const [
-                                    Text(
-                                      'ImmoConnect',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                              ),
+                              const SizedBox(width: 10),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: const [
+                                  Text(
+                                    'ImmoConnect',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w800,
                                     ),
-                                    Text(
-                                      'Cameroun',
-                                      style: TextStyle(
-                                          color: Colors.white70, fontSize: 12),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            // Sélecteur de langue (§3.1 UC-C10)
-                            _LanguageSelector(),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Trouvez votre logement idéal',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
+                                  ),
+                                  Text(
+                                    'Cameroun',
+                                    style: TextStyle(
+                                        color: Colors.white70, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
+                          // Sélecteur langue + toggle thème
+                          const _LanguageSelector(),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _l.t('accueil_tagline'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -156,17 +335,18 @@ class _AccueilScreenState extends State<AccueilScreen> {
               preferredSize: const Size.fromHeight(56),
               child: Container(
                 height: 56,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: sw.AppSearchBar(
                   controller: _searchController,
                   onSearch: _lancerRecherche,
-                  onFilterTap: () => _afficherFiltresAvances(context),
+                  onFilterTap: _afficherFiltresAvances,
                 ),
               ),
             ),
           ),
 
-          // ─── FILTRES RAPIDES ────────────────────────────────────
+          // ─── FILTRES RAPIDES ──────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.only(top: 12),
@@ -178,16 +358,16 @@ class _AccueilScreenState extends State<AccueilScreen> {
                   itemCount: _typesBiens.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
                   itemBuilder: (_, i) {
-                    final item = _typesBiens[i];
+                    final item  = _typesBiens[i];
+                    final value = item['value'] as String;
+                    final label = _l.t(item['key'] as String);
                     return sw.AppFilterChip(
-                      label: item['label'],
-                      selected: _filtreTypeActif == item['label'],
-                      icon: item['icon'],
+                      label: label,
+                      selected: _filtreTypeActif == value,
+                      icon: item['icon'] as IconData,
                       onTap: () => setState(() {
-                        _filtreTypeActif = item['label'];
-                        if (item['label'] != 'Tous') {
-                          _lancerRecherche('');
-                        }
+                        _filtreTypeActif = value;
+                        if (value != 'Tous') _lancerRecherche('');
                       }),
                     );
                   },
@@ -196,71 +376,69 @@ class _AccueilScreenState extends State<AccueilScreen> {
             ),
           ),
 
-          // ─── ANNONCES SPONSORISÉES (carrousel, max 3) ──────────
-          // ─── ANNONCES SPONSORISÉES (Firestore) ─────────────────
-          SliverToBoxAdapter(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: _streamSponsored,
-              builder: (ctx, snap) {
-                if (!snap.hasData || snap.data!.docs.isEmpty) return const SizedBox.shrink();
-                final docs = snap.data!.docs;
-                final sponsored = docs.map((d) => Logement.fromMap(d.id, d.data() as Map<String, dynamic>)).toList();
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    sw.SectionTitle(title: '⭐ Annonces à la une', onVoirTout: () => _lancerRecherche('')),
-                    SizedBox(
-                      height: 220,
-                      child: PageView.builder(
-                        controller: PageController(viewportFraction: 0.9),
-                        itemCount: sponsored.length,
-                        itemBuilder: (_, i) => Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: _SponsoredCard(logement: sponsored[i], onTap: () => _ouvrirDetail(sponsored[i]))),
-                      ),
+          // ─── ANNONCES SPONSORISÉES (carrousel) ───────────────
+          if (sponsories.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: sw.SectionTitle(
+                title: _l.t('accueil_featured'),
+                onVoirTout: () => _lancerRecherche(''),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 220,
+                child: PageView.builder(
+                  controller: PageController(viewportFraction: 0.9),
+                  itemCount: sponsories.length,
+                  itemBuilder: (_, i) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: _SponsoredCard(
+                      logement: sponsories[i],
+                      onTap: () => _ouvrirDetail(sponsories[i]),
                     ),
-                  ],
-                );
-              },
+                  ),
+                ),
+              ),
+            ),
+          ],
+
+          // ─── BANNIÈRE PUBLICITAIRE ────────────────────────────
+          const SliverToBoxAdapter(child: sw.PubliciteBanner()),
+
+          // ─── EN-TÊTE SECTION RECOMMANDÉS ─────────────────────
+          SliverToBoxAdapter(
+            child: sw.SectionTitle(
+              title: _l.t('accueil_recommended'),
+              onVoirTout: () => _lancerRecherche(''),
             ),
           ),
 
-          // ─── PUBLICITÉ (1 pub toutes les 5 annonces - §2.1.2) ──
-          const SliverToBoxAdapter(child: sw.PubliciteBanner()),
-
-          // ─── RECOMMANDÉS PRÈS DE VOUS (Firestore) ──────────────
-          SliverToBoxAdapter(
-            child: sw.SectionTitle(title: '📍 Recommandés près de vous', onVoirTout: () => _lancerRecherche(''))),
-
-          StreamBuilder<QuerySnapshot>(
-            stream: _streamLogements,
-            builder: (ctx, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const SliverToBoxAdapter(
-                    child: Padding(padding: EdgeInsets.all(32),
-                        child: Center(child: CircularProgressIndicator())));
-              }
-              if (!snap.hasData || snap.data!.docs.isEmpty) {
-                return const SliverToBoxAdapter(
-                    child: Padding(padding: EdgeInsets.all(32),
-                        child: Center(child: Text('Aucune annonce disponible'))));
-              }
-              final logements = snap.data!.docs
-                  .map((d) => Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
-                  .toList();
-              return SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (_, i) {
-                    if (i > 0 && i % 5 == 0) return const sw.PubliciteBanner();
-                    final idx = i - (i ~/ 5);
-                    if (idx >= logements.length) return null;
-                    return sw.LogementCard(logement: logements[idx], onTap: () => _ouvrirDetail(logements[idx]));
-                  },
-                  childCount: logements.length + (logements.length ~/ 5),
-                ),
-              );
-            },
-          ),
+          // ─── LISTE LOGEMENTS (pub intercalée 1 / 5) ──────────
+          if (filtres.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Center(child: Text(_l.t('accueil_no_listings'))),
+              ),
+            )
+          else
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                    (_, i) {
+                  // Insérer une bannière pub tous les 5 logements
+                  if (i > 0 && i % 5 == 0) {
+                    return const sw.PubliciteBanner();
+                  }
+                  final idx = i - (i ~/ 5);
+                  if (idx >= filtres.length) return null;
+                  return sw.LogementCard(
+                    logement: filtres[idx],
+                    onTap: () => _ouvrirDetail(filtres[idx]),
+                  );
+                },
+                childCount: filtres.length + (filtres.length ~/ 5),
+              ),
+            ),
 
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
@@ -268,29 +446,25 @@ class _AccueilScreenState extends State<AccueilScreen> {
     );
   }
 
-  void _ouvrirDetail(Logement logement) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => DetailLogementScreen(logement: logement)),
-    );
-  }
-
-  void _afficherFiltresAvances(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+  // ── État erreur sans cache ───────────────────────────────────
+  Widget _buildErreurSansCache() {
+    return sw.EmptyState(
+      icon: Icons.wifi_off_rounded,
+      title: _l.t('accueil_load_error'),
+      subtitle: _l.t('accueil_load_error_sub'),
+      action: ElevatedButton.icon(
+        icon: const Icon(Icons.refresh),
+        label: Text(_l.t('common_retry')),
+        onPressed: _chargerDonnees,
       ),
-      builder: (_) => const _FiltresAvancesSheet(),
     );
   }
 }
 
-// ----------------------------------------------------------
-// CARTE ANNONCE SPONSORISÉE (style premium)
-// ----------------------------------------------------------
+// ============================================================
+// WIDGET : Carte annonce sponsorisée (style premium)
+// ============================================================
+
 class _SponsoredCard extends StatelessWidget {
   final Logement logement;
   final VoidCallback onTap;
@@ -304,17 +478,36 @@ class _SponsoredCard extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 10, offset: const Offset(0, 4))],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Stack(
             fit: StackFit.expand,
             children: [
+              // Photo
               logement.photos.isNotEmpty
-                  ? Image.network(logement.photos.first, fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(color: AppColors.primaryLight, child: const Icon(Icons.home, size: 60, color: AppColors.primary)))
-                  : Container(color: AppColors.primaryLight, child: const Icon(Icons.home, size: 60, color: AppColors.primary)),
+                  ? Image.network(
+                logement.photos.first,
+                fit: BoxFit.cover,
+                errorBuilder: (context, __, ___) => Container(
+                  color: context.appPrimaryLight,
+                  child: const Icon(Icons.home,
+                      size: 60, color: AppColors.primary),
+                ),
+              )
+                  : Builder(builder: (ctx) => Container(
+                color: ctx.appPrimaryLight,
+                child: const Icon(Icons.home,
+                    size: 60, color: AppColors.primary),
+              )),
+
               // Gradient overlay
               Container(
                 decoration: const BoxDecoration(
@@ -326,7 +519,8 @@ class _SponsoredCard extends StatelessWidget {
                   ),
                 ),
               ),
-              // Contenu texte en bas
+
+              // Texte en bas
               Positioned(
                 bottom: 0,
                 left: 0,
@@ -337,28 +531,62 @@ class _SponsoredCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(4)),
-                        child: const Text('Sponsorisé', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.black)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          AppLocalizations.of(context).t('common_sponsored'),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black,
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 4),
-                      Text(logement.titre,
-                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700), maxLines: 1),
+                      Text(
+                        logement.titre,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('${logement.quartier}, ${logement.ville}',
-                              style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                          Text(logement.prixLabel,
-                              style: const TextStyle(color: AppColors.accent, fontSize: 15, fontWeight: FontWeight.w800)),
+                          Text(
+                            '${logement.quartier}, ${logement.ville}',
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 12),
+                          ),
+                          Text(
+                            logement.prixLabel,
+                            style: const TextStyle(
+                              color: AppColors.accent,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ],
                       ),
                     ],
                   ),
                 ),
               ),
+
+              // Badge vérifié
               if (logement.estVerifie)
-                const Positioned(top: 12, right: 12, child: Icon(Icons.verified, color: Colors.white, size: 20)),
+                const Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Icon(Icons.verified, color: Colors.white, size: 20),
+                ),
             ],
           ),
         ),
@@ -367,9 +595,10 @@ class _SponsoredCard extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------
-// SÉLECTEUR DE LANGUE (FR / EN - §3.1 UC-C10)
-// ----------------------------------------------------------
+// ============================================================
+// WIDGET : Sélecteur de langue FR / EN + toggle thème
+// ============================================================
+
 class _LanguageSelector extends StatelessWidget {
   const _LanguageSelector();
 
@@ -379,8 +608,9 @@ class _LanguageSelector extends StatelessWidget {
   ];
 
   void _changerLangue(BuildContext context) {
-    final ctrl = AppController.instance;
+    final ctrl        = AppController.instance;
     final currentCode = ctrl.locale.languageCode;
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -389,20 +619,22 @@ class _LanguageSelector extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: 12),
-          const Text('Choisir la langue',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          const Text(
+            'Choisir la langue',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+          ),
           const SizedBox(height: 8),
           ..._langues.map((l) => ListTile(
-                leading: Text(l['flag']!, style: const TextStyle(fontSize: 24)),
-                title: Text(l['label'] == 'FR' ? 'Français' : 'English'),
-                trailing: currentCode == l['code']
-                    ? const Icon(Icons.check, color: AppColors.primary)
-                    : null,
-                onTap: () {
-                  ctrl.setLocale(Locale(l['code']!));
-                  Navigator.pop(context);
-                },
-              )),
+            leading: Text(l['flag']!, style: const TextStyle(fontSize: 24)),
+            title: Text(l['label'] == 'FR' ? 'Français' : 'English'),
+            trailing: currentCode == l['code']
+                ? const Icon(Icons.check, color: AppColors.primary)
+                : null,
+            onTap: () {
+              ctrl.setLocale(Locale(l['code']!));
+              Navigator.pop(context);
+            },
+          )),
           const SizedBox(height: 12),
         ],
       ),
@@ -411,16 +643,17 @@ class _LanguageSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ctrl = AppController.instance;
+    final ctrl     = AppController.instance;
     final langCode = ctrl.locale.languageCode;
-    final flag = _langues.firstWhere(
-        (l) => l['code'] == langCode,
-        orElse: () => _langues.first)['flag']!;
+    final flag     = _langues.firstWhere(
+          (l) => l['code'] == langCode,
+      orElse: () => _langues.first,
+    )['flag']!;
     final isDark = ctrl.isDark;
 
     return Row(
       children: [
-        // ── Thème clair/sombre ──
+        // Toggle thème clair / sombre
         GestureDetector(
           onTap: () => ctrl.toggleTheme(),
           child: Container(
@@ -431,15 +664,19 @@ class _LanguageSelector extends StatelessWidget {
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: Colors.white38),
             ),
-            child: Icon(isDark ? Icons.light_mode : Icons.dark_mode,
-                color: Colors.white, size: 18),
+            child: Icon(
+              isDark ? Icons.light_mode : Icons.dark_mode,
+              color: Colors.white,
+              size: 18,
+            ),
           ),
         ),
-        // ── Drapeau / Langue ──
+        // Sélecteur de langue
         GestureDetector(
           onTap: () => _changerLangue(context),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(6),
@@ -449,11 +686,14 @@ class _LanguageSelector extends StatelessWidget {
               children: [
                 Text(flag, style: const TextStyle(fontSize: 14)),
                 const SizedBox(width: 4),
-                Text(langCode.toUpperCase(),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12)),
+                Text(
+                  langCode.toUpperCase(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
               ],
             ),
           ),
@@ -463,9 +703,10 @@ class _LanguageSelector extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------
-// BOTTOM SHEET FILTRES AVANCÉS (§4.1.1 + §3.1 UC-C02)
-// ----------------------------------------------------------
+// ============================================================
+// BOTTOM SHEET : Filtres avancés
+// ============================================================
+
 class _FiltresAvancesSheet extends StatefulWidget {
   const _FiltresAvancesSheet();
 
@@ -474,10 +715,10 @@ class _FiltresAvancesSheet extends StatefulWidget {
 }
 
 class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
-  RangeValues _prixRange = const RangeValues(0, 500000);
-  String? _typeBien;
-  String? _typeLocation;
-  bool _seulementVerifies = false;
+  RangeValues _prixRange       = const RangeValues(0, 500000);
+  String?     _typeBien;
+  String?     _typeTransaction;
+  bool        _seulementVerifies = false;
 
   @override
   Widget build(BuildContext context) {
@@ -493,25 +734,29 @@ class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
           // Poignée
           Center(
             child: Container(
-              width: 40, height: 4,
-              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
           const SizedBox(height: 16),
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Filtres', style: AppTextStyles.h2),
+              Text(AppLocalizations.of(context).t('accueil_filter'), style: AppTextStyles.h2),
               TextButton(
-                onPressed: () {
-                  setState(() {
-                    _prixRange = const RangeValues(0, 500000);
-                    _typeBien = null;
-                    _typeLocation = null;
-                    _seulementVerifies = false;
-                  });
-                },
-                child: const Text('Réinitialiser', style: TextStyle(color: AppColors.error)),
+                onPressed: () => setState(() {
+                  _prixRange        = const RangeValues(0, 500000);
+                  _typeBien         = null;
+                  _typeTransaction  = null;
+                  _seulementVerifies = false;
+                }),
+                child: Text(AppLocalizations.of(context).t('filter_reset'),
+                    style: const TextStyle(color: AppColors.error)),
               ),
             ],
           ),
@@ -519,33 +764,48 @@ class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
           const SizedBox(height: 12),
 
           // Type de transaction
-          const Text('Type de transaction', style: AppTextStyles.h3),
+          Text(AppLocalizations.of(context).t('filter_transaction_type'), style: AppTextStyles.h3),
           const SizedBox(height: 8),
           Row(children: [
-            _RadioChip(label: 'Location', value: 'location', groupValue: _typeLocation,
-                onChanged: (v) => setState(() => _typeLocation = v)),
+            _RadioChip(
+              label: AppLocalizations.of(context).t('filter_rental'),
+              value: 'location',
+              groupValue: _typeTransaction,
+              onChanged: (v) => setState(() => _typeTransaction = v),
+            ),
             const SizedBox(width: 8),
-            _RadioChip(label: 'Vente', value: 'vente', groupValue: _typeLocation,
-                onChanged: (v) => setState(() => _typeLocation = v)),
+            _RadioChip(
+              label: AppLocalizations.of(context).t('filter_sale'),
+              value: 'vente',
+              groupValue: _typeTransaction,
+              onChanged: (v) => setState(() => _typeTransaction = v),
+            ),
           ]),
           const SizedBox(height: 16),
 
           // Type de bien
-          const Text('Type de bien', style: AppTextStyles.h3),
+          Text(AppLocalizations.of(context).t('filter_property_type'), style: AppTextStyles.h3),
           const SizedBox(height: 8),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final t in ['Studio', 'F2', 'F3', 'Villa', 'Terrain', 'Appartement'])
-              _RadioChip(label: t, value: t, groupValue: _typeBien,
-                  onChanged: (v) => setState(() => _typeBien = v)),
-          ]),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final t in ['Studio', 'F2', 'F3', 'Villa', 'Terrain', 'Appartement'])
+                _RadioChip(
+                  label: t,
+                  value: t,
+                  groupValue: _typeBien,
+                  onChanged: (v) => setState(() => _typeBien = v),
+                ),
+            ],
+          ),
           const SizedBox(height: 16),
 
           // Fourchette de prix
-          const Text('Budget (XAF)', style: AppTextStyles.h3),
+          Text(AppLocalizations.of(context).t('filter_budget'), style: AppTextStyles.h3),
           const SizedBox(height: 4),
           Text(
-            '${_prixRange.start.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]} ')} '
-                'XAF — ${_prixRange.end.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]} ')} XAF',
+            '${_formatPrix(_prixRange.start.toInt())} XAF  —  ${_formatPrix(_prixRange.end.toInt())} XAF',
             style: AppTextStyles.bodyMedium,
           ),
           RangeSlider(
@@ -560,10 +820,14 @@ class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
 
           // Prestataires vérifiés uniquement
           SwitchListTile(
-            title: const Text('Prestataires vérifiés uniquement'),
-            subtitle: const Text('Afficher les annonces avec badge vérifié', style: TextStyle(fontSize: 12)),
+            title: Text(AppLocalizations.of(context).t('filter_verified_only')),
+            subtitle: Text(AppLocalizations.of(context).t('filter_verified_only_sub'),
+                style: const TextStyle(fontSize: 12)),
             value: _seulementVerifies,
-            activeColor: AppColors.primary,
+            thumbColor: WidgetStateProperty.resolveWith<Color>((states) =>
+                states.contains(WidgetState.selected) ? AppColors.primary : Colors.grey),
+            trackColor: WidgetStateProperty.resolveWith<Color>((states) =>
+                states.contains(WidgetState.selected) ? AppColors.primary.withOpacity(0.5) : Colors.grey.withOpacity(0.3)),
             onChanged: (v) => setState(() => _seulementVerifies = v),
             contentPadding: EdgeInsets.zero,
           ),
@@ -573,21 +837,32 @@ class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              // TODO: Appliquer les filtres via Provider/Bloc
+              // TODO : transmettre les filtres via Provider / Bloc
             },
-            style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-            child: const Text('Appliquer les filtres'),
+            style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50)),
+            child: Text(AppLocalizations.of(context).t('filter_apply')),
           ),
           const SizedBox(height: 16),
         ],
       ),
     );
   }
+
+  /// Formate un entier en nombre séparé par des espaces (ex. 150 000).
+  String _formatPrix(int valeur) => valeur
+      .toString()
+      .replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]} ');
 }
 
+// ============================================================
+// WIDGET : Chip radio réutilisable (filtres avancés)
+// ============================================================
+
 class _RadioChip extends StatelessWidget {
-  final String label;
-  final String value;
+  final String  label;
+  final String  value;
   final String? groupValue;
   final ValueChanged<String> onChanged;
 
@@ -609,12 +884,15 @@ class _RadioChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? AppColors.primary : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: selected ? AppColors.primary : AppColors.border, width: 1.5),
+          border: Border.all(
+            color: selected ? AppColors.primary : AppColors.border,
+            width: 1.5,
+          ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : AppColors.textSecondary,
+            color: selected ? Colors.white : context.appTextSecondary,
             fontWeight: FontWeight.w500,
             fontSize: 13,
           ),
@@ -624,50 +902,54 @@ class _RadioChip extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------
-// DONNÉES MOCK (à remplacer par API REST)
-// ----------------------------------------------------------
-final List<Logement> _mockLogements = [
-  Logement(
-    id: '1', titre: 'Studio moderne à Bastos',
-    description: 'Beau studio entièrement meublé avec accès internet, idéal pour jeunes professionnels.',
-    prix: 150000, typeLocation: 'location', typeBien: 'Studio',
-    ville: 'Yaoundé', quartier: 'Bastos',
-    latitude: 3.8667, longitude: 11.5167,
-    photos: ['https://picsum.photos/seed/logement1/400/300'],
-    surface: 30, nbPieces: 1,
-    equipements: ['Meublé', 'Wifi', 'Climatiseur', 'Eau chaude'],
-    estVerifie: true, estSponsorie: true,
-    prestatireId: 'p1', prestatireNom: 'Jean Dupont', prestatirePhone: '+237 6XX XXX XXX',
-    datePublication: DateTime.now().subtract(const Duration(days: 2)),
-    nbVues: 234, disponible: true,
-  ),
-  Logement(
-    id: '2', titre: 'Villa F4 à Bonanjo',
-    description: 'Grande villa avec jardin, parking, 4 chambres. Quartier résidentiel calme.',
-    prix: 450000, typeLocation: 'location', typeBien: 'Villa',
-    ville: 'Douala', quartier: 'Bonanjo',
-    latitude: 4.0511, longitude: 9.7679,
-    photos: ['https://picsum.photos/seed/logement2/400/300'],
-    surface: 200, nbPieces: 4,
-    equipements: ['Jardin', 'Parking', 'Gardien', 'Groupe électrogène'],
-    estVerifie: true, estSponsorie: true,
-    prestatireId: 'p2', prestatireNom: 'Marie Bello', prestatirePhone: '+237 6XX XXX XXX',
-    datePublication: DateTime.now().subtract(const Duration(days: 1)),
-    nbVues: 512, disponible: true,
-  ),
-  Logement(
-    id: '3', titre: 'Appartement F2 à Akwa',
-    description: 'Appartement F2 au 3e étage, vue dégagée, bien entretenu.',
-    prix: 85000, typeLocation: 'location', typeBien: 'F2',
-    ville: 'Douala', quartier: 'Akwa',
-    latitude: 4.0435, longitude: 9.6935,
-    photos: ['https://picsum.photos/seed/logement3/400/300'],
-    surface: 55, nbPieces: 2,
-    equipements: ['Climatiseur', 'Eau chaude', 'Sécurisé'],
-    estVerifie: false, estSponsorie: false,
-    prestatireId: 'p3', prestatireNom: 'Paul Ngono', prestatirePhone: '+237 6XX XXX XXX',
-    datePublication: DateTime.now().subtract(const Duration(days: 5)),
-    nbVues: 87, disponible: true,
-  ),
-];
+// ============================================================
+// WIDGET : Bandeau hors-connexion animé
+// ============================================================
+
+class _BandeauOffline extends StatelessWidget {
+  final bool      visible;
+  final DateTime? dateDernierCache;
+
+  const _BandeauOffline({required this.visible, this.dateDernierCache});
+
+  String _formaterDate(DateTime date) {
+    final formatter = DateFormat("d MMMM yyyy 'à' HH'h'mm", 'fr_FR');
+    return formatter.format(date);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      child: visible
+          ? Container(
+        width: double.infinity,
+        color: const Color(0xFFF97316), // orange-500
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            const Text('📡', style: TextStyle(fontSize: 16)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Builder(builder: (context) {
+                final l = AppLocalizations.of(context);
+                return Text(
+                  dateDernierCache != null
+                      ? '${l.t('accueil_offline_cache')} ${_formaterDate(dateDernierCache!)}'
+                      : l.t('accueil_offline_no_cache'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                );
+              }),
+            ),
+          ],
+        ),
+      )
+          : const SizedBox.shrink(),
+    );
+  }
+}

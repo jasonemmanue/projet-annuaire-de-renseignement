@@ -195,7 +195,8 @@ dans mon cas
 ----------------------------------------------------------------
 COMMANDES UTILES
 ----------------------------------------------------------------
-
+npm install
+si plus de node-modules
 Déployer uniquement les fonctions :
   firebase deploy --only functions
 

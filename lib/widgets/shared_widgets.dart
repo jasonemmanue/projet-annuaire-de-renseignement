@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/ads_service.dart';
+import '../services/auth_service.dart';
 
 // ============================================================
 // FICHIER : lib/widgets/shared_widgets.dart
@@ -66,13 +70,15 @@ class LogementCard extends StatelessWidget {
                   Positioned(
                     top: 10,
                     left: 10,
-                    child: _buildBadge('Sponsorise', AppColors.accent, Colors.black87),
+                    child: _buildBadge(AppLocalizations.of(context).t('common_sponsored'), AppColors.accent, Colors.black87),
                   ),
                 Positioned(
                   top: 10,
                   right: 10,
                   child: _buildBadge(
-                    logement.typeLocation == 'location' ? 'Location' : 'Vente',
+                    logement.typeLocation == 'location'
+                        ? AppLocalizations.of(context).t('filter_rental')
+                        : AppLocalizations.of(context).t('filter_sale'),
                     logement.typeLocation == 'location'
                         ? AppColors.primary
                         : AppColors.success,
@@ -350,24 +356,34 @@ class AppSearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Row(
       children: [
         Expanded(
           child: TextField(
             controller: controller,
             onSubmitted: onSearch,
+            style: TextStyle(color: context.appTextPrimary),
             decoration: InputDecoration(
-              hintText: 'Ville, quartier, type de bien...',
+              hintText: l.t('search_hint'),
               prefixIcon: const Icon(Icons.search, color: AppColors.primary),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: context.appSurface,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
                 borderSide: BorderSide.none,
               ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: context.appBorder, width: 1),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+              ),
               contentPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              hintStyle: AppTextStyles.bodyMedium,
+              hintStyle: TextStyle(color: context.appTextHint, fontSize: 14),
             ),
           ),
         ),
@@ -416,10 +432,10 @@ class AppFilterChip extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? AppColors.primary : Colors.white,
+          color: selected ? AppColors.primary : context.appSurface,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: selected ? AppColors.primary : AppColors.border,
+            color: selected ? AppColors.primary : context.appBorder,
             width: 1.5,
           ),
           boxShadow: selected
@@ -430,13 +446,13 @@ class AppFilterChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 14, color: selected ? Colors.white : AppColors.textSecondary),
+              Icon(icon, size: 14, color: selected ? Colors.white : context.appTextSecondary),
               const SizedBox(width: 4),
             ],
             Text(
               label,
               style: TextStyle(
-                color: selected ? Colors.white : AppColors.textSecondary,
+                color: selected ? Colors.white : context.appTextSecondary,
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),
@@ -476,11 +492,11 @@ class SectionTitle extends StatelessWidget {
           if (onVoirTout != null)
             GestureDetector(
               onTap: onVoirTout,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 8),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
                 child: Text(
-                  'Voir tout',
-                  style: TextStyle(
+                  AppLocalizations.of(context).t('accueil_see_all'),
+                  style: const TextStyle(
                     color: AppColors.primary,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -497,45 +513,80 @@ class SectionTitle extends StatelessWidget {
 // ----------------------------------------------------------
 // BANDEAU PUBLICITAIRE
 // ----------------------------------------------------------
-class PubliciteBanner extends StatelessWidget {
-  const PubliciteBanner({super.key});
+// Vraie bannière Google AdMob.
+//  • isPremium == true  → aucune publicité (SizedBox.shrink).
+//  • Sinon              → bannière AdMob (50 px) avec mention « Publicité ».
+//  • Pendant le chargement : placeholder gris discret.
+//  • En cas d'échec de chargement : rien (pas de gêne pour l'utilisateur).
+class PubliciteBanner extends StatefulWidget {
+  /// null → déduit automatiquement depuis le profil connecté.
+  final bool? isPremium;
+  const PubliciteBanner({super.key, this.isPremium});
+
+  @override
+  State<PubliciteBanner> createState() => _PubliciteBannerState();
+}
+
+class _PubliciteBannerState extends State<PubliciteBanner> {
+  BannerAd? _ad;
+  bool _loaded = false;
+  bool _failed = false;
+  late final bool _premium;
+
+  @override
+  void initState() {
+    super.initState();
+    _premium = widget.isPremium ??
+        (AuthService.instance.currentUser?.isPremiumActif ?? false);
+    if (!_premium) {
+      _ad = AdsService.instance.createBannerAd(
+        onLoaded: () {
+          if (mounted) setState(() => _loaded = true);
+        },
+        onFailed: () {
+          if (mounted) {
+            setState(() {
+              _failed = true;
+              _ad = null;
+            });
+          }
+        },
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _ad?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      height: 60,
-      decoration: BoxDecoration(
-        color: AppColors.primaryLight,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 12),
-          const Icon(Icons.campaign_outlined, color: AppColors.primary),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Publicite', style: TextStyle(fontSize: 10, color: AppColors.textHint)),
-                Text(
-                  'Votre annonce ici · Contactez-nous',
-                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          TextButton(
-            onPressed: () {},
-            child: const Text('En savoir +', style: TextStyle(fontSize: 12)),
-          ),
-        ],
-      ),
+    // Premium ou échec de chargement → aucune pub.
+    if (_premium || _failed) return const SizedBox.shrink();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(AppLocalizations.of(context).t('common_ad'),
+              style: const TextStyle(fontSize: 10, color: AppColors.textHint)),
+        ),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          height: 50,
+          alignment: Alignment.center,
+          color: _loaded ? null : Colors.grey.shade200,
+          child: (_loaded && _ad != null)
+              ? SizedBox(
+                  width: _ad!.size.width.toDouble(),
+                  height: 50,
+                  child: AdWidget(ad: _ad!),
+                )
+              : const SizedBox(height: 50),
+        ),
+      ],
     );
   }
 }
@@ -547,20 +598,56 @@ class MainBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
   final bool isPrestataire;
+  final bool isAdmin;
 
   const MainBottomNav({
     super.key,
     required this.currentIndex,
     required this.onTap,
     this.isPrestataire = false,
+    this.isAdmin = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF1E293B) : Colors.white;
     final selectedColor = AppColors.primary;
     final unselectedColor = isDark ? const Color(0xFF94A3B8) : AppColors.textSecondary;
+
+    // ─── Admin : Accueil | Carte | Favoris | Admin ───────────────
+    if (isAdmin) {
+      return BottomNavigationBar(
+        currentIndex: currentIndex,
+        onTap: onTap,
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: bgColor,
+        selectedItemColor: selectedColor,
+        unselectedItemColor: unselectedColor,
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 11),
+        elevation: 12,
+        items: [
+          BottomNavigationBarItem(
+              icon: const Icon(Icons.home_outlined),
+              activeIcon: const Icon(Icons.home),
+              label: l.t('nav_accueil')),
+          BottomNavigationBarItem(
+              icon: const Icon(Icons.map_outlined),
+              activeIcon: const Icon(Icons.map),
+              label: l.t('nav_carte')),
+          BottomNavigationBarItem(
+              icon: const Icon(Icons.favorite_outline),
+              activeIcon: const Icon(Icons.favorite),
+              label: l.t('nav_favoris')),
+          BottomNavigationBarItem(
+              icon: const Icon(Icons.shield_outlined),
+              activeIcon: const Icon(Icons.shield),
+              label: l.t('nav_admin')),
+        ],
+      );
+    }
 
     // ─── Prestataire : 4 onglets (Messages dans le Dashboard) ────
     if (isPrestataire) {
@@ -574,26 +661,26 @@ class MainBottomNav extends StatelessWidget {
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
         unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 11),
         elevation: 12,
-        items: const [
+        items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: 'Accueil',
+            icon: const Icon(Icons.home_outlined),
+            activeIcon: const Icon(Icons.home),
+            label: l.t('nav_accueil'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.map_outlined),
-            activeIcon: Icon(Icons.map),
-            label: 'Carte',
+            icon: const Icon(Icons.map_outlined),
+            activeIcon: const Icon(Icons.map),
+            label: l.t('nav_carte'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.favorite_outline),
-            activeIcon: Icon(Icons.favorite),
-            label: 'Favoris',
+            icon: const Icon(Icons.favorite_outline),
+            activeIcon: const Icon(Icons.favorite),
+            label: l.t('nav_favoris'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard_outlined),
-            activeIcon: Icon(Icons.dashboard),
-            label: 'Dashboard',
+            icon: const Icon(Icons.dashboard_outlined),
+            activeIcon: const Icon(Icons.dashboard),
+            label: l.t('nav_dashboard'),
           ),
         ],
       );
@@ -610,26 +697,26 @@ class MainBottomNav extends StatelessWidget {
       selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
       unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 11),
       elevation: 12,
-      items: const [
+      items: [
         BottomNavigationBarItem(
-          icon: Icon(Icons.home_outlined),
-          activeIcon: Icon(Icons.home),
-          label: 'Accueil',
+          icon: const Icon(Icons.home_outlined),
+          activeIcon: const Icon(Icons.home),
+          label: l.t('nav_accueil'),
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.map_outlined),
-          activeIcon: Icon(Icons.map),
-          label: 'Carte',
+          icon: const Icon(Icons.map_outlined),
+          activeIcon: const Icon(Icons.map),
+          label: l.t('nav_carte'),
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.favorite_outline),
-          activeIcon: Icon(Icons.favorite),
-          label: 'Favoris',
+          icon: const Icon(Icons.favorite_outline),
+          activeIcon: const Icon(Icons.favorite),
+          label: l.t('nav_favoris'),
         ),
         BottomNavigationBarItem(
-          icon: Icon(Icons.person_outline),
-          activeIcon: Icon(Icons.person),
-          label: 'Profil',
+          icon: const Icon(Icons.person_outline),
+          activeIcon: const Icon(Icons.person),
+          label: l.t('nav_profil'),
         ),
       ],
     );

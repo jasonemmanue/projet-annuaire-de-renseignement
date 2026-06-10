@@ -3,6 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/logement_service.dart';
 import '../services/geolocation_service.dart';
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import 'detail_logement_screen.dart';
@@ -37,7 +38,7 @@ class _CarteScreenState extends State<CarteScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Explorer la carte'),
+        title: Text(AppLocalizations.of(context).t('carte_title')),
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),
@@ -92,7 +93,7 @@ class _CarteScreenState extends State<CarteScreen> {
                   icon: _isLocating ? Icons.gps_fixed : Icons.gps_not_fixed,
                   onTap: _localiserUtilisateur,
                   color: _isLocating ? AppColors.primary : Colors.white,
-                  iconColor: _isLocating ? Colors.white : AppColors.textPrimary,
+                  iconColor: _isLocating ? Colors.white : context.appTextPrimary,
                 ),
                 const SizedBox(height: 8),
                 _MapButton(icon: Icons.add, onTap: () {/* Zoom + */}),
@@ -168,7 +169,7 @@ class _CarteScreenState extends State<CarteScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Distance maximale', style: AppTextStyles.h3),
+            Text(AppLocalizations.of(context).t('carte_max_distance'), style: AppTextStyles.h3),
             const SizedBox(height: 16),
             ...['500 m', '1 km', '5 km', '10 km'].asMap().entries.map((e) {
               final vals = [0.5, 1.0, 5.0, 10.0];
@@ -217,7 +218,7 @@ class _PlaceholderCarte extends StatelessWidget {
               children: [
                 const Icon(Icons.map, size: 48, color: AppColors.textHint),
                 const SizedBox(height: 8),
-                const Text('Carte Google Maps', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                Text('Carte Google Maps', style: TextStyle(color: context.appTextSecondary, fontWeight: FontWeight.w600)),
                 const Text('Intégrez google_maps_flutter', style: TextStyle(color: AppColors.textHint, fontSize: 12)),
                 const SizedBox(height: 24),
               ],
@@ -357,7 +358,7 @@ class _FiltreDistanceWidget extends StatelessWidget {
               child: Text(
                 labels[e.key],
                 style: TextStyle(
-                  color: selected ? Colors.white : AppColors.textSecondary,
+                  color: selected ? Colors.white : context.appTextSecondary,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
@@ -377,13 +378,13 @@ class _MapButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final Color color;
-  final Color iconColor;
+  final Color? iconColor;
 
   const _MapButton({
     required this.icon,
     required this.onTap,
     this.color = Colors.white,
-    this.iconColor = AppColors.textPrimary,
+    this.iconColor,
   });
 
   @override
@@ -397,7 +398,7 @@ class _MapButton extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 6)],
       ),
-      child: Icon(icon, color: iconColor, size: 20),
+      child: Icon(icon, color: iconColor ?? context.appTextPrimary, size: 20),
     ),
   );
 }
@@ -418,10 +419,11 @@ class _FicheResume extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primaryLight = context.appPrimaryLight;
     return Container(
       margin: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.appSurface,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 12, offset: const Offset(0, -2))],
       ),
@@ -437,8 +439,8 @@ class _FicheResume extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                   child: logement.photos.isNotEmpty
                       ? Image.network(logement.photos.first, width: 80, height: 80, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(width: 80, height: 80, color: AppColors.primaryLight, child: const Icon(Icons.home, color: AppColors.primary)))
-                      : Container(width: 80, height: 80, color: AppColors.primaryLight, child: const Icon(Icons.home, color: AppColors.primary)),
+                      errorBuilder: (_, __, ___) => Container(width: 80, height: 80, color: primaryLight, child: const Icon(Icons.home, color: AppColors.primary)))
+                      : Container(width: 80, height: 80, color: primaryLight, child: const Icon(Icons.home, color: AppColors.primary)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -467,7 +469,7 @@ class _FicheResume extends StatelessWidget {
             child: ElevatedButton(
               onPressed: onVoirDetail,
               style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 44)),
-              child: const Text('Voir le détail'),
+              child: Text(AppLocalizations.of(context).t('carte_see_detail')),
             ),
           ),
         ],

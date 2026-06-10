@@ -2,6 +2,7 @@
 // FICHIER : lib/models/models.dart
 // Modèle principal - Bien immobilier
 // ============================================================
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class Logement {
   final String id;
@@ -10,6 +11,7 @@ class Logement {
   final double prix;         // en XAF
   final String typeLocation; // 'location' | 'vente'
   final String typeBien;    // 'studio' | 'F2' | 'F3' | 'villa' | 'terrain'
+  final String grade;       // 'standards' | 'haut_standing' | 'meubles' | 'a_louer'
   final String ville;
   final String quartier;
   final double latitude;
@@ -28,6 +30,9 @@ class Logement {
   final int nbVues;
   final bool disponible;
   final String? documentPdf; // URL PDF si présent
+  final DateTime? sponsoredUntil; // fin de la sponsorisation (null si non sponsorisé)
+  final String? heureOuverture;  // Format 'HH:MM' — pharmacies/restaurants
+  final String? heureFermeture;  // Format 'HH:MM'
 
   const Logement({
     required this.id,
@@ -36,6 +41,7 @@ class Logement {
     required this.prix,
     required this.typeLocation,
     required this.typeBien,
+    this.grade = 'standards',
     required this.ville,
     required this.quartier,
     required this.latitude,
@@ -54,7 +60,29 @@ class Logement {
     required this.nbVues,
     required this.disponible,
     this.documentPdf,
+    this.sponsoredUntil,
+    this.heureOuverture,
+    this.heureFermeture,
   });
+
+  bool get estOuvertMaintenant {
+    if (heureOuverture == null || heureFermeture == null) return true;
+    final now = DateTime.now();
+    final nowM = now.hour * 60 + now.minute;
+    final ouv = _parseHeure(heureOuverture!);
+    final ferm = _parseHeure(heureFermeture!);
+    if (ouv == null || ferm == null) return true;
+    return nowM >= ouv && nowM <= ferm;
+  }
+
+  static int? _parseHeure(String h) {
+    final parts = h.split(':');
+    if (parts.length != 2) return null;
+    final hr = int.tryParse(parts[0]);
+    final min = int.tryParse(parts[1]);
+    if (hr == null || min == null) return null;
+    return hr * 60 + min;
+  }
 
   // Formatage prix en XAF avec séparateur
   String get prixFormate {
@@ -78,6 +106,7 @@ class Logement {
     prix: (map['prix'] as num?)?.toDouble() ?? 0,
     typeLocation: map['typeLocation'] ?? 'location',
     typeBien: map['typeBien'] ?? 'Studio',
+    grade: map['grade'] ?? 'standards',
     ville: map['ville'] ?? '',
     quartier: map['quartier'] ?? '',
     latitude: (map['latitude'] as num?)?.toDouble() ?? 0,
@@ -98,6 +127,11 @@ class Logement {
     nbVues: (map['vues'] as num?)?.toInt() ?? 0,
     disponible: map['disponible'] ?? true,
     documentPdf: map['documentPdf'],
+    sponsoredUntil: map['sponsoredUntil'] is Timestamp
+        ? (map['sponsoredUntil'] as Timestamp).toDate()
+        : null,
+    heureOuverture: map['heureOuverture'],
+    heureFermeture: map['heureFermeture'],
   );
 
   factory Logement.fromJson(Map<String, dynamic> json) => Logement(
@@ -107,6 +141,7 @@ class Logement {
     prix: (json['prix'] as num).toDouble(),
     typeLocation: json['typeLocation'],
     typeBien: json['typeBien'],
+    grade: json['grade'] ?? 'standards',
     ville: json['ville'],
     quartier: json['quartier'],
     latitude: (json['latitude'] as num).toDouble(),
@@ -125,6 +160,11 @@ class Logement {
     nbVues: json['nbVues'],
     disponible: json['disponible'],
     documentPdf: json['documentPdf'],
+    sponsoredUntil: json['sponsoredUntil'] != null
+        ? DateTime.tryParse(json['sponsoredUntil'])
+        : null,
+    heureOuverture: json['heureOuverture'],
+    heureFermeture: json['heureFermeture'],
   );
 
   Map<String, dynamic> toJson() => {
@@ -134,6 +174,7 @@ class Logement {
     'prix': prix,
     'typeLocation': typeLocation,
     'typeBien': typeBien,
+    'grade': grade,
     'ville': ville,
     'quartier': quartier,
     'latitude': latitude,
@@ -152,6 +193,9 @@ class Logement {
     'nbVues': nbVues,
     'disponible': disponible,
     'documentPdf': documentPdf,
+    'sponsoredUntil': sponsoredUntil?.toIso8601String(),
+    'heureOuverture': heureOuverture,
+    'heureFermeture': heureFermeture,
   };
 }
 
@@ -338,4 +382,84 @@ class FiltreRecherche {
       ville != null || quartier != null || typeBien != null ||
           typeLocation != null || prixMin != null || prixMax != null ||
           surfaceMin != null || nbPiecesMin != null || seulementVerifies;
+}
+// ============================================================
+// MODÈLE : SignalementModel (§ bouton Signaler)
+// ============================================================
+
+class SignalementModel {
+  final String? id;              // null avant écriture Firestore
+  final String logementId;
+  final String logementTitre;
+  final String motif;            // motif sélectionné parmi les 6 options
+  final String? motifLibre;      // rempli seulement si motif == "Autre (préciser)"
+  final String signalePar;       // uid Firebase OU identifiant visiteur local
+  final String signaleParType;   // 'visiteur' | 'prestataire'
+  final DateTime dateSignalement;
+  final String statut;           // 'en_attente' | 'traite' | 'rejete'
+
+  const SignalementModel({
+    this.id,
+    required this.logementId,
+    required this.logementTitre,
+    required this.motif,
+    this.motifLibre,
+    required this.signalePar,
+    required this.signaleParType,
+    required this.dateSignalement,
+    this.statut = 'en_attente',
+  });
+
+  // ── Sérialisation vers Firestore ─────────────────────────────
+  Map<String, dynamic> toMap() => {
+        'logementId': logementId,
+        'logementTitre': logementTitre,
+        'motif': motif,
+        if (motifLibre != null && motifLibre!.isNotEmpty)
+          'motifLibre': motifLibre,
+        'signalePar': signalePar,
+        'signaleParType': signaleParType,
+        'dateSignalement': Timestamp.fromDate(dateSignalement),
+        'statut': statut,
+      };
+
+  // ── Désérialisation depuis Firestore ─────────────────────────
+  factory SignalementModel.fromMap(String docId, Map<String, dynamic> map) =>
+      SignalementModel(
+        id: docId,
+        logementId: map['logementId'] ?? '',
+        logementTitre: map['logementTitre'] ?? '',
+        motif: map['motif'] ?? '',
+        motifLibre: map['motifLibre'],
+        signalePar: map['signalePar'] ?? '',
+        signaleParType: map['signaleParType'] ?? 'visiteur',
+        dateSignalement: map['dateSignalement'] != null
+            ? (map['dateSignalement'] as Timestamp).toDate()
+            : DateTime.now(),
+        statut: map['statut'] ?? 'en_attente',
+      );
+
+  // ── Copie avec modification ───────────────────────────────────
+  SignalementModel copyWith({
+    String? id,
+    String? logementId,
+    String? logementTitre,
+    String? motif,
+    String? motifLibre,
+    String? signalePar,
+    String? signaleParType,
+    DateTime? dateSignalement,
+    String? statut,
+  }) =>
+      SignalementModel(
+        id: id ?? this.id,
+        logementId: logementId ?? this.logementId,
+        logementTitre: logementTitre ?? this.logementTitre,
+        motif: motif ?? this.motif,
+        motifLibre: motifLibre ?? this.motifLibre,
+        signalePar: signalePar ?? this.signalePar,
+        signaleParType: signaleParType ?? this.signaleParType,
+        dateSignalement: dateSignalement ?? this.dateSignalement,
+        statut: statut ?? this.statut,
+      );
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../app_controller.dart';
+import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import 'auth/login_screen.dart';
@@ -22,17 +23,26 @@ class ProfilScreen extends StatefulWidget {
 }
 
 class _ProfilScreenState extends State<ProfilScreen> {
-  // Préférences utilisateur
   bool _notifNouvellesAnnonces = true;
   bool _notifMessages = true;
   bool _notifAlertesPrix = false;
-  String _langue = 'Français';
-  bool _modeSombre = false;
+  late String _langue;
+  late bool _modeSombre;
+
+  @override
+  void initState() {
+    super.initState();
+    _modeSombre = AppController.instance.isDark;
+    _langue = AppController.instance.locale.languageCode == 'en'
+        ? 'English'
+        : 'Français';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Profil & Paramètres')),
+      appBar: AppBar(title: Text(l.t('profil_title'))),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -47,18 +57,18 @@ class _ProfilScreenState extends State<ProfilScreen> {
             // ─── BLOC CONNEXION (si non prestataire) ────────────
             if (!widget.isPrestataire)
               _Section(
-                title: 'Compte prestataire',
+                title: l.t('profil_prestataire_account'),
                 children: [
                   _OptionTile(
                     icon: Icons.home_work_outlined,
-                    label: 'Publier un bien immobilier',
-                    sublabel: 'Créez un compte prestataire gratuit',
+                    label: l.t('profil_publish'),
+                    sublabel: l.t('profil_publish_sub'),
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen(isInscription: true))),
                   ),
                   _OptionTile(
                     icon: Icons.login,
-                    label: 'Se connecter',
-                    sublabel: 'Déjà prestataire ? Connectez-vous',
+                    label: l.t('profil_login'),
+                    sublabel: l.t('profil_login_sub'),
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen())),
                   ),
                 ],
@@ -67,14 +77,14 @@ class _ProfilScreenState extends State<ProfilScreen> {
             // ─── INFORMATIONS PERSONNELLES (prestataires) ───────
             if (widget.isPrestataire && widget.utilisateur != null)
               _Section(
-                title: 'Mes informations',
+                title: l.t('profil_my_info'),
                 children: [
                   _InfoTile(label: 'Nom', value: widget.utilisateur!.nomComplet),
                   _InfoTile(label: 'Email', value: widget.utilisateur!.email),
                   _InfoTile(label: 'Téléphone', value: widget.utilisateur!.telephone),
                   _OptionTile(
                     icon: Icons.edit_outlined,
-                    label: 'Modifier mes informations',
+                    label: l.t('profil_edit'),
                     onTap: () => _modifierProfil(context),
                   ),
                 ],
@@ -82,15 +92,15 @@ class _ProfilScreenState extends State<ProfilScreen> {
 
             // ─── LANGUE (§4.1.7 FR/EN) ──────────────────────────
             _Section(
-              title: 'Langue / Language',
+              title: l.t('profil_language_section'),
               children: [
                 ListTile(
                   leading: Container(
                     width: 36, height: 36,
-                    decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(8)),
+                    decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
                     child: const Icon(Icons.language, color: AppColors.primary, size: 20),
                   ),
-                  title: const Text('Langue', style: AppTextStyles.bodyLarge),
+                  title: Text(l.t('profil_language'), style: AppTextStyles.bodyLarge),
                   subtitle: Text(_langue, style: AppTextStyles.bodyMedium),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                   onTap: () => _choisirLangue(context),
@@ -100,16 +110,19 @@ class _ProfilScreenState extends State<ProfilScreen> {
 
             // ─── APPARENCE ───────────────────────────────────────
             _Section(
-              title: 'Apparence',
+              title: l.t('profil_appearance'),
               children: [
                 SwitchListTile(
                   secondary: Container(
                     width: 36, height: 36,
-                    decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(8)),
+                    decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
                     child: Icon(_modeSombre ? Icons.dark_mode : Icons.light_mode, color: AppColors.primary, size: 20),
                   ),
-                  title: const Text('Mode sombre', style: AppTextStyles.bodyLarge),
-                  subtitle: Text(_modeSombre ? 'Activé' : 'Désactivé', style: AppTextStyles.bodyMedium),
+                  title: Text(l.t('profil_dark_mode'), style: AppTextStyles.bodyLarge),
+                  subtitle: Text(
+                    _modeSombre ? l.t('profil_enabled') : l.t('profil_disabled'),
+                    style: AppTextStyles.bodyMedium,
+                  ),
                   value: _modeSombre,
                   activeThumbColor: AppColors.primary,
                   onChanged: (v) {
@@ -123,12 +136,12 @@ class _ProfilScreenState extends State<ProfilScreen> {
 
             // ─── NOTIFICATIONS (§4.1.7 - par catégorie) ─────────
             _Section(
-              title: 'Notifications',
+              title: l.t('profil_notifs'),
               children: [
                 SwitchListTile(
                   secondary: const _NotifIcon(icon: Icons.home_outlined),
-                  title: const Text('Nouvelles annonces', style: AppTextStyles.bodyLarge),
-                  subtitle: const Text('Alertes pour les biens correspondant à vos critères', style: TextStyle(fontSize: 12)),
+                  title: Text(l.t('profil_new_listings'), style: AppTextStyles.bodyLarge),
+                  subtitle: Text(l.t('profil_new_listings_sub'), style: const TextStyle(fontSize: 12)),
                   value: _notifNouvellesAnnonces,
                   activeThumbColor: AppColors.primary,
                   onChanged: (v) => setState(() => _notifNouvellesAnnonces = v),
@@ -137,8 +150,8 @@ class _ProfilScreenState extends State<ProfilScreen> {
                 const Divider(indent: 68, height: 1),
                 SwitchListTile(
                   secondary: const _NotifIcon(icon: Icons.chat_bubble_outline),
-                  title: const Text('Messages', style: AppTextStyles.bodyLarge),
-                  subtitle: const Text('Nouveaux messages de prestataires', style: TextStyle(fontSize: 12)),
+                  title: Text(l.t('profil_messages_notif'), style: AppTextStyles.bodyLarge),
+                  subtitle: Text(l.t('profil_messages_notif_sub'), style: const TextStyle(fontSize: 12)),
                   value: _notifMessages,
                   activeThumbColor: AppColors.primary,
                   onChanged: (v) => setState(() => _notifMessages = v),
@@ -147,8 +160,8 @@ class _ProfilScreenState extends State<ProfilScreen> {
                 const Divider(indent: 68, height: 1),
                 SwitchListTile(
                   secondary: const _NotifIcon(icon: Icons.trending_down),
-                  title: const Text('Baisses de prix', style: AppTextStyles.bodyLarge),
-                  subtitle: const Text('Alertes quand un bien favori baisse de prix', style: TextStyle(fontSize: 12)),
+                  title: Text(l.t('profil_price_alerts'), style: AppTextStyles.bodyLarge),
+                  subtitle: Text(l.t('profil_price_alerts_sub'), style: const TextStyle(fontSize: 12)),
                   value: _notifAlertesPrix,
                   activeThumbColor: AppColors.primary,
                   onChanged: (v) => setState(() => _notifAlertesPrix = v),
@@ -159,35 +172,35 @@ class _ProfilScreenState extends State<ProfilScreen> {
 
             // ─── À PROPOS ────────────────────────────────────────
             _Section(
-              title: 'Informations',
+              title: l.t('profil_info_section'),
               children: [
                 _OptionTile(
                   icon: Icons.help_outline,
-                  label: 'Aide & FAQ',
+                  label: l.t('profil_help'),
                   onTap: () {},
                 ),
                 _OptionTile(
                   icon: Icons.privacy_tip_outlined,
-                  label: 'Politique de confidentialité',
+                  label: l.t('profil_privacy'),
                   onTap: () {},
                 ),
                 _OptionTile(
                   icon: Icons.description_outlined,
-                  label: 'Conditions d\'utilisation',
+                  label: l.t('profil_terms'),
                   onTap: () {},
                 ),
                 _OptionTile(
                   icon: Icons.star_outline,
-                  label: 'Évaluer l\'application',
+                  label: l.t('profil_rate'),
                   onTap: () {},
                 ),
                 ListTile(
                   leading: Container(
                     width: 36, height: 36,
-                    decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(8)),
+                    decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
                     child: const Icon(Icons.info_outline, color: AppColors.primary, size: 20),
                   ),
-                  title: const Text('Version', style: AppTextStyles.bodyLarge),
+                  title: Text(l.t('profil_version_label'), style: AppTextStyles.bodyLarge),
                   trailing: const Text('1.0.0 MVP', style: AppTextStyles.caption),
                 ),
               ],
@@ -196,18 +209,18 @@ class _ProfilScreenState extends State<ProfilScreen> {
             // ─── ACTIONS COMPTE ──────────────────────────────────
             if (widget.isPrestataire) ...[
               _Section(
-                title: 'Compte',
+                title: l.t('profil_account_section'),
                 children: [
                   _OptionTile(
                     icon: Icons.logout,
-                    label: 'Se déconnecter',
+                    label: l.t('profil_logout'),
                     onTap: () => _confirmerDeconnexion(context),
                     color: AppColors.error,
                   ),
                   _OptionTile(
                     icon: Icons.delete_forever_outlined,
-                    label: 'Supprimer mon compte',
-                    sublabel: 'Action irréversible',
+                    label: l.t('profil_delete_account'),
+                    sublabel: l.t('profil_delete_sub'),
                     onTap: () => _confirmerSuppression(context),
                     color: AppColors.error,
                   ),
@@ -223,6 +236,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
   }
 
   void _choisirLangue(BuildContext context) {
+    final l = AppLocalizations.of(context);
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
@@ -231,7 +245,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(padding: EdgeInsets.all(16), child: Text('Choisir la langue', style: AppTextStyles.h3)),
+            Padding(padding: const EdgeInsets.all(16), child: Text(l.t('profil_choose_language'), style: AppTextStyles.h3)),
             const Divider(),
             ListTile(
               leading: const Text('🇫🇷', style: TextStyle(fontSize: 24)),
@@ -265,13 +279,14 @@ class _ProfilScreenState extends State<ProfilScreen> {
   }
 
   void _confirmerDeconnexion(BuildContext context) {
+    final l = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Se déconnecter ?'),
-        content: const Text('Vous devrez vous reconnecter pour accéder à votre espace prestataire.'),
+        title: Text(l.t('profil_logout_confirm_title')),
+        content: Text(l.t('profil_logout_confirm_body')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(l.t('common_cancel'))),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
@@ -281,7 +296,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
               );
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: const Text('Déconnecter'),
+            child: Text(l.t('profil_logout_action')),
           ),
         ],
       ),
@@ -289,17 +304,18 @@ class _ProfilScreenState extends State<ProfilScreen> {
   }
 
   void _confirmerSuppression(BuildContext context) {
+    final l = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Supprimer le compte ?'),
-        content: const Text('Toutes vos annonces seront supprimées définitivement. Cette action est irréversible.'),
+        title: Text(l.t('profil_delete_confirm_title')),
+        content: Text(l.t('profil_delete_confirm_body')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(l.t('common_cancel'))),
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: const Text('Supprimer définitivement'),
+            child: Text(l.t('profil_delete_confirm_action')),
           ),
         ],
       ),
@@ -341,7 +357,7 @@ class _EnteteProfil extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            utilisateur != null ? utilisateur!.nomComplet : 'Visiteur',
+            utilisateur != null ? utilisateur!.nomComplet : AppLocalizations.of(context).t('profil_visitor'),
             style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
           ),
           if (utilisateur != null)
@@ -352,14 +368,14 @@ class _EnteteProfil extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (utilisateur?.estVerifie == true)
-                  _Badge(label: '✓ Vérifié', bg: Colors.white, fg: AppColors.primary),
+                  const _Badge(label: '✓ Vérifié', bg: Colors.white, fg: AppColors.primary),
                 const SizedBox(width: 8),
                 if (utilisateur?.estPremium == true)
-                  _Badge(label: '★ Premium', bg: AppColors.accent, fg: Colors.black),
+                  const _Badge(label: '★ Premium', bg: AppColors.accent, fg: Colors.black),
               ],
             )
           else
-            const _Badge(label: 'Mode visiteur · Sans compte', bg: Colors.white24, fg: Colors.white),
+            _Badge(label: AppLocalizations.of(context).t('profil_visitor_badge'), bg: Colors.white24, fg: Colors.white),
         ],
       ),
     );
@@ -471,7 +487,7 @@ class _NotifIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: 36, height: 36,
-    decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(8)),
+    decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
     child: Icon(icon, color: AppColors.primary, size: 20),
   );
 }
@@ -484,8 +500,9 @@ class _ModificationProfilScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Modifier mon profil')),
+      appBar: AppBar(title: Text(l.t('profil_edit_title'))),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -502,7 +519,7 @@ class _ModificationProfilScreen extends StatelessWidget {
             ElevatedButton(
               onPressed: () => Navigator.pop(context),
               style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-              child: const Text('Enregistrer'),
+              child: Text(l.t('common_save')),
             ),
           ],
         ),

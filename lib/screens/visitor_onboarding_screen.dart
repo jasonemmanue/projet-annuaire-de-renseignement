@@ -187,7 +187,7 @@ class _NamePage extends StatelessWidget {
             width: 72,
             height: 72,
             decoration: BoxDecoration(
-              color: AppColors.primaryLight,
+              color: context.appPrimaryLight,
               borderRadius: BorderRadius.circular(20),
             ),
             child: const Icon(Icons.waving_hand_rounded,
@@ -201,9 +201,7 @@ class _NamePage extends StatelessWidget {
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w800,
-              color: isDark
-                  ? AppColors.darkTextPrimary
-                  : AppColors.textPrimary,
+              color: context.appTextPrimary,
             ),
           ),
 
@@ -213,9 +211,7 @@ class _NamePage extends StatelessWidget {
             l10n.onboardingSubtitle,
             style: TextStyle(
               fontSize: 15,
-              color: isDark
-                  ? AppColors.darkTextSecondary
-                  : AppColors.textSecondary,
+              color: context.appTextSecondary,
               height: 1.5,
             ),
           ),
@@ -227,9 +223,7 @@ class _NamePage extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: isDark
-                  ? AppColors.darkTextPrimary
-                  : AppColors.textPrimary,
+              color: context.appTextPrimary,
             ),
           ),
 
@@ -371,9 +365,7 @@ class _FeaturesPage extends StatelessWidget {
             style: TextStyle(
               fontSize: 26,
               fontWeight: FontWeight.w800,
-              color: isDark
-                  ? AppColors.darkTextPrimary
-                  : AppColors.textPrimary,
+              color: context.appTextPrimary,
             ),
           ),
 
@@ -383,9 +375,7 @@ class _FeaturesPage extends StatelessWidget {
             l10n.onboardingFeaturesTitle,
             style: TextStyle(
               fontSize: 15,
-              color: isDark
-                  ? AppColors.darkTextSecondary
-                  : AppColors.textSecondary,
+              color: context.appTextSecondary,
             ),
           ),
 
