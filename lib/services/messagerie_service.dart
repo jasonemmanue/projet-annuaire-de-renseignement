@@ -3,6 +3,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'notification_service.dart';
 import 'auth_service.dart';
+import '../models/models.dart';
 
 class MessagerieService {
   static final _db = FirebaseFirestore.instance;
@@ -126,6 +127,7 @@ class MessagerieService {
     required String senderId,
     required String text,
     required String recipientId,
+    ReplyTo? replyTo,
   }) async {
     final batch = _db.batch();
 
@@ -141,6 +143,7 @@ class MessagerieService {
       'type': 'text',
       'timestamp': FieldValue.serverTimestamp(),
       'isRead': false,
+      if (replyTo != null) 'replyTo': replyTo.toMap(),
     });
 
     batch.update(

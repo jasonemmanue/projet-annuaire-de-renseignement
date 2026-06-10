@@ -95,7 +95,7 @@ class Logement {
 
   // Sous-titre prix pour location
   String get prixLabel =>
-      typeLocation == 'location' ? '${prixFormate}/mois' : prixFormate;
+      typeLocation == 'location' ? '$prixFormate/mois' : prixFormate;
 
 
   // ── Firestore ────────────────────────────────────────────
@@ -253,16 +253,43 @@ class Utilisateur {
 // Modèle Message pour le chat (§4.1.5)
 // ============================================================
 
+// Citation d'un message parent (réponse)
+class ReplyTo {
+  final String messageId;
+  final String extrait;
+  final String senderId;
+
+  const ReplyTo({
+    required this.messageId,
+    required this.extrait,
+    required this.senderId,
+  });
+
+  factory ReplyTo.fromMap(Map<String, dynamic> map) => ReplyTo(
+    messageId: map['messageId'] as String? ?? '',
+    extrait: map['extrait'] as String? ?? '',
+    senderId: map['senderId'] as String? ?? '',
+  );
+
+  Map<String, dynamic> toMap() => {
+    'messageId': messageId,
+    'extrait': extrait,
+    'senderId': senderId,
+  };
+}
+
 class Message {
   final String id;
   final String conversationId;
   final String expediteurId;
   final String? texte;
   final String? photoUrl;
+  final String? videoUrl;
   final String? fichierUrl;
   final DateTime dateEnvoi;
   final bool estLu;
-  final String type; // 'texte' | 'photo' | 'fichier'
+  final String type; // 'texte' | 'photo' | 'video' | 'fichier'
+  final ReplyTo? replyTo;
 
   const Message({
     required this.id,
@@ -270,10 +297,12 @@ class Message {
     required this.expediteurId,
     this.texte,
     this.photoUrl,
+    this.videoUrl,
     this.fichierUrl,
     required this.dateEnvoi,
     required this.estLu,
     required this.type,
+    this.replyTo,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
@@ -282,10 +311,14 @@ class Message {
     expediteurId: json['expediteurId'],
     texte: json['texte'],
     photoUrl: json['photoUrl'],
+    videoUrl: json['videoUrl'],
     fichierUrl: json['fichierUrl'],
     dateEnvoi: DateTime.parse(json['dateEnvoi']),
     estLu: json['estLu'],
     type: json['type'],
+    replyTo: json['replyTo'] != null
+        ? ReplyTo.fromMap(json['replyTo'] as Map<String, dynamic>)
+        : null,
   );
 }
 

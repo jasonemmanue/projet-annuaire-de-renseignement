@@ -21,6 +21,7 @@ import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
 import 'dart:io';
 import '../l10n/app_localizations.dart';
+import '../models/models.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/messagerie_service.dart';
@@ -478,6 +479,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _isUploading = false;
   late List<String> _myUids;
+  ReplyTo? _pendingReply;
 
   @override
   void initState() {
@@ -512,10 +514,15 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  void _setReply(ReplyTo reply) => setState(() => _pendingReply = reply);
+  void _clearReply() => setState(() => _pendingReply = null);
+
   Future<void> _envoyerMessage() async {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
     _msgController.clear();
+    final replyTo = _pendingReply;
+    _clearReply();
 
     // [ANALYTICS] Détecter le 1er message de la conversation
     // On vérifie AVANT l'envoi si la collection messages est vide.
@@ -550,6 +557,7 @@ class _ChatScreenState extends State<ChatScreen> {
       senderId: widget.currentUid,
       text: text,
       recipientId: widget.otherId,
+      replyTo: replyTo,
     );
     _scrollToBottom();
   }
@@ -833,24 +841,49 @@ class _ChatScreenState extends State<ChatScreen> {
                           timestamp,
                         );
 
+                    final replyRaw = data['replyTo']
+                        as Map<String, dynamic>?;
+                    final replyTo = replyRaw != null
+                        ? ReplyTo.fromMap(replyRaw)
+                        : null;
+
+                    final text =
+                        data['text'] as String? ?? '';
+                    final extrait = text.length > 60
+                        ? '${text.substring(0, 60)}…'
+                        : text;
+
                     return Column(
                       children: [
                         if (showDate)
                           _DateSeparator(date: timestamp),
-                        _MessageBubble(
-                          text: data['text'] as String? ?? '',
-                          imageUrl:
-                              data['imageUrl'] as String?,
-                          videoUrl:
-                              data['videoUrl'] as String?,
-                          fileUrl:
-                              data['fileUrl'] as String?,
-                          fileName:
-                              data['fileName'] as String?,
-                          type: type,
-                          isMe: isMe,
-                          timestamp: timestamp,
-                          isRead: isRead,
+                        GestureDetector(
+                          onLongPress:
+                              widget.isCurrentUserPrestataire
+                                  ? () => _setReply(ReplyTo(
+                                        messageId: docs[i].id,
+                                        extrait: extrait.isNotEmpty
+                                            ? extrait
+                                            : '📎 Pièce jointe',
+                                        senderId: senderId,
+                                      ))
+                                  : null,
+                          child: _MessageBubble(
+                            text: text,
+                            imageUrl:
+                                data['imageUrl'] as String?,
+                            videoUrl:
+                                data['videoUrl'] as String?,
+                            fileUrl:
+                                data['fileUrl'] as String?,
+                            fileName:
+                                data['fileName'] as String?,
+                            type: type,
+                            isMe: isMe,
+                            timestamp: timestamp,
+                            isRead: isRead,
+                            replyTo: replyTo,
+                          ),
                         ),
                       ],
                     );
@@ -859,6 +892,9 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
+          if (_pendingReply != null)
+            _ReplyBanner(
+                reply: _pendingReply!, onClose: _clearReply),
           _SaisieBar(
             controller: _msgController,
             onSend: _envoyerMessage,
@@ -987,6 +1023,7 @@ class _MessageBubble extends StatelessWidget {
   final bool isMe;
   final DateTime timestamp;
   final bool isRead;
+  final ReplyTo? replyTo;
 
   const _MessageBubble({
     required this.text,
@@ -998,6 +1035,7 @@ class _MessageBubble extends StatelessWidget {
     this.videoUrl,
     this.fileUrl,
     this.fileName,
+    this.replyTo,
   });
 
   Future<void> _openUrl(BuildContext context, String url) async {
@@ -1044,6 +1082,40 @@ class _MessageBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            // Encart citation (réponse)
+            if (replyTo != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isMe
+                      ? Colors.white.withValues(alpha: 0.2)
+                      : AppColors.primary
+                          .withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border(
+                    left: BorderSide(
+                      color: isMe
+                          ? Colors.white
+                          : AppColors.primary,
+                      width: 3,
+                    ),
+                  ),
+                ),
+                child: Text(
+                  replyTo!.extrait,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    color: isMe
+                        ? Colors.white70
+                        : AppColors.textHint,
+                  ),
+                ),
+              ),
             if (type == 'image' && imageUrl != null)
               GestureDetector(
                 onTap: () => _openUrl(context, imageUrl!),
@@ -1122,6 +1194,60 @@ class _MessageBubble extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// BANNIÈRE DE RÉPONSE (au-dessus de la barre de saisie)
+// ============================================================
+class _ReplyBanner extends StatelessWidget {
+  final ReplyTo reply;
+  final VoidCallback onClose;
+  const _ReplyBanner({required this.reply, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: context.appPrimaryLight,
+      child: Row(
+        children: [
+          Container(
+              width: 3,
+              height: 36,
+              color: AppColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Répondre à',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary)),
+                Text(
+                  reply.extrait,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: context.appTextSecondary),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: onClose,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
       ),
     );
   }
