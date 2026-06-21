@@ -417,6 +417,68 @@ class FiltreRecherche {
           surfaceMin != null || nbPiecesMin != null || seulementVerifies;
 }
 // ============================================================
+// MODÈLE : Publicite — Publicités des prestataires
+// Collection Firestore : "publicites"
+// ============================================================
+
+class Publicite {
+  final String id;
+  final String prestataireId;
+  final String prestataireNom;
+  final String prestatairePhone;
+  final String? prestatairePhoto;
+  final String titre;
+  final String description;
+  final List<String> photos;
+  final String? videoUrl;
+  final DateTime dateCreation;
+  final bool actif;
+
+  const Publicite({
+    required this.id,
+    required this.prestataireId,
+    required this.prestataireNom,
+    required this.prestatairePhone,
+    this.prestatairePhoto,
+    required this.titre,
+    required this.description,
+    required this.photos,
+    this.videoUrl,
+    required this.dateCreation,
+    this.actif = true,
+  });
+
+  factory Publicite.fromMap(String docId, Map<String, dynamic> map) => Publicite(
+        id: docId,
+        prestataireId: map['prestataireId'] ?? '',
+        prestataireNom: map['prestataireNom'] ?? '',
+        prestatairePhone: map['prestatairePhone'] ?? '',
+        prestatairePhoto: map['prestatairePhoto'],
+        titre: map['titre'] ?? '',
+        description: map['description'] ?? '',
+        photos: List<String>.from(map['photos'] ?? []),
+        videoUrl: map['videoUrl'],
+        dateCreation: map['dateCreation'] is Timestamp
+            ? (map['dateCreation'] as Timestamp).toDate()
+            : DateTime.now(),
+        actif: map['actif'] ?? true,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'prestataireId': prestataireId,
+        'prestataireNom': prestataireNom,
+        'prestatairePhone': prestatairePhone,
+        if (prestatairePhoto != null) 'prestatairePhoto': prestatairePhoto,
+        'titre': titre,
+        'description': description,
+        'photos': photos,
+        if (videoUrl != null) 'videoUrl': videoUrl,
+        'dateCreation': Timestamp.fromDate(dateCreation),
+        'actif': actif,
+      };
+}
+
+// ============================================================
 // MODÈLE : SignalementModel (§ bouton Signaler)
 // ============================================================
 

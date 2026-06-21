@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import '../services/logement_service.dart';
 import '../services/geolocation_service.dart';
 import 'package:flutter/material.dart';
@@ -10,10 +11,11 @@ import 'detail_logement_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/carte_screen.dart
-// Écran 2 - Navigateur / Carte interactive (§4.1.2)
-// Google Maps avec marqueurs, clustering, géolocalisation,
-// filtre de distance, fiche résumé cliquable
+// #6 Carte réelle — filtrage rayon, cercle, >10 km, anti-chevauchement
 // ============================================================
+
+// Sentinelle « > 10 km » = pas de filtre de distance, pas de cercle.
+const double _kNoFilterSentinel = 999.0;
 
 class CarteScreen extends StatefulWidget {
   const CarteScreen({super.key});
@@ -27,19 +29,91 @@ class _CarteScreenState extends State<CarteScreen> {
   double _distanceFiltreKm = 5.0;
   bool _isLocating = false;
 
-  // Distances disponibles pour le filtre (§4.1.2)
-  final List<double> _distances = [0.5, 1.0, 5.0, 10.0];
+  final List<double> _distances = [0.5, 1.0, 5.0, 10.0, _kNoFilterSentinel];
 
   GoogleMapController? _mapController;
+
+  // Position GPS de l'utilisateur (pour le point bleu natif)
   LatLng? _positionUtilisateur;
+
+  // Centre du rayon de filtrage — null = aucun filtre actif, tous les logements affichés
+  LatLng? _centreFiltre;
+
   static const LatLng _yaoundeCenter = LatLng(3.8480, 11.5021);
+
+  // Le filtre n'est actif que si un centre a été sélectionné ET le rayon n'est pas sentinel
+  bool get _isFiltering =>
+      _centreFiltre != null && _distanceFiltreKm < _kNoFilterSentinel;
+
+  bool _dansLeRayon(Logement l) {
+    if (!_isFiltering) return true;
+    final distanceM = Geolocator.distanceBetween(
+      _centreFiltre!.latitude,
+      _centreFiltre!.longitude,
+      l.latitude,
+      l.longitude,
+    );
+    return distanceM <= _distanceFiltreKm * 1000;
+  }
+
+  Set<Marker> _buildMarkers(List<Logement> logements) {
+    final set = logements
+        .where((l) => l.latitude != 0 || l.longitude != 0)
+        .where(_dansLeRayon)
+        .map((l) => Marker(
+              markerId: MarkerId(l.id),
+              position: LatLng(l.latitude, l.longitude),
+              icon: l.estSponsorie
+                  ? BitmapDescriptor.defaultMarkerWithHue(
+                      BitmapDescriptor.hueOrange)
+                  : BitmapDescriptor.defaultMarker,
+              infoWindow: InfoWindow(title: l.titre, snippet: l.prixLabel),
+              onTap: () => setState(() => _logementSelectionne = l),
+            ))
+        .toSet();
+
+    // Marqueur épingle au centre du rayon (hors position GPS — déjà matérialisé par le point bleu)
+    if (_centreFiltre != null && _centreFiltre != _positionUtilisateur) {
+      set.add(Marker(
+        markerId: const MarkerId('_centre_rayon'),
+        position: _centreFiltre!,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+        infoWindow: const InfoWindow(title: 'Centre du rayon'),
+      ));
+    }
+
+    return set;
+  }
+
+  Set<Circle> _buildCircles() {
+    if (!_isFiltering) return const {};
+    return {
+      Circle(
+        circleId: const CircleId('rayon_filtre'),
+        center: _centreFiltre!,
+        radius: _distanceFiltreKm * 1000,
+        strokeWidth: 2,
+        strokeColor: AppColors.primary,
+        fillColor: AppColors.primary.withValues(alpha: 0.08),
+      ),
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final bottomOffset = _logementSelectionne != null ? 200.0 : 30.0;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(AppLocalizations.of(context).t('carte_title')),
+        title: Text(l.t('carte_title')),
         actions: [
+          if (_centreFiltre != null)
+            IconButton(
+              icon: const Icon(Icons.cancel_outlined),
+              tooltip: 'Effacer le rayon',
+              onPressed: () => setState(() => _centreFiltre = null),
+            ),
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: () => _afficherFiltreDistance(context),
@@ -50,95 +124,144 @@ class _CarteScreenState extends State<CarteScreen> {
         stream: LogementService.getLogements(),
         builder: (ctx, snap) {
           final logements = snap.hasData
-              ? snap.data!.docs.map((d) => Logement.fromMap(d.id, d.data() as Map<String, dynamic>)).toList()
+              ? snap.data!.docs
+                  .map((d) =>
+                      Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
+                  .toList()
               : <Logement>[];
 
-          final markers = logements.map((l) => Marker(
-            markerId: MarkerId(l.id),
-            position: LatLng(l.latitude, l.longitude),
-            infoWindow: InfoWindow(title: l.titre, snippet: l.prixLabel),
-            onTap: () => setState(() => _logementSelectionne = l),
-          )).toSet();
+          final markers = _buildMarkers(logements);
+          final circles = _buildCircles();
 
           return Stack(
             children: [
-              // ─── CARTE GOOGLE MAPS RÉELLE ────────────────────
+              // ─── CARTE GOOGLE MAPS ────────────────────────────
               GoogleMap(
-                initialCameraPosition: const CameraPosition(target: LatLng(3.8480, 11.5021), zoom: 12),
+                initialCameraPosition: const CameraPosition(
+                    target: _yaoundeCenter, zoom: 12),
                 onMapCreated: (ctrl) => _mapController = ctrl,
                 markers: markers,
+                circles: circles,
                 myLocationEnabled: _positionUtilisateur != null,
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: false,
+                // Tap sur la carte = définir le centre du rayon
+                onTap: (latlng) => setState(() => _centreFiltre = latlng),
               ),
 
-          // ─── FILTRE DISTANCE (§4.1.2) ─────────────────────────
-          Positioned(
-            top: 12,
-            left: 12,
-            child: _FiltreDistanceWidget(
-              distanceActuelle: _distanceFiltreKm,
-              distances: _distances,
-              onChanged: (d) => setState(() => _distanceFiltreKm = d),
-            ),
-          ),
-
-          // ─── BOUTON GÉOLOCALISATION (§4.1.2) ─────────────────
-          Positioned(
-            right: 12,
-            bottom: _logementSelectionne != null ? 200 : 30,
-            child: Column(
-              children: [
-                _MapButton(
-                  icon: _isLocating ? Icons.gps_fixed : Icons.gps_not_fixed,
-                  onTap: _localiserUtilisateur,
-                  color: _isLocating ? AppColors.primary : Colors.white,
-                  iconColor: _isLocating ? Colors.white : context.appTextPrimary,
+              // ─── FILTRE DISTANCE (haut-gauche) ───────────────
+              Positioned(
+                top: 12,
+                left: 12,
+                child: _FiltreDistanceWidget(
+                  distanceActuelle: _distanceFiltreKm,
+                  distances: _distances,
+                  onChanged: (d) => setState(() => _distanceFiltreKm = d),
                 ),
-                const SizedBox(height: 8),
-                _MapButton(icon: Icons.add, onTap: () {/* Zoom + */}),
-                const SizedBox(height: 4),
-                _MapButton(icon: Icons.remove, onTap: () {/* Zoom - */}),
-              ],
-            ),
-          ),
-
-          // ─── COMPTEUR LOGEMENTS ───────────────────────────────
-          Positioned(
-            top: 12,
-            right: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
               ),
-              child: Text(
-                'ImmoConnect',
-                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ),
 
-          // ─── FICHE RÉSUMÉ CLIQUABLE (§4.1.2) ─────────────────
-          if (_logementSelectionne != null)
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: _FicheResume(
-                logement: _logementSelectionne!,
-                onClose: () => setState(() => _logementSelectionne = null),
-                onVoirDetail: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DetailLogementScreen(logement: _logementSelectionne!),
+              // ─── HINT « appuyer sur la carte » si aucun centre ───
+              if (_centreFiltre == null)
+                Positioned(
+                  top: 60,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        l.t('carte_tap_to_set_center'),
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // ─── BOUTONS DROITE (GPS + zoom) ─────────────────
+              Positioned(
+                right: 12,
+                bottom: bottomOffset,
+                child: Column(
+                  children: [
+                    _MapButton(
+                      icon: _isLocating
+                          ? Icons.gps_fixed
+                          : Icons.gps_not_fixed,
+                      onTap: _localiserUtilisateur,
+                      color:
+                          _centreFiltre == _positionUtilisateur && _centreFiltre != null
+                              ? AppColors.primary
+                              : Colors.white,
+                      iconColor:
+                          _centreFiltre == _positionUtilisateur && _centreFiltre != null
+                              ? Colors.white
+                              : context.appTextPrimary,
+                    ),
+                    const SizedBox(height: 8),
+                    _MapButton(
+                        icon: Icons.add,
+                        onTap: () =>
+                            _mapController?.animateCamera(CameraUpdate.zoomIn())),
+                    const SizedBox(height: 4),
+                    _MapButton(
+                        icon: Icons.remove,
+                        onTap: () =>
+                            _mapController
+                                ?.animateCamera(CameraUpdate.zoomOut())),
+                  ],
+                ),
+              ),
+
+              // ─── BADGE IMMOCONNECT (bas-centre, discret) ─────
+              Positioned(
+                bottom: _logementSelectionne != null ? 195 : 8,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'ImmoConnect',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500),
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+
+              // ─── FICHE RÉSUMÉ CLIQUABLE ───────────────────────
+              if (_logementSelectionne != null)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _FicheResume(
+                    logement: _logementSelectionne!,
+                    onClose: () =>
+                        setState(() => _logementSelectionne = null),
+                    onVoirDetail: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DetailLogementScreen(
+                            logement: _logementSelectionne!),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           );
         },
       ),
@@ -151,7 +274,10 @@ class _CarteScreenState extends State<CarteScreen> {
       final pos = await GeolocationService.getCurrentPosition();
       if (pos != null && mounted) {
         final latlng = LatLng(pos.latitude, pos.longitude);
-        setState(() => _positionUtilisateur = latlng);
+        setState(() {
+          _positionUtilisateur = latlng;
+          _centreFiltre = latlng; // le cercle se centre sur ma position GPS
+        });
         _mapController?.animateCamera(CameraUpdate.newLatLngZoom(latlng, 14));
       }
     } finally {
@@ -160,26 +286,35 @@ class _CarteScreenState extends State<CarteScreen> {
   }
 
   void _afficherFiltreDistance(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final labels = [
+      '500 m',
+      '1 km',
+      '5 km',
+      '10 km',
+      l.t('carte_more_than_10km')
+    ];
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (_) => Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(AppLocalizations.of(context).t('carte_max_distance'), style: AppTextStyles.h3),
+            Text(l.t('carte_max_distance'), style: AppTextStyles.h3),
             const SizedBox(height: 16),
-            ...['500 m', '1 km', '5 km', '10 km'].asMap().entries.map((e) {
-              final vals = [0.5, 1.0, 5.0, 10.0];
+            ...List.generate(_distances.length, (i) {
+              final val = _distances[i];
               return ListTile(
-                title: Text(e.value),
-                trailing: _distanceFiltreKm == vals[e.key]
+                title: Text(labels[i]),
+                trailing: _distanceFiltreKm == val
                     ? const Icon(Icons.check_circle, color: AppColors.primary)
                     : null,
                 onTap: () {
-                  setState(() => _distanceFiltreKm = vals[e.key]);
+                  setState(() => _distanceFiltreKm = val);
                   Navigator.pop(context);
                 },
               );
@@ -190,131 +325,6 @@ class _CarteScreenState extends State<CarteScreen> {
       ),
     );
   }
-}
-
-// ----------------------------------------------------------
-// PLACEHOLDER CARTE (avant intégration Google Maps)
-// ----------------------------------------------------------
-class _PlaceholderCarte extends StatelessWidget {
-  final List<Logement> logements;
-  final ValueChanged<Logement> onMarkerTap;
-
-  const _PlaceholderCarte({required this.logements, required this.onMarkerTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: const Color(0xFFE8F0E9),
-      child: Stack(
-        children: [
-          // Grille simulant une carte
-          CustomPaint(painter: _GridPainter()),
-          // Centre - indicateur
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.map, size: 48, color: AppColors.textHint),
-                const SizedBox(height: 8),
-                Text('Carte Google Maps', style: TextStyle(color: context.appTextSecondary, fontWeight: FontWeight.w600)),
-                const Text('Intégrez google_maps_flutter', style: TextStyle(color: AppColors.textHint, fontSize: 12)),
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
-          // Marqueurs simulés
-          ...logements.asMap().entries.map((e) {
-            final positions = [
-              const Offset(0.35, 0.4), const Offset(0.6, 0.35),
-              const Offset(0.25, 0.6), const Offset(0.7, 0.55),
-            ];
-            final pos = positions[e.key % positions.length];
-            return Positioned(
-              left: MediaQuery.of(context).size.width * pos.dx,
-              top: (MediaQuery.of(context).size.height - kToolbarHeight - kBottomNavigationBarHeight) * pos.dy,
-              child: GestureDetector(
-                onTap: () => onMarkerTap(e.value),
-                child: _Marqueur(logement: e.value),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-}
-
-class _GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.grey.withValues(alpha: 0.15)
-      ..strokeWidth = 1;
-    for (double x = 0; x < size.width; x += 40) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (double y = 0; y < size.height; y += 40) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-// ----------------------------------------------------------
-// MARQUEUR DE LOGEMENT SUR CARTE
-// ----------------------------------------------------------
-class _Marqueur extends StatelessWidget {
-  final Logement logement;
-  const _Marqueur({required this.logement});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: logement.estSponsorie ? AppColors.accent : AppColors.primary,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 6, offset: const Offset(0, 2))],
-          ),
-          child: Text(
-            logement.prixLabel,
-            style: TextStyle(
-              color: logement.estSponsorie ? Colors.black87 : Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        CustomPaint(
-          painter: _MarkerTriangle(logement.estSponsorie ? AppColors.accent : AppColors.primary),
-          size: const Size(12, 6),
-        ),
-      ],
-    );
-  }
-}
-
-class _MarkerTriangle extends CustomPainter {
-  final Color color;
-  _MarkerTriangle(this.color);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(0, 0)
-      ..lineTo(size.width / 2, size.height)
-      ..lineTo(size.width, 0)
-      ..close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // ----------------------------------------------------------
@@ -331,34 +341,47 @@ class _FiltreDistanceWidget extends StatelessWidget {
     required this.onChanged,
   });
 
+  String _label(BuildContext context, double d) {
+    if (d >= _kNoFilterSentinel) {
+      return AppLocalizations.of(context).t('carte_more_than_10km');
+    }
+    if (d < 1.0) return '${(d * 1000).toInt()}m';
+    return '${d.toInt()}km';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final labels = ['500m', '1km', '5km', '10km'];
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 6)],
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1), blurRadius: 6)
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: distances.asMap().entries.map((e) {
-          final selected = distanceActuelle == e.value;
+        children: distances.map((d) {
+          final selected = distanceActuelle == d;
           return GestureDetector(
-            onTap: () => onChanged(e.value),
+            onTap: () => onChanged(d),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               margin: const EdgeInsets.symmetric(horizontal: 2),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: selected ? AppColors.primary : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                labels[e.key],
+                _label(context, d),
                 style: TextStyle(
-                  color: selected ? Colors.white : context.appTextSecondary,
+                  color: selected
+                      ? Colors.white
+                      : context.appTextSecondary,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
@@ -389,22 +412,27 @@ class _MapButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 6)],
-      ),
-      child: Icon(icon, color: iconColor ?? context.appTextPrimary, size: 20),
-    ),
-  );
+        onTap: onTap,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 6)
+            ],
+          ),
+          child:
+              Icon(icon, color: iconColor ?? context.appTextPrimary, size: 20),
+        ),
+      );
 }
 
 // ----------------------------------------------------------
-// FICHE RÉSUMÉ CLIQUABLE (preview depuis carte §4.1.2)
+// FICHE RÉSUMÉ CLIQUABLE (preview depuis carte)
 // ----------------------------------------------------------
 class _FicheResume extends StatelessWidget {
   final Logement logement;
@@ -425,7 +453,12 @@ class _FicheResume extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.appSurface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 12, offset: const Offset(0, -2))],
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 12,
+              offset: const Offset(0, -2))
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -434,33 +467,62 @@ class _FicheResume extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 12, 8, 0),
             child: Row(
               children: [
-                // Photo
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: logement.photos.isNotEmpty
-                      ? Image.network(logement.photos.first, width: 80, height: 80, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(width: 80, height: 80, color: primaryLight, child: const Icon(Icons.home, color: AppColors.primary)))
-                      : Container(width: 80, height: 80, color: primaryLight, child: const Icon(Icons.home, color: AppColors.primary)),
+                      ? Image.network(
+                          logement.photos.first,
+                          width: 80,
+                          height: 80,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                              width: 80,
+                              height: 80,
+                              color: primaryLight,
+                              child: const Icon(Icons.home,
+                                  color: AppColors.primary)),
+                        )
+                      : Container(
+                          width: 80,
+                          height: 80,
+                          color: primaryLight,
+                          child: const Icon(Icons.home,
+                              color: AppColors.primary)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(logement.titre, style: AppTextStyles.h3, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(logement.titre,
+                          style: AppTextStyles.h3,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
                       const SizedBox(height: 2),
-                      Text('${logement.quartier}, ${logement.ville}', style: AppTextStyles.bodyMedium),
+                      Text('${logement.quartier}, ${logement.ville}',
+                          style: AppTextStyles.bodyMedium),
                       const SizedBox(height: 4),
                       Row(children: [
-                        Text(logement.prixLabel, style: AppTextStyles.price.copyWith(fontSize: 16)),
+                        Text(logement.prixLabel,
+                            style:
+                                AppTextStyles.price.copyWith(fontSize: 16)),
                         const SizedBox(width: 8),
                         if (logement.estVerifie)
-                          const Icon(Icons.verified, color: AppColors.primary, size: 16),
+                          const Icon(Icons.verified,
+                              color: AppColors.primary, size: 16),
+                        if (logement.estSponsorie)
+                          const Padding(
+                            padding: EdgeInsets.only(left: 4),
+                            child: Icon(Icons.star,
+                                color: AppColors.accent, size: 16),
+                          ),
                       ]),
                     ],
                   ),
                 ),
-                IconButton(icon: const Icon(Icons.close, size: 20), onPressed: onClose),
+                IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: onClose),
               ],
             ),
           ),
@@ -468,8 +530,10 @@ class _FicheResume extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
             child: ElevatedButton(
               onPressed: onVoirDetail,
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 44)),
-              child: Text(AppLocalizations.of(context).t('carte_see_detail')),
+              style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 44)),
+              child: Text(
+                  AppLocalizations.of(context).t('carte_see_detail')),
             ),
           ),
         ],
@@ -477,25 +541,3 @@ class _FicheResume extends StatelessWidget {
     );
   }
 }
-
-// Mock data
-final List<Logement> _mockLogements = [
-  Logement(id: '1', titre: 'Studio à Bastos', description: 'Studio meublé.', prix: 150000,
-      typeLocation: 'location', typeBien: 'Studio', ville: 'Yaoundé', quartier: 'Bastos',
-      latitude: 3.8667, longitude: 11.5167, photos: ['https://picsum.photos/seed/l1/400/300'],
-      surface: 30, nbPieces: 1, equipements: ['Meublé'], estVerifie: true, estSponsorie: true,
-      prestatireId: 'p1', prestatireNom: 'Jean Dupont', prestatirePhone: '+237 655 123 456',
-      datePublication: DateTime.now(), nbVues: 234, disponible: true),
-  Logement(id: '2', titre: 'Villa Bonanjo', description: 'Grande villa.', prix: 450000,
-      typeLocation: 'location', typeBien: 'Villa', ville: 'Douala', quartier: 'Bonanjo',
-      latitude: 4.0511, longitude: 9.7679, photos: ['https://picsum.photos/seed/l2/400/300'],
-      surface: 200, nbPieces: 4, equipements: ['Jardin'], estVerifie: true, estSponsorie: false,
-      prestatireId: 'p2', prestatireNom: 'Marie Bello', prestatirePhone: '+237 677 987 654',
-      datePublication: DateTime.now(), nbVues: 512, disponible: true),
-  Logement(id: '3', titre: 'F2 Akwa', description: 'Appartement F2.', prix: 85000,
-      typeLocation: 'location', typeBien: 'F2', ville: 'Douala', quartier: 'Akwa',
-      latitude: 4.0435, longitude: 9.6935, photos: ['https://picsum.photos/seed/l3/400/300'],
-      surface: 55, nbPieces: 2, equipements: ['Climatiseur'], estVerifie: false, estSponsorie: false,
-      prestatireId: 'p3', prestatireNom: 'Paul Ngono', prestatirePhone: '+237 690 456 789',
-      datePublication: DateTime.now(), nbVues: 87, disponible: true),
-];

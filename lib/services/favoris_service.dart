@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -128,6 +129,12 @@ class FavorisService {
   final _db = FirebaseFirestore.instance;
   final _auth = AuthService.instance;
 
+  // ── Stream de changements (visiteur / mode offline) ───────────────────────
+  // Permet à FavorisScreen de se rafraîchir sans StreamBuilder Firestore.
+  static final StreamController<void> _changeCtrl =
+      StreamController<void>.broadcast();
+  static Stream<void> get onFavoriChanged => _changeCtrl.stream;
+
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   bool get _estConnecte => _auth.isLoggedIn;
@@ -195,6 +202,7 @@ class FavorisService {
     } else {
       await _saveVisiteurFavori(data);
     }
+    _changeCtrl.add(null); // notifie tous les _FavoriteButton
   }
 
   /// Supprime un favori par son ID.
@@ -205,6 +213,7 @@ class FavorisService {
     } else {
       await _removeVisiteurFavori(logementId);
     }
+    _changeCtrl.add(null); // notifie tous les _FavoriteButton
   }
 
   /// Vérifie si un logement est dans les favoris.

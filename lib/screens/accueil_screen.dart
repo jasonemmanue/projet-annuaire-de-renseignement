@@ -58,6 +58,9 @@ class _AccueilScreenState extends State<AccueilScreen> {
 
   // ── Filtres & recherche ──────────────────────────────────────
   String _filtreTypeActif = 'Tous';
+  String _texteRecherche  = '';
+  FiltreRecherche _filtresAvances = const FiltreRecherche();
+  List<String> _suggestions = [];
   final TextEditingController _searchController = TextEditingController();
 
   // 'value' = valeur interne (correspond à typeBien/typeLocation Firestore, en FR)
@@ -174,13 +177,100 @@ class _AccueilScreenState extends State<AccueilScreen> {
   }
 
   // ── Filtrage local ───────────────────────────────────────────
+
+  // Normalise une chaîne (minuscules + suppression accents)
+  static String _n(String s) => s
+      .toLowerCase()
+      .replaceAll(RegExp(r'[àáâã]'), 'a')
+      .replaceAll(RegExp(r'[éèêë]'), 'e')
+      .replaceAll(RegExp(r'[îï]'), 'i')
+      .replaceAll(RegExp(r'[ôó]'), 'o')
+      .replaceAll(RegExp(r'[ùúû]'), 'u')
+      .replaceAll(RegExp(r'ç'), 'c');
+
   List<Logement> get _logementsFiltres {
-    if (_filtreTypeActif == 'Tous') return List.of(_logements);
-    return _logements
-        .where((l) =>
-    l.typeBien.toLowerCase().contains(_filtreTypeActif.toLowerCase()) ||
-        l.typeLocation.toLowerCase().contains(_filtreTypeActif.toLowerCase()))
-        .toList();
+    var result = List<Logement>.from(_logements);
+
+    // 1. Chip type rapide
+    if (_filtreTypeActif != 'Tous') {
+      final t = _n(_filtreTypeActif);
+      result = result
+          .where((l) =>
+              _n(l.typeBien).contains(t) || _n(l.typeLocation).contains(t))
+          .toList();
+    }
+
+    // 2. Texte de recherche (titre, type, ville, quartier, description)
+    if (_texteRecherche.isNotEmpty) {
+      final q = _n(_texteRecherche);
+      result = result
+          .where((l) =>
+              _n(l.titre).contains(q) ||
+              _n(l.typeBien).contains(q) ||
+              _n(l.typeLocation).contains(q) ||
+              _n(l.ville).contains(q) ||
+              _n(l.quartier).contains(q) ||
+              _n(l.description).contains(q))
+          .toList();
+    }
+
+    // 3. Filtres avancés
+    final f = _filtresAvances;
+    if (f.typeBien != null) {
+      final tb = _n(f.typeBien!);
+      result = result.where((l) => _n(l.typeBien).contains(tb)).toList();
+    }
+    if (f.typeLocation != null) {
+      final tl = _n(f.typeLocation!);
+      result = result.where((l) => _n(l.typeLocation).contains(tl)).toList();
+    }
+    if (f.prixMin != null) {
+      result = result.where((l) => l.prix >= f.prixMin!).toList();
+    }
+    if (f.prixMax != null && f.prixMax! < 1000000) {
+      result = result.where((l) => l.prix <= f.prixMax!).toList();
+    }
+    if (f.seulementVerifies) {
+      result = result.where((l) => l.estVerifie).toList();
+    }
+
+    return result;
+  }
+
+  int get _nombreFiltresActifs {
+    int n = 0;
+    if (_filtresAvances.typeBien != null) n++;
+    if (_filtresAvances.typeLocation != null) n++;
+    if (_filtresAvances.prixMin != null || _filtresAvances.prixMax != null) n++;
+    if (_filtresAvances.seulementVerifies) n++;
+    return n;
+  }
+
+  void _onSearchChanged(String query) {
+    setState(() {
+      _texteRecherche = query;
+      if (query.isEmpty) {
+        _suggestions = [];
+        return;
+      }
+      final q = _n(query);
+      final Set<String> suggs = {};
+      for (final l in _logements) {
+        if (_n(l.titre).contains(q))    suggs.add(l.titre);
+        if (_n(l.quartier).contains(q)) suggs.add(l.quartier);
+        if (_n(l.ville).contains(q))    suggs.add(l.ville);
+        if (_n(l.typeBien).contains(q)) suggs.add(l.typeBien);
+      }
+      _suggestions = suggs.take(6).toList();
+    });
+  }
+
+  void _appliquerSuggestion(String sugg) {
+    _searchController.text = sugg;
+    setState(() {
+      _texteRecherche = sugg;
+      _suggestions    = [];
+    });
   }
 
   // ── Actions ──────────────────────────────────────────────────
@@ -207,16 +297,19 @@ class _AccueilScreenState extends State<AccueilScreen> {
     );
   }
 
-  void _afficherFiltresAvances() {
-    showModalBottomSheet(
+  Future<void> _afficherFiltresAvances() async {
+    final result = await showModalBottomSheet<FiltreRecherche>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => const _FiltresAvancesSheet(),
+      builder: (_) => _FiltresAvancesSheet(filtreActuel: _filtresAvances),
     );
+    if (result != null && mounted) {
+      setState(() => _filtresAvances = result);
+    }
   }
 
   // ── Build principal ──────────────────────────────────────────
@@ -355,9 +448,9 @@ class _AccueilScreenState extends State<AccueilScreen> {
                                 ),
                               ),
                               const SizedBox(width: 10),
-                              Column(
+                              const Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
+                                children: [
                                   Text(
                                     'ImmoConnect',
                                     style: TextStyle(
@@ -399,8 +492,12 @@ class _AccueilScreenState extends State<AccueilScreen> {
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: sw.AppSearchBar(
                   controller: _searchController,
-                  onSearch: _lancerRecherche,
+                  onSearch: (q) {
+                    setState(() { _texteRecherche = q; _suggestions = []; });
+                  },
+                  onChanged: _onSearchChanged,
                   onFilterTap: _afficherFiltresAvances,
+                  filtresActifsCount: _nombreFiltresActifs,
                 ),
               ),
             ),
@@ -436,6 +533,49 @@ class _AccueilScreenState extends State<AccueilScreen> {
             ),
           ),
 
+          // ─── SUGGESTIONS AUTOCOMPLÉTION ──────────────────────
+          if (_suggestions.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardTheme.color ?? Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.10),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: _suggestions.map((s) => InkWell(
+                    onTap: () => _appliquerSuggestion(s),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      child: Row(children: [
+                        const Icon(Icons.search,
+                            size: 16, color: AppColors.textHint),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(s,
+                              style: TextStyle(
+                                  color: context.appTextPrimary,
+                                  fontSize: 14)),
+                        ),
+                        const Icon(Icons.north_west,
+                            size: 14, color: AppColors.textHint),
+                      ]),
+                    ),
+                  )).toList(),
+                ),
+              ),
+            ),
+
           // ─── ANNONCES SPONSORISÉES (carrousel) ───────────────
           if (sponsories.isNotEmpty) ...[
             SliverToBoxAdapter(
@@ -462,6 +602,9 @@ class _AccueilScreenState extends State<AccueilScreen> {
             ),
           ],
 
+          // ─── PUBLICITÉS PRESTATAIRES ─────────────────────────
+          const SliverToBoxAdapter(child: sw.PublicitePrestataireBanner()),
+
           // ─── BANNIÈRE PUBLICITAIRE ────────────────────────────
           const SliverToBoxAdapter(child: sw.PubliciteBanner()),
 
@@ -478,7 +621,52 @@ class _AccueilScreenState extends State<AccueilScreen> {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(32),
-                child: Center(child: Text(_l.t('accueil_no_listings'))),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        (_texteRecherche.isNotEmpty ||
+                                _filtresAvances.aDesFiltres)
+                            ? Icons.search_off
+                            : Icons.home_work_outlined,
+                        size: 52,
+                        color: AppColors.textHint,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        (_texteRecherche.isNotEmpty ||
+                                _filtresAvances.aDesFiltres)
+                            ? _l.t('search_no_result')
+                            : _l.t('accueil_no_listings'),
+                        style: AppTextStyles.h3.copyWith(
+                            color: AppColors.textHint),
+                        textAlign: TextAlign.center,
+                      ),
+                      if (_texteRecherche.isNotEmpty ||
+                          _filtresAvances.aDesFiltres) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _l.t('search_no_result_hint'),
+                          style: const TextStyle(
+                              color: AppColors.textHint, fontSize: 13),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        TextButton.icon(
+                          onPressed: () => setState(() {
+                            _texteRecherche = '';
+                            _filtresAvances = const FiltreRecherche();
+                            _searchController.clear();
+                            _suggestions = [];
+                          }),
+                          icon: const Icon(Icons.clear_all),
+                          label: Text(_l.t('filter_reset')),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             )
           else
@@ -768,20 +956,59 @@ class _LanguageSelector extends StatelessWidget {
 // ============================================================
 
 class _FiltresAvancesSheet extends StatefulWidget {
-  const _FiltresAvancesSheet();
+  final FiltreRecherche filtreActuel;
+  const _FiltresAvancesSheet({required this.filtreActuel});
 
   @override
   State<_FiltresAvancesSheet> createState() => _FiltresAvancesSheetState();
 }
 
 class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
-  RangeValues _prixRange       = const RangeValues(0, 500000);
-  String?     _typeBien;
-  String?     _typeTransaction;
-  bool        _seulementVerifies = false;
+  late RangeValues _prixRange;
+  late String?     _typeBien;
+  late String?     _typeTransaction;
+  late bool        _seulementVerifies;
+
+  @override
+  void initState() {
+    super.initState();
+    final f = widget.filtreActuel;
+    _prixRange         = RangeValues(f.prixMin ?? 0, f.prixMax ?? 1000000);
+    _typeBien          = f.typeBien;
+    _typeTransaction   = f.typeLocation;
+    _seulementVerifies = f.seulementVerifies;
+  }
+
+  void _reinitialiser() => setState(() {
+    _prixRange         = const RangeValues(0, 1000000);
+    _typeBien          = null;
+    _typeTransaction   = null;
+    _seulementVerifies = false;
+  });
+
+  void _appliquer() {
+    final filtre = FiltreRecherche(
+      typeBien:         _typeBien,
+      typeLocation:     _typeTransaction,
+      prixMin:          _prixRange.start > 0 ? _prixRange.start : null,
+      prixMax:          _prixRange.end < 1000000 ? _prixRange.end : null,
+      seulementVerifies: _seulementVerifies,
+    );
+    Navigator.pop(context, filtre);
+  }
+
+  int get _nFiltres {
+    int n = 0;
+    if (_typeBien != null) n++;
+    if (_typeTransaction != null) n++;
+    if (_prixRange.start > 0 || _prixRange.end < 1000000) n++;
+    if (_seulementVerifies) n++;
+    return n;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return DraggableScrollableSheet(
       initialChildSize: 0.75,
       maxChildSize: 0.95,
@@ -794,12 +1021,10 @@ class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
           // Poignée
           Center(
             child: Container(
-              width: 40,
-              height: 4,
+              width: 40, height: 4,
               decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2)),
             ),
           ),
           const SizedBox(height: 16),
@@ -807,65 +1032,82 @@ class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(AppLocalizations.of(context).t('accueil_filter'), style: AppTextStyles.h2),
+              Text(l.t('accueil_filter'), style: AppTextStyles.h2),
               TextButton(
-                onPressed: () => setState(() {
-                  _prixRange        = const RangeValues(0, 500000);
-                  _typeBien         = null;
-                  _typeTransaction  = null;
-                  _seulementVerifies = false;
-                }),
-                child: Text(AppLocalizations.of(context).t('filter_reset'),
+                onPressed: _reinitialiser,
+                child: Text(l.t('filter_reset'),
                     style: const TextStyle(color: AppColors.error)),
               ),
             ],
           ),
+          if (_nFiltres > 0) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                '${l.t('filter_active_count')} : $_nFiltres',
+                style: const TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           const Divider(),
           const SizedBox(height: 12),
 
           // Type de transaction
-          Text(AppLocalizations.of(context).t('filter_transaction_type'), style: AppTextStyles.h3),
+          Text(l.t('filter_transaction_type'), style: AppTextStyles.h3),
           const SizedBox(height: 8),
           Row(children: [
             _RadioChip(
-              label: AppLocalizations.of(context).t('filter_rental'),
+              label: l.t('filter_rental'),
               value: 'location',
               groupValue: _typeTransaction,
-              onChanged: (v) => setState(() => _typeTransaction = v),
+              onChanged: (v) => setState(() =>
+                  _typeTransaction = _typeTransaction == v ? null : v),
             ),
             const SizedBox(width: 8),
             _RadioChip(
-              label: AppLocalizations.of(context).t('filter_sale'),
+              label: l.t('filter_sale'),
               value: 'vente',
               groupValue: _typeTransaction,
-              onChanged: (v) => setState(() => _typeTransaction = v),
+              onChanged: (v) => setState(() =>
+                  _typeTransaction = _typeTransaction == v ? null : v),
             ),
           ]),
           const SizedBox(height: 16),
 
           // Type de bien
-          Text(AppLocalizations.of(context).t('filter_property_type'), style: AppTextStyles.h3),
+          Text(l.t('filter_property_type'), style: AppTextStyles.h3),
           const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 8, runSpacing: 8,
             children: [
-              for (final t in ['Studio', 'F2', 'F3', 'Villa', 'Terrain', 'Appartement'])
+              for (final t in ['Studio', 'Appartement', 'Villa',
+                               'Terrain', 'Bureau', 'Commerce'])
                 _RadioChip(
                   label: t,
                   value: t,
                   groupValue: _typeBien,
-                  onChanged: (v) => setState(() => _typeBien = v),
+                  onChanged: (v) => setState(() =>
+                      _typeBien = _typeBien == v ? null : v),
                 ),
             ],
           ),
           const SizedBox(height: 16),
 
           // Fourchette de prix
-          Text(AppLocalizations.of(context).t('filter_budget'), style: AppTextStyles.h3),
+          Text(l.t('filter_budget'), style: AppTextStyles.h3),
           const SizedBox(height: 4),
           Text(
-            '${_formatPrix(_prixRange.start.toInt())} XAF  —  ${_formatPrix(_prixRange.end.toInt())} XAF',
+            '${_formatPrix(_prixRange.start.toInt())} XAF'
+            '  —  '
+            '${_prixRange.end >= 1000000 ? l.t('filter_price_max_label') : "${_formatPrix(_prixRange.end.toInt())} XAF"}',
             style: AppTextStyles.bodyMedium,
           ),
           RangeSlider(
@@ -880,14 +1122,12 @@ class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
 
           // Prestataires vérifiés uniquement
           SwitchListTile(
-            title: Text(AppLocalizations.of(context).t('filter_verified_only')),
-            subtitle: Text(AppLocalizations.of(context).t('filter_verified_only_sub'),
+            title: Text(l.t('filter_verified_only')),
+            subtitle: Text(l.t('filter_verified_only_sub'),
                 style: const TextStyle(fontSize: 12)),
             value: _seulementVerifies,
-            thumbColor: WidgetStateProperty.resolveWith<Color>((states) =>
-                states.contains(WidgetState.selected) ? AppColors.primary : Colors.grey),
-            trackColor: WidgetStateProperty.resolveWith<Color>((states) =>
-                states.contains(WidgetState.selected) ? AppColors.primary.withOpacity(0.5) : Colors.grey.withOpacity(0.3)),
+            activeThumbColor: AppColors.primary,
+            activeTrackColor: AppColors.primary.withValues(alpha: 0.5),
             onChanged: (v) => setState(() => _seulementVerifies = v),
             contentPadding: EdgeInsets.zero,
           ),
@@ -895,13 +1135,10 @@ class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
 
           // Bouton appliquer
           ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // TODO : transmettre les filtres via Provider / Bloc
-            },
+            onPressed: _appliquer,
             style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50)),
-            child: Text(AppLocalizations.of(context).t('filter_apply')),
+            child: Text(l.t('filter_apply')),
           ),
           const SizedBox(height: 16),
         ],
@@ -909,11 +1146,10 @@ class _FiltresAvancesSheetState extends State<_FiltresAvancesSheet> {
     );
   }
 
-  /// Formate un entier en nombre séparé par des espaces (ex. 150 000).
   String _formatPrix(int valeur) => valeur
       .toString()
       .replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]} ');
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]} ');
 }
 
 // ============================================================

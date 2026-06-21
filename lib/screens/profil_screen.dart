@@ -3,6 +3,7 @@ import '../app_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/notification_service.dart';
 import 'auth/login_screen.dart';
 
 // ============================================================
@@ -36,6 +37,17 @@ class _ProfilScreenState extends State<ProfilScreen> {
     _langue = AppController.instance.locale.languageCode == 'en'
         ? 'English'
         : 'Français';
+    _chargerPrefsNotifs();
+  }
+
+  Future<void> _chargerPrefsNotifs() async {
+    final prefs = await NotificationService.loadAllPreferences();
+    if (!mounted) return;
+    setState(() {
+      _notifNouvellesAnnonces = prefs[NotificationService.kNotifAnnonces]!;
+      _notifMessages          = prefs[NotificationService.kNotifMessages]!;
+      _notifAlertesPrix       = prefs[NotificationService.kNotifPrix]!;
+    });
   }
 
   @override
@@ -144,7 +156,11 @@ class _ProfilScreenState extends State<ProfilScreen> {
                   subtitle: Text(l.t('profil_new_listings_sub'), style: const TextStyle(fontSize: 12)),
                   value: _notifNouvellesAnnonces,
                   activeThumbColor: AppColors.primary,
-                  onChanged: (v) => setState(() => _notifNouvellesAnnonces = v),
+                  onChanged: (v) async {
+                    setState(() => _notifNouvellesAnnonces = v);
+                    await NotificationService.setCategory(
+                        NotificationService.kNotifAnnonces, v);
+                  },
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
                 const Divider(indent: 68, height: 1),
@@ -154,7 +170,11 @@ class _ProfilScreenState extends State<ProfilScreen> {
                   subtitle: Text(l.t('profil_messages_notif_sub'), style: const TextStyle(fontSize: 12)),
                   value: _notifMessages,
                   activeThumbColor: AppColors.primary,
-                  onChanged: (v) => setState(() => _notifMessages = v),
+                  onChanged: (v) async {
+                    setState(() => _notifMessages = v);
+                    await NotificationService.setCategory(
+                        NotificationService.kNotifMessages, v);
+                  },
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
                 const Divider(indent: 68, height: 1),
@@ -164,7 +184,11 @@ class _ProfilScreenState extends State<ProfilScreen> {
                   subtitle: Text(l.t('profil_price_alerts_sub'), style: const TextStyle(fontSize: 12)),
                   value: _notifAlertesPrix,
                   activeThumbColor: AppColors.primary,
-                  onChanged: (v) => setState(() => _notifAlertesPrix = v),
+                  onChanged: (v) async {
+                    setState(() => _notifAlertesPrix = v);
+                    await NotificationService.setCategory(
+                        NotificationService.kNotifPrix, v);
+                  },
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
               ],

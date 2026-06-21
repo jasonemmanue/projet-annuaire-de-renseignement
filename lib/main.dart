@@ -28,9 +28,14 @@ import 'models/models.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } on FirebaseException catch (e) {
+    if (e.code != 'duplicate-app') rethrow;
+    // Firebase déjà initialisé par FirebaseInitProvider Android — on continue.
+  }
 
   // App Check — Debug provider en debug, Play Integrity en release
   await FirebaseAppCheck.instance.activate(

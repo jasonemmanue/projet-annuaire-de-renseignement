@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ============================================================
 // HANDLER BACKGROUND – fonction top-level obligatoire
@@ -27,6 +28,15 @@ class NotificationService {
 
   static const _chanMessages = 'sgkhome_messages';
   static const _chanAnnonces = 'sgkhome_annonces';
+
+  // ── Clés SharedPreferences pour les préférences de notification ──
+  static const kNotifAnnonces = 'notif_annonces';
+  static const kNotifMessages = 'notif_messages';
+  static const kNotifPrix     = 'notif_prix';
+
+  // ── FCM topics correspondants ──
+  static const _topicAnnonces = 'new_listings';
+  static const _topicPrix     = 'price_drops';
 
   static const _channelMessages = AndroidNotificationChannel(
     _chanMessages,
@@ -93,15 +103,66 @@ class NotificationService {
   }
 
   // ============================================================
+  // PRÉFÉRENCES NOTIFICATIONS
+  // ============================================================
+
+  /// Retourne true si la catégorie est activée (default : true sauf prix).
+  static Future<bool> isCategoryEnabled(String category) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (category == kNotifPrix) {
+      return prefs.getBool(kNotifPrix) ?? false;
+    }
+    return prefs.getBool(category) ?? true;
+  }
+
+  /// Persiste le choix et gère les topics FCM pour annonces/prix.
+  static Future<void> setCategory(String category, bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(category, enabled);
+
+    if (category == kNotifAnnonces) {
+      if (enabled) {
+        await _fcm.subscribeToTopic(_topicAnnonces);
+      } else {
+        await _fcm.unsubscribeFromTopic(_topicAnnonces);
+      }
+    } else if (category == kNotifPrix) {
+      if (enabled) {
+        await _fcm.subscribeToTopic(_topicPrix);
+      } else {
+        await _fcm.unsubscribeFromTopic(_topicPrix);
+      }
+    }
+  }
+
+  /// Charge toutes les préférences sous forme de Map (pour l'UI).
+  static Future<Map<String, bool>> loadAllPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    return {
+      kNotifAnnonces: prefs.getBool(kNotifAnnonces) ?? true,
+      kNotifMessages: prefs.getBool(kNotifMessages) ?? true,
+      kNotifPrix:     prefs.getBool(kNotifPrix)     ?? false,
+    };
+  }
+
+  // ============================================================
   // FOREGROUND FCM → notification locale heads-up
   // ============================================================
-  static void _onForegroundMessage(RemoteMessage message) {
+  static void _onForegroundMessage(RemoteMessage message) async {
     final notif = message.notification;
     final type = message.data['type'] ?? 'message';
     if (notif == null) return;
 
-    final isAnnonce =
-        type == 'annonce' || type == 'nouvelle_annonce';
+    final isAnnonce = type == 'annonce' || type == 'nouvelle_annonce';
+    final isPrix    = type == 'price_drop' || type == 'alerte_prix';
+
+    final category = isAnnonce
+        ? kNotifAnnonces
+        : isPrix
+            ? kNotifPrix
+            : kNotifMessages;
+
+    if (!await isCategoryEnabled(category)) return;
 
     _local.show(
       notif.hashCode,
@@ -135,6 +196,7 @@ class NotificationService {
     required String conversationId,
     required String logementTitre,
   }) async {
+    if (!await isCategoryEnabled(kNotifMessages)) return;
     await _local.show(
       conversationId.hashCode,
       '💬 $senderName',
@@ -167,6 +229,7 @@ class NotificationService {
     required String quartier,
     required String logementId,
   }) async {
+    if (!await isCategoryEnabled(kNotifAnnonces)) return;
     await _local.show(
       logementId.hashCode,
       '🏠 Nouvelle annonce',

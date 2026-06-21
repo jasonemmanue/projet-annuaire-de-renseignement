@@ -136,21 +136,29 @@ const Map<String, String> frStrings = {
   'filter_verified_only': 'Prestataires vérifiés uniquement',
   'filter_verified_only_sub': 'Afficher les annonces avec badge vérifié',
   'filter_apply': 'Appliquer les filtres',
+  'filter_active_count': 'Filtres actifs',
+  'filter_price_max_label': 'Max',
+  'search_no_result': 'Aucun résultat',
+  'search_no_result_hint': 'Essayez d\'autres mots-clés ou modifiez vos filtres',
 
   // Carte
   'carte_title': 'Explorer la carte',
   'carte_max_distance': 'Distance maximale',
   'carte_see_detail': 'Voir le détail',
+  'carte_more_than_10km': '> 10 km',
+  'carte_tap_to_set_center': 'Appuyez sur la carte pour définir un rayon',
 
   // Favoris
   'favoris_title': 'Mes Favoris',
   'common_refresh': 'Rafraîchir',
   'favoris_offline': 'Mode hors connexion · Données depuis le cache local',
   'favoris_empty': 'Aucun favori',
-  'favoris_empty_sub': 'Ajoutez des logements à vos favoris en appuyant sur le ❤️ dans la fiche détail.',
+  'favoris_empty_sub': 'Appuyez sur 🔖 sur une annonce pour la sauvegarder ici.',
   'favoris_explore': 'Explorer les annonces',
   'favoris_confirm_remove': 'Retirer des favoris ?',
+  'favoris_confirm_remove_body': 'Cette annonce sera retirée de vos favoris.',
   'favoris_remove_action': 'Retirer',
+  'favoris_added': 'Ajouté aux favoris',
   'favoris_removed': 'Retiré des favoris',
   'favoris_delete_error': 'Erreur lors de la suppression',
   'favoris_load_error': 'Impossible de charger les favoris.',
@@ -278,6 +286,60 @@ const Map<String, String> frStrings = {
   'login_register_complete': 'Compte créé ! Bienvenue sur SGK HOME.',
   'login_register_otp_info': 'Un SMS de vérification sera envoyé à ce numéro',
   'login_locked_prefix': 'Trop de tentatives. Votre compte est temporairement verrouillé.',
+
+  // Diagnostic OTP (debug only) — affichage de la cause probable
+  'otp_diag_banner_title': 'Diagnostic OTP (debug)',
+  'otp_diag_more': 'Détails techniques',
+  'otp_diag_reason_shaMissing': 'Empreinte SHA-1/SHA-256 absente dans Firebase',
+  'otp_diag_hint_shaMissing':
+      'Ajoute la SHA-1 du keystore debug dans Firebase Console → Paramètres → App Android, puis re-télécharge google-services.json.',
+  'otp_diag_reason_appCheckFailed': 'App Check n\'a pas pu fournir de token',
+  'otp_diag_hint_appCheckFailed':
+      'Active Play Integrity API dans Google Cloud Console et enregistre le token de debug affiché dans logcat.',
+  'otp_diag_reason_quotaExceeded': 'Quota Firebase Phone Auth dépassé',
+  'otp_diag_hint_quotaExceeded':
+      'Attends la fin du mois ou passe au plan Blaze pour augmenter le quota.',
+  'otp_diag_reason_billingDisabled': 'Facturation Firebase non activée',
+  'otp_diag_hint_billingDisabled':
+      'Active le plan Blaze sur Firebase Console pour autoriser les SMS internationaux.',
+  'otp_diag_reason_tooManyRequests': 'Trop de tentatives sur ce numéro',
+  'otp_diag_hint_tooManyRequests':
+      'Patiente quelques minutes ou teste avec un autre numéro.',
+  'otp_diag_reason_recaptchaFailed': 'reCAPTCHA a échoué',
+  'otp_diag_hint_recaptchaFailed':
+      'La SHA n\'est pas reconnue par Firebase — corrige la config Firebase Console et réinstalle l\'app.',
+  'otp_diag_reason_invalidPhone': 'Numéro de téléphone invalide',
+  'otp_diag_hint_invalidPhone':
+      'Vérifie le format E.164 (ex. +225 0102030405).',
+  'otp_diag_reason_invalidCode': 'Code OTP invalide ou expiré',
+  'otp_diag_hint_invalidCode': 'Demande un nouveau code et resaisis-le.',
+  'otp_diag_reason_network': 'Erreur réseau',
+  'otp_diag_hint_network': 'Vérifie ta connexion internet.',
+  'otp_diag_reason_unknown': 'Erreur Firebase non répertoriée',
+  'otp_diag_hint_unknown':
+      'Consulte le code d\'erreur ci-dessous et la doc Firebase.',
+
+  // Écran de diagnostic OTP
+  'diag_otp_title': 'Diagnostic OTP',
+  'diag_otp_firebase_section': 'Config Firebase',
+  'diag_otp_project_id': 'Project ID',
+  'diag_otp_app_id': 'App ID',
+  'diag_otp_package_name': 'Package name',
+  'diag_otp_appcheck_section': 'App Check',
+  'diag_otp_appcheck_status': 'Token App Check',
+  'diag_otp_appcheck_ok': 'OK (token reçu)',
+  'diag_otp_appcheck_ko': 'Échec — Play Integrity non activé ou debug token non enregistré',
+  'diag_otp_appcheck_loading': 'Vérification…',
+  'diag_otp_sha_section': 'Empreintes SHA',
+  'diag_otp_sha_info':
+      'Les empreintes SHA ne sont pas accessibles depuis Flutter. Exécute cette commande dans le dossier android/ :',
+  'diag_otp_sha_command': './gradlew signingReport',
+  'diag_otp_last_error_section': 'Dernière erreur OTP',
+  'diag_otp_no_error': 'Aucune erreur capturée',
+  'diag_otp_at': 'À',
+  'diag_otp_copy': 'Copier',
+  'diag_otp_copied': 'Copié',
+  'diag_otp_recheck_appcheck': 'Re-tester App Check',
 
   // Urgence
   'urgence_title': 'Accès prioritaire',
@@ -583,4 +645,33 @@ const Map<String, String> frStrings = {
   'equip_parking': 'Parking',
   'equip_groupe': 'Groupe électrogène',
   'equip_titre': 'Titre foncier',
+
+  // ── Publicités Prestataire ────────────────────────────────────
+  'dashboard_tab_pubs': 'Pubs',
+  'pub_new_btn': 'Nouvelle publicité',
+  'pub_new_title': 'Publier une publicité',
+  'pub_field_title': 'Titre',
+  'pub_field_title_hint': 'Ex : Appartement F3 meublé à Bastos',
+  'pub_field_desc': 'Description',
+  'pub_field_desc_hint': 'Décrivez votre service, votre offre, vos atouts…',
+  'pub_photos': 'Photos',
+  'pub_photos_hint': 'Ajouter des photos (max 5)',
+  'pub_pick_gallery': 'Choisir depuis la galerie',
+  'pub_pick_camera': 'Prendre une photo',
+  'pub_video': 'Vidéo',
+  'pub_video_optional': 'optionnelle',
+  'pub_video_hint': 'Ajouter une vidéo',
+  'pub_pick_video': 'Choisir une vidéo',
+  'pub_submit': 'Publier ma publicité',
+  'pub_uploading': 'Publication en cours…',
+  'pub_success': 'Publicité publiée avec succès !',
+  'pub_error_no_photo': 'Ajoutez au moins une photo',
+  'pub_error_upload': 'Erreur lors de l\'envoi',
+  'pub_empty_title': 'Aucune publicité',
+  'pub_empty_hint': 'Publiez des photos et vidéos\npour promouvoir votre activité',
+  'pub_status_active': 'Actif',
+  'pub_status_pending': 'En attente',
+  'pub_delete_title': 'Supprimer la publicité ?',
+  'pub_delete_body': 'Cette action est irréversible.',
+  'pub_banner_title': 'Services en vedette',
 };

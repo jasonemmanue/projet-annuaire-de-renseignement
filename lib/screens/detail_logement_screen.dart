@@ -59,7 +59,6 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     with SingleTickerProviderStateMixin {
   final PageController _pageController = PageController();
   int _currentPhoto = 0;
-  bool _isFavorite = false;
   bool _contactLoading = false;
 
   // ── État signalement ────────────────────────────────────────
@@ -189,13 +188,34 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
   }
 
   Future<void> _toggleFavori() async {
-    // Animation cœur
+    if (_estFavori) {
+      // Confirmation avant retrait
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(_loc.t('favoris_confirm_remove')),
+          content: Text('"${l.titre}"\n${_loc.t('favoris_confirm_remove_body')}'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(_loc.t('common_cancel')),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: TextButton.styleFrom(foregroundColor: AppColors.error),
+              child: Text(_loc.t('favoris_remove_action')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+
     _heartController.forward(from: 0);
 
     final wasAdded = !_estFavori;
     setState(() => _estFavori = wasAdded);
 
-    // [ANALYTICS] Ajout/retrait favori — on ne logue que l'ajout
     if (wasAdded) {
       AnalyticsService.instance.logAjoutFavori(l.id);
     }
@@ -212,12 +232,12 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
           content: Row(
             children: [
               Icon(
-                wasAdded ? Icons.favorite : Icons.favorite_border,
+                wasAdded ? Icons.bookmark_added : Icons.bookmark_remove,
                 color: Colors.white,
                 size: 18,
               ),
               const SizedBox(width: 8),
-              Text(_loc.t(wasAdded ? 'detail_added_favorite' : 'detail_removed_favorite')),
+              Text(_loc.t(wasAdded ? 'favoris_added' : 'favoris_removed')),
             ],
           ),
           behavior: SnackBarBehavior.floating,
@@ -303,9 +323,9 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                             child: child,
                           ),
                           child: Icon(
-                            _estFavori ? Icons.favorite : Icons.favorite_border,
+                            _estFavori ? Icons.bookmark : Icons.bookmark_border,
                             key: ValueKey(_estFavori),
-                            color: _estFavori ? AppColors.error : Colors.white,
+                            color: _estFavori ? AppColors.accent : Colors.white,
                           ),
                         ),
                       ),

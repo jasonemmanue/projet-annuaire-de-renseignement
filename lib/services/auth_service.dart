@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'analytics_service.dart';
@@ -283,6 +284,10 @@ class AuthService {
 
   // ─── OTP PHONE AUTH ───────────────────────────────────────────────────
 
+  /// Dernier diagnostic OTP capturé (utile pour la bannière debug + écran diag).
+  /// Reste `null` tant qu'aucune erreur n'a été remontée par Firebase Phone Auth.
+  static OtpDiag? lastOtpDiag;
+
   /// Envoie un SMS OTP via Firebase Phone Auth.
   /// [telephone] doit être au format E.164, ex. « +237612345678 ».
   Future<void> envoyerOtp({
@@ -291,29 +296,46 @@ class AuthService {
     required void Function(FirebaseAuthException) onError,
     void Function(PhoneAuthCredential)? onAutoVerified,
   }) async {
+    debugPrint('[OTP] sendVerification phone=$telephone');
     try {
       await _auth.verifyPhoneNumber(
         phoneNumber: telephone,
         timeout: const Duration(seconds: 30),
         verificationCompleted: (PhoneAuthCredential credential) {
+          debugPrint('[OTP] auto-verified by Play Services');
           onAutoVerified?.call(credential);
         },
         verificationFailed: (FirebaseAuthException e) {
+          _captureOtpDiag(e);
           onError(e);
         },
         codeSent: (String verificationId, int? resendToken) {
+          debugPrint('[OTP] codeSent id=${verificationId.substring(0, 6)}…');
           onCodeSent(verificationId);
         },
         codeAutoRetrievalTimeout: (_) {},
       );
     } on FirebaseAuthException catch (e) {
+      _captureOtpDiag(e);
       onError(e);
     } catch (e) {
-      onError(FirebaseAuthException(
+      final wrapped = FirebaseAuthException(
         code: 'network-request-failed',
         message: 'Impossible de joindre le serveur : $e',
-      ));
+      );
+      _captureOtpDiag(wrapped);
+      onError(wrapped);
     }
+  }
+
+  /// Convertit une FirebaseAuthException en diagnostic structuré et le journalise.
+  void _captureOtpDiag(FirebaseAuthException e) {
+    final diag = OtpDiag.fromException(e);
+    lastOtpDiag = diag;
+    debugPrint(
+      '[OTP] FAILED reason=${diag.reason.name} '
+      'code=${e.code} message=${e.message}',
+    );
   }
 
   /// Vérifie le code OTP saisi manuellement.
@@ -492,4 +514,95 @@ enum AuthResult {
   tooManyAttempts,
   /// Session OTP expirée (Firebase session-expired)
   otpExpired,
+}
+
+// ============================================================
+// DIAGNOSTIC OTP — mapping FirebaseAuthException → cause probable
+// Aide à savoir EXACTEMENT pourquoi l'envoi SMS échoue :
+// fingerprint SHA absente, App Check KO, quota épuisé, etc.
+// ============================================================
+
+enum OtpDiagReason {
+  /// SHA-1 / SHA-256 absente côté Firebase Console.
+  shaMissing,
+  /// App Check n'a pas pu fournir de token valide (Play Integrity KO ou
+  /// debug token non enregistré).
+  appCheckFailed,
+  /// Quota Firebase Phone Auth dépassé (mensuel ou journalier).
+  quotaExceeded,
+  /// Facturation Firebase non activée — Phone Auth bascule sur Spark limité.
+  billingDisabled,
+  /// Trop de tentatives sur ce numéro côté Firebase.
+  tooManyRequests,
+  /// reCAPTCHA est apparu et a échoué/été fermé.
+  recaptchaFailed,
+  /// Numéro invalide ou manquant.
+  invalidPhone,
+  /// Code OTP invalide ou expiré.
+  invalidCode,
+  /// Connectivité réseau.
+  network,
+  /// Autre / inconnu.
+  unknown,
+}
+
+class OtpDiag {
+  final OtpDiagReason reason;
+  final String code;
+  final String? message;
+  final DateTime at;
+
+  OtpDiag({
+    required this.reason,
+    required this.code,
+    this.message,
+  }) : at = DateTime.now();
+
+  factory OtpDiag.fromException(FirebaseAuthException e) {
+    return OtpDiag(
+      reason: _mapCode(e.code),
+      code: e.code,
+      message: e.message,
+    );
+  }
+
+  static OtpDiagReason _mapCode(String code) {
+    switch (code) {
+      case 'app-not-authorized':
+      case 'missing-client-identifier':
+      case 'app-not-installed':
+        return OtpDiagReason.shaMissing;
+      case 'app-check-token-invalid':
+      case 'firebase-app-check-token-is-invalid':
+        return OtpDiagReason.appCheckFailed;
+      case 'quota-exceeded':
+        return OtpDiagReason.quotaExceeded;
+      case 'billing-not-enabled':
+        return OtpDiagReason.billingDisabled;
+      case 'too-many-requests':
+        return OtpDiagReason.tooManyRequests;
+      case 'web-context-cancelled':
+      case 'web-context-already-presented':
+      case 'captcha-check-failed':
+      case 'recaptcha-not-enabled':
+        return OtpDiagReason.recaptchaFailed;
+      case 'invalid-phone-number':
+      case 'missing-phone-number':
+        return OtpDiagReason.invalidPhone;
+      case 'invalid-verification-code':
+      case 'invalid-verification-id':
+      case 'session-expired':
+        return OtpDiagReason.invalidCode;
+      case 'network-request-failed':
+        return OtpDiagReason.network;
+      default:
+        return OtpDiagReason.unknown;
+    }
+  }
+
+  /// Clé i18n pour la cause probable affichée à l'utilisateur (debug only).
+  String get i18nReasonKey => 'otp_diag_reason_${reason.name}';
+
+  /// Clé i18n pour l'action conseillée à mener.
+  String get i18nHintKey => 'otp_diag_hint_${reason.name}';
 }

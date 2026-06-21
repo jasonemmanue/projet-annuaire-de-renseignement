@@ -26,6 +26,8 @@ import '../l10n/app_localizations.dart';
 import 'messagerie_screen.dart';
 import 'paiement_premium_screen.dart';
 import 'sponsorisation_screen.dart';
+import 'publier_publicite_screen.dart';
+import '../services/publicite_service.dart';
 
 // ============================================================
 // CONSTANTES DE TRADUCTION (valeur FR Firestore → clé i18n)
@@ -665,7 +667,7 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         setState(() {});
@@ -815,6 +817,7 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
             ),
             Tab(icon: const Icon(Icons.bar_chart), text: _loc.t('dashboard_tab_stats')),
             Tab(icon: const Icon(Icons.person), text: _loc.t('dashboard_tab_profil')),
+            Tab(icon: const Icon(Icons.campaign_outlined), text: _loc.t('dashboard_tab_pubs')),
           ],
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
@@ -838,6 +841,7 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
                 MessagerieScreen(forceUid: uid),
                 _StatistiquesTab(uid: uid),
                 ProfilPrestataireScreen(user: user),
+                _MesPublicitesTab(uid: uid),
               ],
             ),
           ),
@@ -2511,6 +2515,298 @@ class _FormulaireModificationProfilState extends State<_FormulaireModificationPr
                 ? const SizedBox(width: 20, height: 20,
                 child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                 : Text(_loc.t('common_save')),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// ONGLET "MES PUBLICITÉS" — prestataire
+// ============================================================
+class _MesPublicitesTab extends StatefulWidget {
+  final String uid;
+  const _MesPublicitesTab({required this.uid});
+
+  @override
+  State<_MesPublicitesTab> createState() => _MesPublicitesTabState();
+}
+
+class _MesPublicitesTabState extends State<_MesPublicitesTab> {
+  late AppLocalizations _loc;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loc = AppLocalizations.of(context);
+  }
+
+  Future<void> _ouvrirPublication() async {
+    final ok = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const PublierPubliciteScreen()),
+    );
+    if (ok == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_loc.t('pub_success')),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmerSuppression(String pubId) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(_loc.t('pub_delete_title')),
+        content: Text(_loc.t('pub_delete_body')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(_loc.t('common_cancel'))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            child: Text(_loc.t('common_delete')),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await PubliciteService.supprimer(pubId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _ouvrirPublication,
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.campaign_outlined),
+        label: Text(_loc.t('pub_new_btn')),
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: PubliciteService.getPublicitesPrestataire(widget.uid),
+        builder: (ctx, snap) {
+          if (snap.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('Erreur : ${snap.error}',
+                    style: const TextStyle(color: AppColors.error)),
+              ),
+            );
+          }
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(
+                child: CircularProgressIndicator(color: AppColors.primary));
+          }
+          final docs = snap.data?.docs ?? [];
+          if (docs.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                          color: context.appPrimaryLight,
+                          shape: BoxShape.circle),
+                      child: const Icon(Icons.campaign_outlined,
+                          size: 48, color: AppColors.primary),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(_loc.t('pub_empty_title'),
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Text(_loc.t('pub_empty_hint'),
+                        style: TextStyle(color: context.appTextSecondary),
+                        textAlign: TextAlign.center),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: _ouvrirPublication,
+                      icon: const Icon(Icons.add),
+                      label: Text(_loc.t('pub_new_btn')),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(200, 48),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+            itemCount: docs.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (_, i) {
+              final pub = Publicite.fromMap(
+                  docs[i].id, docs[i].data() as Map<String, dynamic>);
+              return _CartePublicite(
+                pub: pub,
+                onSupprimer: () => _confirmerSuppression(pub.id),
+                onToggle: (actif) =>
+                    PubliciteService.setActif(pub.id, actif),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ── Carte publicité dans le dashboard ────────────────────────
+class _CartePublicite extends StatelessWidget {
+  final Publicite pub;
+  final VoidCallback onSupprimer;
+  final ValueChanged<bool> onToggle;
+
+  const _CartePublicite({
+    required this.pub,
+    required this.onSupprimer,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color ?? context.appSurface,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.07),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Photo de couverture ──
+          if (pub.photos.isNotEmpty)
+            ClipRRect(
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(12)),
+              child: Image.network(
+                pub.photos.first,
+                height: 160,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 160,
+                  color: context.appPrimaryLight,
+                  child: const Icon(Icons.campaign_outlined,
+                      color: AppColors.primary, size: 40),
+                ),
+              ),
+            )
+          else
+            Container(
+              height: 100,
+              decoration: BoxDecoration(
+                color: context.appPrimaryLight,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(12)),
+              ),
+              child: const Center(
+                child: Icon(Icons.campaign_outlined,
+                    color: AppColors.primary, size: 40),
+              ),
+            ),
+
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Titre + badge statut ──
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(pub.titre,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 15),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: pub.actif
+                            ? AppColors.success.withValues(alpha: 0.12)
+                            : Colors.orange.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        pub.actif ? l.t('pub_status_active') : l.t('pub_status_pending'),
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: pub.actif
+                                ? AppColors.success
+                                : Colors.orange.shade700),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(pub.description,
+                    style:
+                        TextStyle(color: context.appTextSecondary, fontSize: 13),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 10),
+                // ── Médias info ──
+                Row(
+                  children: [
+                    Icon(Icons.photo_library_outlined,
+                        size: 14, color: context.appTextHint),
+                    const SizedBox(width: 4),
+                    Text('${pub.photos.length} photo(s)',
+                        style: TextStyle(
+                            fontSize: 12, color: context.appTextHint)),
+                    if (pub.videoUrl != null) ...[
+                      const SizedBox(width: 12),
+                      Icon(Icons.videocam_outlined,
+                          size: 14, color: context.appTextHint),
+                      const SizedBox(width: 4),
+                      Text('1 vidéo',
+                          style: TextStyle(
+                              fontSize: 12, color: context.appTextHint)),
+                    ],
+                    const Spacer(),
+                    // ── Bouton supprimer ──
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline,
+                          color: AppColors.error, size: 20),
+                      onPressed: onSupprimer,
+                      tooltip: l.t('common_delete'),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),

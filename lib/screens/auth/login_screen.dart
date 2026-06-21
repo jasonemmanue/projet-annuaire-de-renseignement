@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,6 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/storage_service.dart';
+import 'diag_otp_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/auth/login_screen.dart
@@ -77,12 +79,21 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
                     const Spacer(),
                   ]),
-                  Text(
-                    l.t('login_space'),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800),
+                  GestureDetector(
+                    onLongPress: kDebugMode
+                        ? () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const DiagOtpScreen()),
+                            )
+                        : null,
+                    child: Text(
+                      l.t('login_space'),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800),
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -344,6 +355,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
               _ErrorBanner(message: _errorMessage!),
+              if (kDebugMode) const _DebugDiagBanner(),
             ],
             if (_isLocked) ...[
               const SizedBox(height: 12),
@@ -402,6 +414,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
               _ErrorBanner(message: _errorMessage!),
+              if (kDebugMode) const _DebugDiagBanner(),
             ],
             if (_isLocked) ...[
               const SizedBox(height: 12),
@@ -785,6 +798,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
               _ErrorBanner(message: _errorMessage!),
+              if (kDebugMode) const _DebugDiagBanner(),
             ],
             if (_isLocked) ...[
               const SizedBox(height: 12),
@@ -856,6 +870,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
               _ErrorBanner(message: _errorMessage!),
+              if (kDebugMode) const _DebugDiagBanner(),
             ],
             if (_isLocked) ...[
               const SizedBox(height: 12),
@@ -1103,6 +1118,85 @@ class _LockBanner extends StatelessWidget {
                   color: Colors.red.shade700,
                   fontSize: 13,
                   height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bannière de diagnostic OTP (debug uniquement).
+/// Affiche la cause probable + action conseillée + bouton vers l'écran diag.
+class _DebugDiagBanner extends StatelessWidget {
+  const _DebugDiagBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final diag = AuthService.lastOtpDiag;
+    if (diag == null) return const SizedBox.shrink();
+    final l = AppLocalizations.of(context);
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        border: Border.all(color: Colors.orange.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.bug_report_outlined,
+                color: Colors.orange.shade800, size: 16),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                l.t('otp_diag_banner_title'),
+                style: TextStyle(
+                    color: Colors.orange.shade900,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          Text(
+            l.t(diag.i18nReasonKey),
+            style: TextStyle(
+                color: Colors.orange.shade900,
+                fontSize: 13,
+                fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            l.t(diag.i18nHintKey),
+            style: TextStyle(
+                color: Colors.orange.shade900,
+                fontSize: 11,
+                height: 1.4),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'code: ${diag.code}',
+            style: const TextStyle(
+                fontSize: 10, fontFamily: 'monospace'),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DiagOtpScreen()),
+              ),
+              icon: const Icon(Icons.open_in_new, size: 12),
+              label: Text(l.t('otp_diag_more'),
+                  style: const TextStyle(fontSize: 11)),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 28),
+              ),
             ),
           ),
         ],

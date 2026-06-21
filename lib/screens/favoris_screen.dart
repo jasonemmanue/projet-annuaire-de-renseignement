@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
@@ -27,43 +28,58 @@ class FavorisScreen extends StatefulWidget {
 class _FavorisScreenState extends State<FavorisScreen> {
   final _service = FavorisService.instance;
 
-  List<Logement>? _favoris;      // null = en cours de chargement
+  // Pour les visiteurs/offline : chargement ponctuel
+  List<Logement>? _favoris;
   bool _horsConnexion = false;
   bool _chargement = false;
   String? _erreur;
 
+  // Pour les utilisateurs connectés : Stream réactif Firestore
+  Stream<List<Logement>>? _stream;
+  // Abonnement au changement visiteur (IndexedStack reste monté)
+  StreamSubscription<void>? _visiteurSub;
+
   @override
   void initState() {
     super.initState();
-    _charger();
+    _stream = _service.watchFavoris();
+    if (_stream == null) {
+      // Visiteur / offline : chargement manuel + écoute des changements locaux
+      _charger();
+      _visiteurSub = FavorisService.onFavoriChanged.listen((_) {
+        if (mounted) _charger(forceRefresh: true);
+      });
+    }
     _ecouterConnectivite();
+  }
+
+  @override
+  void dispose() {
+    _visiteurSub?.cancel();
+    super.dispose();
   }
 
   // ─── Connectivité ─────────────────────────────────────────────────────────
 
   void _ecouterConnectivite() {
     Connectivity().onConnectivityChanged.listen((result) {
+      if (!mounted) return;
       final horsConnexion = result == ConnectivityResult.none;
       if (horsConnexion != _horsConnexion) {
         setState(() => _horsConnexion = horsConnexion);
-        if (!horsConnexion) {
-          // Retour en ligne : rechargement depuis Firestore
+        if (!horsConnexion && _stream == null) {
           _charger(forceRefresh: true);
         }
       }
     });
   }
 
-  // ─── Chargement ───────────────────────────────────────────────────────────
+  // ─── Chargement ponctuel (visiteur / offline) ─────────────────────────────
 
   Future<void> _charger({bool forceRefresh = false}) async {
     if (_chargement) return;
-    setState(() {
-      _chargement = true;
-      _erreur = null;
-    });
+    setState(() { _chargement = true; _erreur = null; });
 
-    // Vérification connectivité initiale
     final result = await Connectivity().checkConnectivity();
     final horsConnexion = result == ConnectivityResult.none;
 
@@ -85,33 +101,36 @@ class _FavorisScreenState extends State<FavorisScreen> {
     }
   }
 
-  // ─── Suppression ──────────────────────────────────────────────────────────
+  // ─── Suppression (swipe ou retrait) ───────────────────────────────────────
 
-  Future<void> _supprimerFavori(int index, Logement logement) async {
-    // Suppression optimiste de l'UI
-    setState(() => _favoris!.removeAt(index));
+  Future<void> _supprimerFavori(Logement logement) async {
     final l = AppLocalizations.of(context);
-
     try {
       await _service.supprimerFavori(logement.id);
+      // Si mode visiteur : mise à jour manuelle de la liste locale
+      if (_stream == null && mounted) {
+        setState(() => _favoris?.removeWhere((lo) => lo.id == logement.id));
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(l.t('favoris_removed')),
+          content: Row(children: [
+            const Icon(Icons.bookmark_remove, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Text(l.t('favoris_removed')),
+          ]),
           behavior: SnackBarBehavior.floating,
           action: SnackBarAction(
             label: l.t('common_cancel'),
             onPressed: () async {
               await _service.ajouterFavori(logement);
-              await _charger(forceRefresh: true);
+              if (_stream == null) _charger(forceRefresh: true);
             },
           ),
         ),
       );
     } catch (e) {
-      // Rollback si erreur
       if (!mounted) return;
-      setState(() => _favoris!.insert(index, logement));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(l.t('favoris_delete_error')),
@@ -129,13 +148,9 @@ class _FavorisScreenState extends State<FavorisScreen> {
     final l = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _favoris == null || _favoris!.isEmpty
-              ? l.t('favoris_title')
-              : '${l.t('favoris_title')} (${_favoris!.length})',
-        ),
+        title: Text(l.t('favoris_title')),
         actions: [
-          if (!_chargement)
+          if (_stream == null && !_chargement)
             IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: l.t('common_refresh'),
@@ -145,17 +160,9 @@ class _FavorisScreenState extends State<FavorisScreen> {
       ),
       body: Column(
         children: [
-          // ── Bandeau hors connexion ─────────────────────────────────────
           _BandeauHorsConnexion(visible: _horsConnexion),
-
-          // ── Bandeau erreur ─────────────────────────────────────────────
           if (_erreur != null)
-            _BandeauErreur(
-              message: _erreur!,
-              onRetry: _charger,
-            ),
-
-          // ── Corps ─────────────────────────────────────────────────────
+            _BandeauErreur(message: _erreur!, onRetry: _charger),
           Expanded(child: _buildCorps()),
         ],
       ),
@@ -163,31 +170,42 @@ class _FavorisScreenState extends State<FavorisScreen> {
   }
 
   Widget _buildCorps() {
-    // Chargement initial
-    if (_chargement && _favoris == null) {
-      return const _LoaderFavoris();
+    // Mode réactif : StreamBuilder pour utilisateurs connectés
+    if (_stream != null) {
+      return StreamBuilder<List<Logement>>(
+        stream: _stream,
+        builder: (ctx, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const _LoaderFavoris();
+          }
+          if (snap.hasError) {
+            return Center(
+              child: Text(AppLocalizations.of(context).t('favoris_load_error')),
+            );
+          }
+          final liste = snap.data ?? [];
+          if (liste.isEmpty) {
+            return const _EtatVide();
+          }
+          return _buildListe(liste);
+        },
+      );
     }
 
-    // Chargement rafraîchissement (liste déjà affichée)
+    // Mode visiteur / offline : Future
+    if (_chargement && _favoris == null) return const _LoaderFavoris();
     if (_chargement && _favoris != null) {
       return Stack(
         children: [
           _buildListe(_favoris!),
           const Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: LinearProgressIndicator(),
-          ),
+              top: 0, left: 0, right: 0, child: LinearProgressIndicator()),
         ],
       );
     }
-
-    // État vide
     if (_favoris == null || _favoris!.isEmpty) {
-      return _EtatVide(onExplorer: () => Navigator.pop(context));
+      return const _EtatVide();
     }
-
     return _buildListe(_favoris!);
   }
 
@@ -205,47 +223,47 @@ class _FavorisScreenState extends State<FavorisScreen> {
             confirmDismiss: (_) async {
               final l = AppLocalizations.of(context);
               return await showDialog<bool>(
-                context: context,
-                builder: (_) => AlertDialog(
-                  title: Text(l.t('favoris_confirm_remove')),
-                  content: Text('Retirer "${logement.titre}" de vos favoris ?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: Text(l.t('common_cancel')),
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text(l.t('favoris_confirm_remove')),
+                      content: Text(
+                          '"${logement.titre}"\n${l.t('favoris_confirm_remove_body')}'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: Text(l.t('common_cancel')),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          style: TextButton.styleFrom(
+                              foregroundColor: AppColors.error),
+                          child: Text(l.t('favoris_remove_action')),
+                        ),
+                      ],
                     ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: Text(
-                        l.t('favoris_remove_action'),
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  ],
-                ),
-              ) ??
+                  ) ??
                   false;
             },
-            onDismissed: (_) => _supprimerFavori(
-              liste.indexOf(logement),
-              logement,
-            ),
+            onDismissed: (_) => _supprimerFavori(logement),
             background: Container(
               alignment: Alignment.centerRight,
               padding: const EdgeInsets.only(right: 20),
-              color: AppColors.error,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.transparent, AppColors.error.withValues(alpha: 0.9)],
+                ),
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.favorite_border, color: Colors.white),
+                  const Icon(Icons.bookmark_remove, color: Colors.white),
                   const SizedBox(height: 4),
                   Text(
                     AppLocalizations.of(context).t('favoris_remove_action'),
                     style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600),
                   ),
                 ],
               ),
@@ -256,11 +274,10 @@ class _FavorisScreenState extends State<FavorisScreen> {
                 await Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => DetailLogementScreen(logement: logement),
-                  ),
+                      builder: (_) => DetailLogementScreen(logement: logement)),
                 );
-                // Rafraîchissement au retour (l'utilisateur a pu toggler le favori)
-                _charger(forceRefresh: true);
+                // Stream met à jour automatiquement ; pour visiteur : refresh manuel
+                if (_stream == null) _charger(forceRefresh: true);
               },
             ),
           );
@@ -393,8 +410,7 @@ class _SkeletonCard extends StatelessWidget {
 }
 
 class _EtatVide extends StatelessWidget {
-  final VoidCallback onExplorer;
-  const _EtatVide({required this.onExplorer});
+  const _EtatVide();
 
   @override
   Widget build(BuildContext context) {
@@ -404,10 +420,10 @@ class _EtatVide extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.favorite_border,
-              size: 72,
-              color: Colors.grey,
+            Icon(
+              Icons.bookmark_border,
+              size: 96,
+              color: AppColors.primary.withValues(alpha: 0.35),
             ),
             const SizedBox(height: 16),
             Text(
@@ -425,12 +441,6 @@ class _EtatVide extends StatelessWidget {
                   .textTheme
                   .bodyMedium
                   ?.copyWith(color: Colors.grey),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: onExplorer,
-              icon: const Icon(Icons.search),
-              label: Text(AppLocalizations.of(context).t('favoris_explore')),
             ),
           ],
         ),
