@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/paiement_service.dart';
@@ -104,17 +103,7 @@ class _PaiementPremiumScreenState extends State<PaiementPremiumScreen> {
     }
 
     _reference = result.reference;
-
-    // Ouvre éventuellement une URL de paiement externe.
-    if (result.checkoutUrl != null && result.checkoutUrl!.isNotEmpty) {
-      try {
-        await launchUrl(Uri.parse(result.checkoutUrl!),
-            mode: LaunchMode.externalApplication);
-      } catch (_) {
-        // Continue même si l'ouverture auto échoue
-      }
-    }
-
+    // PawaPay Cameroun : USSD push — pas de redirect externe.
     setState(() {
       _loading = false;
       _etape = _Etape.attente;
