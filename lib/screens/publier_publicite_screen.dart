@@ -7,6 +7,8 @@ import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/publicite_service.dart';
+import '../services/paiement_service.dart';
+import 'paiement_publication_screen.dart';
 
 // ============================================================
 // ÉCRAN : PublierPubliciteScreen
@@ -100,7 +102,9 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
     setState(() => _isSubmitting = true);
     try {
       final user = AuthService.instance.currentUser!;
-      await PubliciteService.publier(
+
+      // Étape 1 : crée la pub en brouillon (paymentPending: true, actif: false).
+      final pubId = await PubliciteService.creerBrouillon(
         prestataireId: user.id,
         prestataireNom: '${user.prenom} ${user.nom}'.trim(),
         prestatairePhone: user.telephone,
@@ -110,9 +114,47 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
         photos: _photos,
         video: _video,
       );
-      if (mounted) {
-        _showSnack(AppLocalizations.of(context).t('pub_success'));
-        Navigator.pop(context, true);
+
+      if (!mounted) return;
+
+      // Étape 2 : paiement 500 XAF / 4 jours via Mobile Money.
+      final paye = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PaiementPublicationScreen(
+            logementId: pubId,
+            titreAnnonce: _titreCtrl.text.trim(),
+            montant: PubliciteService.montantParPeriode,
+            titreEcran: 'Paiement publicité',
+            dureeLabel:
+                'Diffusion pendant ${PubliciteService.dureeJours} jours. La pub sera automatiquement désactivée à l\'échéance.',
+            boutonLabel: 'Payer et diffuser',
+            succesMessage:
+                'Votre publicité est en ligne pour ${PubliciteService.dureeJours} jours.',
+            initierPersonnalise: ({required telephone, required operateur}) {
+              return PaiementService.instance.initierPaiementPublicite(
+                publiciteId: pubId,
+                telephone: telephone,
+                channel: operateur,
+              );
+            },
+          ),
+        ),
+      );
+
+      if (paye == true) {
+        if (mounted) {
+          _showSnack(AppLocalizations.of(context).t('pub_success'));
+          Navigator.pop(context, true);
+        }
+      } else {
+        // Paiement annulé/échoué → on supprime le brouillon.
+        try {
+          await PubliciteService.supprimer(pubId);
+        } catch (_) {}
+        if (mounted) {
+          _showSnack('Publicité annulée : aucun paiement validé.');
+        }
       }
     } catch (e) {
       if (mounted) {

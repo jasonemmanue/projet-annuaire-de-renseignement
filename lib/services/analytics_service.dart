@@ -1,6 +1,6 @@
 // ============================================================
 // FICHIER : lib/services/analytics_service.dart
-// Service Analytics centralisé – ImmoConnect
+// Service Analytics centralisé – Horem+
 // Dépendance : firebase_analytics: ^11.5.0 (déjà dans pubspec.yaml)
 // ============================================================
 //

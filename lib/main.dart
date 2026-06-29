@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'app_controller.dart';
 import 'l10n/app_localizations.dart';
@@ -17,11 +17,12 @@ import 'screens/messagerie_screen.dart';
 import 'screens/profil_screen.dart';
 import 'screens/dashboard_prestataire_screen.dart';
 import 'screens/detail_logement_screen.dart';
-import 'screens/admin_panel_screen.dart';
 import 'screens/auth/login_screen.dart';
+import 'screens/legal/consentement_screen.dart';
 import 'services/auth_service.dart';
+import 'widgets/stories_publicites_overlay.dart';
 import 'services/notification_service.dart';
-import 'services/ads_service.dart';
+// import 'services/ads_service.dart'; // AdMob désactivé
 import 'widgets/shared_widgets.dart' as sw;
 import 'models/models.dart';
 
@@ -37,10 +38,12 @@ void main() async {
     // Firebase déjà initialisé par FirebaseInitProvider Android — on continue.
   }
 
-  // App Check — Debug provider en debug, Play Integrity en release
+  // App Check — Debug provider pour les tests internes (avant publication Play Store).
+  // ⚠️ Avant publication Play Store :
+  //   1. Remplacer AndroidProvider.debug par AndroidProvider.playIntegrity
+  //   2. Enregistrer les SHA-1/SHA-256 release dans Firebase Console
   await FirebaseAppCheck.instance.activate(
-    androidProvider:
-        kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+    androidProvider: AndroidProvider.debug,
   );
 
   // Émulateurs désactivés — mode production (vrais SMS Firebase)
@@ -51,26 +54,27 @@ void main() async {
   await AppController.instance.loadPrefs();
   await AuthService.instance.init();
   await NotificationService.init();
-  await AdsService.instance.initialize();
+  // AdMob désactivé — publicités prestataires via StoriesPublicitesOverlay
+  // await AdsService.instance.initialize();
 
   if (AuthService.instance.isLoggedIn) {
     await NotificationService.saveToken(AuthService.instance.currentUser!.id);
   }
 
-  runApp(const ImmoConnectApp());
+  runApp(const HoremPlusApp());
 }
 
 // ─────────────────────────────────────────────────────────────
 // App root — écoute AppController pour thème et langue
 // ─────────────────────────────────────────────────────────────
-class ImmoConnectApp extends StatefulWidget {
-  const ImmoConnectApp({super.key});
+class HoremPlusApp extends StatefulWidget {
+  const HoremPlusApp({super.key});
 
   @override
-  State<ImmoConnectApp> createState() => _ImmoConnectAppState();
+  State<HoremPlusApp> createState() => _HoremPlusAppState();
 }
 
-class _ImmoConnectAppState extends State<ImmoConnectApp> {
+class _HoremPlusAppState extends State<HoremPlusApp> {
   @override
   void initState() {
     super.initState();
@@ -129,7 +133,7 @@ class _ImmoConnectAppState extends State<ImmoConnectApp> {
 
         return null;
       },
-      home: SplashScreen(nextScreen: const MainNavigationScreen()),
+      home: SplashScreen(nextScreen: const _ConsentGateway()),
     );
   }
 }
@@ -227,6 +231,32 @@ class _LogementFromNotification extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Porte consentement légal (1er lancement)
+// ─────────────────────────────────────────────────────────────
+class _ConsentGateway extends StatelessWidget {
+  const _ConsentGateway();
+
+  Future<bool> _isAccepted() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(kLegalAcceptedKey) ?? false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: _isAccepted(),
+      builder: (ctx, snap) {
+        if (!snap.hasData) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        if (snap.data == true) return const MainNavigationScreen();
+        return const ConsentementScreen(nextScreen: MainNavigationScreen());
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Navigation principale
 // ─────────────────────────────────────────────────────────────
 class MainNavigationScreen extends StatefulWidget {
@@ -236,29 +266,56 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
+class _MainNavigationScreenState extends State<MainNavigationScreen>
+    with WidgetsBindingObserver {
   int _currentIndex = 0;
 
-  bool get _isAdmin =>
-      AuthService.instance.isLoggedIn &&
-          AuthService.instance.currentUser!.isAdmin;
+  @override
+  void initState() {
+    super.initState();
+    AuthService.instance.addListener(_onAuthChanged);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    AuthService.instance.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Stories visiteur : tous les 4 retours d'arrière-plan.
+    if (state == AppLifecycleState.resumed && !_isPrestataire) {
+      if (StoriesTrigger.instance.registerForegroundReturn()) {
+        _maybeShowStories();
+      }
+    }
+  }
+
+  Future<void> _maybeShowStories() async {
+    if (!mounted) return;
+    await ouvrirStoriesPublicites(context);
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    setState(() {
+      // Recalibrer l'index si on passe de visiteur → prestataire ou inversement
+      final isPresta = _isPrestataire;
+      if (isPresta && _currentIndex == 3) return; // déjà sur dashboard
+      if (!isPresta && _currentIndex == 3) _currentIndex = 0;
+    });
+  }
 
   bool get _isPrestataire =>
       AuthService.instance.isLoggedIn &&
           AuthService.instance.currentUser!.isPrestataire;
 
-  /// Admin : Accueil | Carte | Favoris | Admin
   /// Prestataire : Accueil | Carte | Favoris | Dashboard
-  /// Visiteur : Accueil | Carte | Favoris | Profil
+  /// Visiteur    : Accueil | Carte | Favoris | Profil
   List<Widget> get _screens {
-    if (_isAdmin) {
-      return const [
-        AccueilScreen(),
-        CarteScreen(),
-        FavorisScreen(),
-        AdminPanelScreen(),
-      ];
-    }
     if (_isPrestataire) {
       return const [
         AccueilScreen(),
@@ -276,7 +333,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _onLoginSuccess() {
-    setState(() => _currentIndex = 0);
+    // Prestataire → aller directement au dashboard (onglet 3)
+    final isPresta = AuthService.instance.isLoggedIn &&
+        AuthService.instance.currentUser!.isPrestataire;
+    setState(() => _currentIndex = isPresta ? 3 : 0);
     if (AuthService.instance.isLoggedIn) {
       NotificationService.saveToken(AuthService.instance.currentUser!.id);
     }
@@ -291,16 +351,26 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: sw.MainBottomNav(
         currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
+        onTap: _onTabTap,
         isPrestataire: _isPrestataire,
-        isAdmin: _isAdmin,
       ),
     );
+  }
+
+  void _onTabTap(int i) {
+    final wasIndex = _currentIndex;
+    setState(() => _currentIndex = i);
+    // Stories visiteur : tous les 3 changements de tab effectifs.
+    if (wasIndex != i && !_isPrestataire) {
+      if (StoriesTrigger.instance.registerNavigation()) {
+        _maybeShowStories();
+      }
+    }
   }
 }
 
 // ─────────────────────────────────────────────────────────────
-// Profil visiteur avec bouton accès espace prestataire
+// Profil visiteur — passe le callback prestataire à ProfilScreen
 // ─────────────────────────────────────────────────────────────
 class _ProfilAvecLoginScreen extends StatelessWidget {
   final VoidCallback onLoginSuccess;
@@ -316,27 +386,9 @@ class _ProfilAvecLoginScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        const ProfilScreen(key: ValueKey('profil_visiteur')),
-        Positioned(
-          left: 16,
-          right: 16,
-          bottom: 24,
-          child: ElevatedButton.icon(
-            onPressed: () => _ouvrirLogin(context),
-            icon: const Icon(Icons.business_center_outlined),
-            label: Text(AppLocalizations.of(context).t('prestataire_access')),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 50),
-              backgroundColor: const Color(0xFF0071C2),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-          ),
-        ),
-      ],
+    return ProfilScreen(
+      key: const ValueKey('profil_visiteur'),
+      onPrestataireAcces: () => _ouvrirLogin(context),
     );
   }
 }

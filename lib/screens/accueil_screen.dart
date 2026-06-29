@@ -8,6 +8,7 @@ import '../services/logement_service.dart';
 import '../services/analytics_service.dart';
 import '../services/cache_service.dart';
 import '../services/messagerie_service.dart';
+import '../services/rating_service.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/shared_widgets.dart' as sw;
@@ -87,6 +88,15 @@ class _AccueilScreenState extends State<AccueilScreen> {
     resolveCurrentUid().then((uid) {
       if (mounted) setState(() => _currentUid = uid);
     });
+    _initRating();
+  }
+
+  Future<void> _initRating() async {
+    await RatingService.instance.incrementOpenCount();
+    if (!mounted) return;
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+    await RatingService.instance.maybeAskForReview(context);
   }
 
   @override
@@ -452,7 +462,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'ImmoConnect',
+                                    'Horem+',
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 22,

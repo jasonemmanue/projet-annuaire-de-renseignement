@@ -4,7 +4,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const geniuspay = require("./geniuspay");
 
-// ── GeniusPay (Wave CI) – paiement réel ──
+// ── GeniusPay – paiement Mobile Money Cameroun (MTN / Orange) ──
 // Clés à configurer via Firebase Secrets :
 //   firebase functions:secrets:set GENIUSPAY_API_KEY
 //   firebase functions:secrets:set GENIUSPAY_SECRET_KEY
@@ -15,7 +15,7 @@ const GENIUSPAY_WEBHOOK_URL =
   "https://geniuspaywebhook-qhxw7o6nha-uc.a.run.app";
 
 // ── Tarifs ──
-const DEVISE = "XAF";          // Cameroun
+const DEVISE = "XOF";          // GeniusPay (CI) accepte XOF — même cours que XAF (655,957/EUR)
 const MIN_PAIEMENT = 200;      // plancher (100/150 → 200)
 const PREMIUM_MONTANT = 200;   // XAF / mois
 const PREMIUM_DUREE_JOURS = 30;
@@ -530,10 +530,10 @@ exports.sendVuesMilestoneNotification = onDocumentUpdated(
 
 // ================================================================
 // CLOUD FUNCTION 5 : initierPaiementPremium (HTTP)
-// Initie un paiement GeniusPay (Wave CI) pour le Pack Premium (100 XOF/mois).
+// Initie un paiement GeniusPay pour le Pack Premium (Mobile Money Cameroun).
 // Sécurité : ID token Firebase obligatoire → uid dérivé du token.
 //
-// Body : { telephone: "+225XXXXXXXXXX", channel?: "wave_ci"|"orange_money_ci"|... }
+// Body : { telephone: "+237XXXXXXXXX", channel?: "orange"|"mtn" }
 // Réponse : { success, reference, checkoutUrl, message }
 //
 // Variables d'environnement requises :
@@ -599,7 +599,7 @@ exports.initierPaiementPremium = onRequest(
             success: true,
             reference: existing.reference,
             checkoutUrl: existing.checkoutUrl || "",
-            message: "Paiement déjà en cours. Validez sur Wave.",
+            message: "Paiement déjà en cours. Finalisez le via Mobile Money.",
           });
           return;
         }
@@ -615,7 +615,7 @@ exports.initierPaiementPremium = onRequest(
         paymentMethod: "pawapay",
         mmoProvider: mmoProviderCM(channel),
         customerCountry: "CM",
-        description: "Pack Premium ImmoConnect — 1 mois",
+        description: "Pack Premium Horem+ — 1 mois",
         customerEmail: u.email || "",
         customerPhone: telephone,
         metadata: { uid, type: "premium" },
@@ -648,7 +648,7 @@ exports.initierPaiementPremium = onRequest(
         success: true,
         reference,
         checkoutUrl: paiement.paymentUrl || "",
-        message: "Page Wave ouverte. Finalisez le paiement de 200 XOF sur Wave.",
+        message: "Paiement initié. Confirmez la demande sur votre téléphone (Mobile Money).",
       });
     } catch (error) {
       console.error("initierPaiementPremium :", error);
@@ -663,7 +663,7 @@ exports.initierPaiementPremium = onRequest(
 // Body : { logementId, duree: "1s"|"2s"|"1m", telephone, operateur? }
 // ================================================================
 exports.initierSponsorisation = onRequest(
-  { cors: true },
+  { cors: true, secrets: ["GENIUSPAY_API_KEY", "GENIUSPAY_SECRET_KEY", "GENIUSPAY_WEBHOOK_SECRET"] },
   async (req, res) => {
     if (req.method === "OPTIONS") {
       res.status(204).send("");

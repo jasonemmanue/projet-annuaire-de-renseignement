@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -6,10 +7,65 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // ============================================================
 // HANDLER BACKGROUND – fonction top-level obligatoire
+// S'exécute dans un isolate séparé : pas d'accès au widget tree.
 // ============================================================
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  debugPrint('[FCM Background] ${message.notification?.title}');
+  // Vérifie la préférence dans SharedPreferences (accessible hors isolate).
+  final prefs = await SharedPreferences.getInstance();
+  final type  = message.data['type'] ?? 'message';
+
+  final isAnnonce = type == 'annonce' || type == 'nouvelle_annonce';
+  final isPrix    = type == 'price_drop' || type == 'alerte_prix';
+
+  final catKey = isAnnonce
+      ? NotificationService.kNotifAnnonces
+      : isPrix
+          ? NotificationService.kNotifPrix
+          : NotificationService.kNotifMessages;
+
+  final defaultEnabled = catKey == NotificationService.kNotifPrix ? false : true;
+  final enabled = prefs.getBool(catKey) ?? defaultEnabled;
+  if (!enabled) return;
+
+  // Si le message contient déjà un champ notification, Android l'affiche
+  // automatiquement — on ne double pas. On n'intervient que pour les data-only.
+  if (message.notification != null) return;
+
+  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  final local = FlutterLocalNotificationsPlugin();
+  await local.initialize(const InitializationSettings(android: androidInit));
+
+  final chanId   = isAnnonce ? 'sgkhome_annonces' : 'sgkhome_messages';
+  final chanName = isAnnonce ? 'Nouvelles annonces' : 'Messages';
+  final title    = message.data['title']    as String? ?? chanName;
+  final body     = message.data['body']     as String? ?? '';
+  final convId   = message.data['conversationId'] as String?;
+  final logId    = message.data['logementId']     as String?
+      ?? message.data['logementid']               as String?;
+
+  final payload = convId != null
+      ? 'chat:$convId'
+      : logId != null
+          ? 'logement:$logId'
+          : '';
+
+  await local.show(
+    message.hashCode,
+    title,
+    body,
+    NotificationDetails(
+      android: AndroidNotificationDetails(
+        chanId, chanName,
+        importance: isAnnonce ? Importance.high : Importance.max,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+        color: const Color(0xFF0071C2),
+        styleInformation: BigTextStyleInformation(body),
+      ),
+    ),
+    payload: payload,
+  );
 }
 
 // NavigatorKey global – partagé avec main.dart
@@ -115,7 +171,7 @@ class NotificationService {
     return prefs.getBool(category) ?? true;
   }
 
-  /// Persiste le choix et gère les topics FCM pour annonces/prix.
+  /// Persiste le choix, gère les topics FCM et synchronise Firestore.
   static Future<void> setCategory(String category, bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(category, enabled);
@@ -131,6 +187,16 @@ class NotificationService {
         await _fcm.subscribeToTopic(_topicPrix);
       } else {
         await _fcm.unsubscribeFromTopic(_topicPrix);
+      }
+    } else if (category == kNotifMessages) {
+      // Synchronise dans Firestore pour que les Cloud Functions respectent
+      // la préférence lors de l'envoi de notifications push aux prestataires.
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        await _db.collection('users').doc(uid).set(
+          {'notifMessages': enabled},
+          SetOptions(merge: true),
+        );
       }
     }
   }

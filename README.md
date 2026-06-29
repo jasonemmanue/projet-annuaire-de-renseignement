@@ -1,100 +1,110 @@
-# SGK HOME — ImmoConnect
+# SGK HOME — Horem+
 
-Application Flutter de petites annonces immobilières au Cameroun.
+Application mobile immobilière et de services au Cameroun.
 
-**Version :** 1.0.0+1  
-**Stack :** Flutter · Firebase (Auth, Firestore, Storage, Messaging, Analytics) · Google Maps · Provider
+**Stack :** Flutter · Firebase · Google Maps · GeniusPay / PawaPay (Mobile Money)
 
 ---
 
-## Lancer le projet
+## Présentation
+
+SGK HOME connecte visiteurs et prestataires immobiliers au Cameroun. Les prestataires publient des annonces (logements, services, commerces) et les visiteurs les consultent, les sauvegardent en favoris et contactent directement les propriétaires via la messagerie intégrée.
+
+---
+
+## Rôles utilisateurs
+
+| Rôle | Compte | Accès |
+|------|--------|-------|
+| Visiteur | Non requis | Consultation, recherche, chat, favoris, urgences |
+| Prestataire | OTP SMS | + Publication, dashboard, sponsoring, publicités |
+| Administrateur | OTP SMS + rôle Firestore | Modération, validation, admin panel web |
+
+---
+
+## Fonctionnalités principales
+
+### Visiteur
+- Recherche & filtres (ville, type, prix, surface)
+- Carte interactive Google Maps avec géolocalisation
+- Fiche détail avec galerie photos + mini-carte
+- Messagerie en temps réel (texte, photos, vidéos)
+- Favoris + mode hors connexion
+- Stories publicités (overlay Instagram-style au démarrage)
+- Urgence : accès prioritaire au contact (48h) via Mobile Money
+
+### Prestataire
+- Publication d'annonces : logements, services (pharmacie, restaurant, école, entreprise)
+- Sponsoring annonce : 500 XAF/sem · 1 000 XAF/2 sem · 2 000 XAF/mois
+- Visibilité annuelle service : 1 000–3 000 XAF/an (selon type)
+- Pharmacie : publication gratuite avec jours de garde + horaires
+- Publicités stories : 500 XAF / 4 jours de diffusion
+- Dashboard : statistiques, gestion annonces, messagerie
+
+### Administration
+- Panneau Flutter intégré (`admin_panel_screen.dart`)
+- Dashboard web Next.js : [github.com/jasonemmanue/Horem-a-ADMIN](https://github.com/jasonemmanue/Horem-a-ADMIN)
+
+---
+
+## Paiements
+
+Paiement Mobile Money Cameroun via GeniusPay + PawaPay :
+- **Opérateurs :** Orange Money Cameroun · MTN Mobile Money Cameroun
+- **Flux :** USSD push (l'utilisateur reste dans l'app, pas de redirect)
+- **Polling :** vérification automatique toutes les 5 s jusqu'à confirmation
+
+---
+
+## Stack technique
+
+| Composant | Technologie |
+|-----------|-------------|
+| Mobile | Flutter (Android + iOS) |
+| Auth | Firebase Phone Auth (OTP SMS) |
+| Base de données | Cloud Firestore |
+| Stockage médias | Firebase Storage |
+| Notifications | Firebase Cloud Messaging |
+| Analytics | Firebase Analytics |
+| Carte | Google Maps Flutter |
+| Paiement | GeniusPay (PawaPay) — Mobile Money XOF/XAF |
+| Cloud Functions | Firebase Functions v2 (Node.js) |
+| Admin web | Next.js 14 + Tailwind + Firebase |
+| Déploiement admin | Railway |
+
+---
+
+## Installation
 
 ```bash
 flutter pub get
 flutter run
 ```
 
-Prérequis : `google-services.json` présent dans `android/app/` (téléchargeable depuis la console Firebase).
+Fichiers de configuration Firebase requis :
+- `android/app/google-services.json`
+- `ios/Runner/GoogleService-Info.plist`
+- `lib/firebase_options.dart` (généré par `flutterfire configure`)
 
 ---
 
-## Architecture
+## Cloud Functions
 
-```
-lib/
-├── main.dart                        # Point d'entrée, navigation principale
-├── app_controller.dart              # Singleton thème + langue (SharedPreferences)
-├── firebase_options.dart            # Config Firebase générée
-├── l10n/
-│   ├── app_localizations.dart       # Résolveur i18n maison
-│   ├── app_fr.dart                  # Strings français
-│   └── app_en.dart                  # Strings anglais
-├── theme/
-│   └── app_theme.dart               # AppColors, AppTextStyles, light/dark themes
-├── models/
-│   ├── models.dart                  # Logement, Message, Conversation, FiltreRecherche
-│   └── user_model.dart              # Utilisateur, UserRole
-├── services/                        # Firebase, géolocalisation, paiements…
-├── screens/                         # Tous les écrans
-└── widgets/                         # Widgets partagés (SearchBar, BottomNav, OperateurSelector)
+```bash
+cd functions
+npm install
+firebase deploy --only functions
 ```
 
----
-
-## État des 26 fonctionnalités
-
-### ✅ Implémentées
-
-| # | Fonctionnalité | Notes |
-|---|---|---|
-| #3 | Authentification par OTP Firebase (téléphone) | `login_screen.dart` — flux 2 étapes, anti-brute-force |
-| #19 | Connexion OTP uniquement (plus d'email/mdp) | Intégré dans `login_screen.dart` |
-| #4 | Persistance paramètres profil + langue + mode sombre | `app_controller.dart` + `main.dart` |
-| #8 | Traduction & mode sombre réels | `localizationsDelegates` dans `MaterialApp`, dark theme branché |
-| #5 | Messagerie accessible depuis l'accueil | Icône chat dans AppBar de `accueil_screen.dart` |
-| #23 | Tag des messages + photos/vidéos (prestataire) | Permissions différenciées, `replyTo`, vidéo dans `messagerie_screen.dart` |
-| #16 | Photo de profil à l'inscription prestataire | Sélecteur avatar dans `login_screen.dart` |
-
-### ❌ En attente (voir `PROMPTS_RESTANTS.md`)
-
-| # | Fonctionnalité | Fichiers principaux |
-|---|---|---|
-| #6 | **Carte réelle** : filtrage rayon, cercle, >10 km, anti-chevauchement badge | `carte_screen.dart` |
-| #7 | Barre de recherche réelle + autocomplétion + filtres fonctionnels | `accueil_screen.dart` |
-| #9 | Notifications persistées par type + FCM topics | `profil_screen.dart`, `notification_service.dart` |
-| #10 | Écran Aide & FAQ + contact email / WhatsApp | Créer `aide_faq_screen.dart` |
-| #11 | CGU + Confidentialité + écran d'acceptation 1er lancement | Créer `lib/screens/legal/` |
-| #12 | Widget « Noter l'application » périodique | Créer `rating_service.dart` |
-| #13 | Bouton « Évaluer » → Play Store | `profil_screen.dart` |
-| #14 | Version visible + bouton prestataire non-chevauchant + question | `main.dart`, `profil_screen.dart` |
-| #15 | Retirer « Sans Compte » du badge Mode visiteur | `profil_screen.dart` |
-| #17 | Case CGU cochable obligatoire à l'inscription | `auth/login_screen.dart` |
-| #18 | Onboarding post-connexion prestataire → espace direct | Créer `prestataire_onboarding_screen.dart` |
-| #20 | Prestataire : accès Notifications + Aide | `dashboard_prestataire_screen.dart` |
-| #21 | Admin : validation annonces + statut « Vérifié par ImmoConnect » | `admin_panel_screen.dart`, `models.dart` |
-| #22 | Retirer badges « non vérifié » / « Premium » prestataires | `profil_screen.dart`, `detail_logement_screen.dart` |
-| #24 | Retirer étoiles dans le formulaire nouvelle annonce | `dashboard_prestataire_screen.dart` |
-| #25 | Type de bien « Autre (préciser) » | `dashboard_prestataire_screen.dart` |
-| #26 | Bannière d'avertissement si annonce non vérifiée | `detail_logement_screen.dart` |
-| #1 | Choix opérateur Orange/MTN à la sponsorisation | `sponsorisation_screen.dart` |
-| #2 | Retirer « GeniusPay » UI → « Paiement Mobile Money sécurisé » | `sponsorisation_screen`, `paiement_premium_screen`, `urgence_screen` |
+Variables d'environnement (Firebase Secret Manager) :
+- `GENIUSPAY_API_KEY` / `GENIUSPAY_SECRET_KEY` / `GENIUSPAY_WEBHOOK_SECRET`
+- `GMAIL_SENDER_EMAIL` / `GMAIL_APP_PASSWORD`
 
 ---
 
-## Actions manuelles requises (console)
+## Build APK
 
-- [ ] Firebase Auth → activer « Phone », SHA-1 + SHA-256, re-télécharger `google-services.json`, numéros de test.
-- [ ] Google Cloud → activer « Maps SDK for Android » + clé dans `AndroidManifest.xml`.
-- [ ] Remplacer `SUPPORT_EMAIL` et `SUPPORT_WHATSAPP` dans `aide_faq_screen.dart` (#10).
-- [ ] Remplacer le texte juridique dans `politique_screen.dart` / `cgu_screen.dart` (#11).
-- [ ] Confirmer `applicationId` pour Play Store (#12/#13).
-- [ ] Déployer `firestore.rules` + `storage.rules` après #21 et #23.
-
----
-
-## Conventions
-
-- **Couleurs** : toujours via `AppColors` — jamais `Colors.white/black` en dur pour fond/texte.
-- **Textes** : toujours via `AppLocalizations.of(context).t('cle')`.
-- **Paiements** : flag `kSimulationPaiement`; widget `OperateurSelector` pour Orange/MTN.
-- **Rôles** : visiteur = non connecté (`visiteur_uid` local) ; prestataire/admin = Firebase Auth.
+```bash
+flutter build apk --release
+# Sortie : build/app/outputs/flutter-apk/app-release.apk
+```

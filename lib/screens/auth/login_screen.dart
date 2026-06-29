@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,17 +9,9 @@ import '../../l10n/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/storage_service.dart';
+import '../legal/cgu_screen.dart';
 import 'diag_otp_screen.dart';
 
-// ============================================================
-// FICHIER : lib/screens/auth/login_screen.dart
-// ✅ Authentification par OTP SMS (Firebase Phone Auth)
-// ✅ Flux 2 étapes : numéro +237 → code à 6 chiffres
-// ✅ Anti-brute-force conservé sur les échecs OTP
-// ✅ Compte à rebours renvoi SMS (60 s)
-// ✅ Auto-vérification Android transparente
-// ✅ Inscription : collecte nom/prénom/photo avant OTP
-// ============================================================
 
 enum _Etape { telephone, otp }
 
@@ -135,10 +128,6 @@ class _LoginScreenState extends State<LoginScreen>
   }
 }
 
-// ==============================================================
-// TAB CONNEXION
-// Étape 1 : numéro → Étape 2 : code OTP
-// ==============================================================
 class _OtpConnexionTab extends StatefulWidget {
   const _OtpConnexionTab();
   @override
@@ -200,7 +189,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
     });
   }
 
-  String get _fullPhone => '+225${_telCtrl.text.trim()}';
+  String get _fullPhone => '+237${_telCtrl.text.trim()}';
 
   Future<void> _envoyerCode() async {
     if (!_phoneFormKey.currentState!.validate()) return;
@@ -295,7 +284,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
   String? _validatePhone(String? v) {
     final l = AppLocalizations.of(context);
     if (v == null || v.trim().isEmpty) return l.t('form_required');
-    if (!RegExp(r'^\d{10}$').hasMatch(v.trim())) return l.t('login_phone_invalid');
+    if (!RegExp(r'^6\d{8}$').hasMatch(v.trim())) return l.t('login_phone_invalid');
     return null;
   }
 
@@ -342,12 +331,12 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
               keyboardType: TextInputType.phone,
               inputFormatters: [
                 FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(10),
+                LengthLimitingTextInputFormatter(9),
               ],
               decoration: InputDecoration(
                 labelText: l.t('login_phone'),
                 prefixIcon: const Icon(Icons.phone_outlined),
-                prefixText: '+225 ',
+                prefixText: '+237 ',
                 hintText: l.t('login_phone_hint_otp'),
               ),
               validator: _validatePhone,
@@ -398,7 +387,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
                 children: [
                   TextSpan(text: l.t('login_otp_sent_to')),
                   TextSpan(
-                    text: '+225 ${_telCtrl.text.trim()}',
+                    text: '+237 ${_telCtrl.text.trim()}',
                     style: const TextStyle(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w600),
@@ -491,6 +480,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
   bool    _isLoading      = false;
   String? _errorMessage;
   XFile?  _photo;
+  bool    _cguAcceptees  = false;
 
   int    _lockSeconds   = 0;
   Timer? _lockTimer;
@@ -528,7 +518,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
     });
   }
 
-  String get _fullPhone => '+225${_telCtrl.text.trim()}';
+  String get _fullPhone => '+237${_telCtrl.text.trim()}';
 
   Future<void> _pickPhoto(ImageSource source) async {
     final img = await ImagePicker().pickImage(
@@ -539,12 +529,21 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
   String? _validatePhone(String? v) {
     final l = AppLocalizations.of(context);
     if (v == null || v.trim().isEmpty) return l.t('form_required');
-    if (!RegExp(r'^\d{10}$').hasMatch(v.trim())) return l.t('login_phone_invalid');
+    if (!RegExp(r'^6\d{8}$').hasMatch(v.trim())) return l.t('login_phone_invalid');
     return null;
   }
 
   Future<void> _envoyerCode() async {
     if (!_step1FormKey.currentState!.validate()) return;
+    if (!_cguAcceptees) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(AppLocalizations.of(context).t('login_cgu_required')),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ));
+      return;
+    }
     final auth = AuthService.instance;
     if (auth.isBlocked) {
       _startLockCountdown(auth.remainingLockDuration.inSeconds);
@@ -718,7 +717,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
                     radius: 44,
                     backgroundColor: AppColors.primaryLight,
                     backgroundImage: _photo != null
-                        ? AssetImage(_photo!.path) as ImageProvider
+                        ? FileImage(File(_photo!.path))
                         : null,
                     child: _photo == null
                         ? const Icon(Icons.person,
@@ -781,12 +780,12 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
               keyboardType: TextInputType.phone,
               inputFormatters: [
                 FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(10),
+                LengthLimitingTextInputFormatter(9),
               ],
               decoration: InputDecoration(
                 labelText: l.t('login_phone'),
                 prefixIcon: const Icon(Icons.phone_outlined),
-                prefixText: '+225 ',
+                prefixText: '+237 ',
                 hintText: l.t('login_phone_hint_otp'),
               ),
               validator: _validatePhone,
@@ -806,16 +805,41 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
             ],
             const SizedBox(height: 16),
 
-            Row(children: [
-              const Icon(Icons.check_box_outlined,
-                  color: AppColors.primary, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(l.t('login_terms'),
-                    style: const TextStyle(
-                        fontSize: 12, color: AppColors.textSecondary)),
-              ),
-            ]),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Checkbox(
+                  value: _cguAcceptees,
+                  onChanged: (v) => setState(() => _cguAcceptees = v ?? false),
+                  activeColor: AppColors.primary,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const CguScreen())),
+                    child: RichText(
+                      text: TextSpan(
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary),
+                        children: [
+                          TextSpan(text: l.t('login_terms')),
+                          TextSpan(
+                            text: l.t('consentement_cgu_link'),
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
 
             ElevatedButton(
@@ -855,7 +879,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
                 children: [
                   TextSpan(text: l.t('login_otp_sent_to')),
                   TextSpan(
-                    text: '+225 ${_telCtrl.text.trim()}',
+                    text: '+237 ${_telCtrl.text.trim()}',
                     style: const TextStyle(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w600),
@@ -923,9 +947,6 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
   }
 }
 
-// ==============================================================
-// WIDGETS UTILITAIRES PRIVÉS
-// ==============================================================
 
 /// Saisie OTP — 6 cases carrées à coins arrondis.
 class _OtpField extends StatefulWidget {

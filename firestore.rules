@@ -123,6 +123,44 @@ service cloud.firestore {
     }
 
     // ================================================================
+    // COLLECTION : urgences (accès prioritaire visiteur 48H)
+    // ================================================================
+    match /urgences/{docId} {
+      // Lecture : le visiteur/prestataire consulte ses propres accès urgence.
+      // L'ID du document est construit comme {uid}_{logementId}.
+      allow read: if isAuthenticated()
+        && (docId.matches(request.auth.uid + '_.*') || isAdmin());
+
+      // Écriture client : utilisée en simulation (debug) et pour l'init locale.
+      // En production, la Cloud Function (admin SDK) reste l'autorité.
+      // Contrainte : le champ uid doit correspondre à l'uid authentifié.
+      allow create, update: if isAuthenticated()
+        && request.resource.data.uid == request.auth.uid;
+
+      allow delete: if false;
+    }
+
+    // ================================================================
+    // COLLECTION : publicites (publicités prestataires)
+    // ================================================================
+    match /publicites/{pubId} {
+      // Lecture publique : affichage stories overlay + dashboard prestataire
+      allow read: if true;
+
+      // Création : prestataire connecté (brouillon initial avant paiement)
+      allow create: if isAuthenticated();
+
+      // Mise à jour : prestataire propriétaire uniquement
+      // (activation via webhook Cloud Function utilise admin SDK, bypass rules)
+      allow update: if isAuthenticated()
+        && resource.data.prestataireId == request.auth.uid;
+
+      // Suppression : propriétaire ou admin
+      allow delete: if isAuthenticated()
+        && (resource.data.prestataireId == request.auth.uid || isAdmin());
+    }
+
+    // ================================================================
     // COLLECTION : conversations
     // ================================================================
     match /conversations/{convId} {

@@ -11,6 +11,11 @@ import '../models/models.dart';
 class PubliciteService {
   static final _db = FirebaseFirestore.instance;
 
+  /// Tarif & durée d'une période de diffusion publicitaire.
+  static const int montantParPeriode = 500; // XAF
+  static const int dureeJours = 4;
+  static const String devise = 'XAF';
+
   // ── Upload médias ─────────────────────────────────────────
 
   static FirebaseStorage get _storageRef => FirebaseStorage.instance;
@@ -39,9 +44,14 @@ class PubliciteService {
     return task.ref.getDownloadURL();
   }
 
-  // ── Publier une nouvelle publicité ────────────────────────
+  // ── Création brouillon (avant paiement) ─────────────────────
+  //
+  // La pub est créée en mode `paymentPending: true, actif: false` (brouillon).
+  // Le paiement de 500 XAF / 4 jours doit être confirmé pour qu'elle devienne
+  // diffusable : le webhook GeniusPay (Cloud Function appliquerTransactionReussie)
+  // fixera `paymentPending: false, actif: true, expiresAt: now + 4j`.
 
-  static Future<String> publier({
+  static Future<String> creerBrouillon({
     required String prestataireId,
     required String prestataireNom,
     required String prestatairePhone,
@@ -51,16 +61,13 @@ class PubliciteService {
     required List<XFile> photos,
     XFile? video,
   }) async {
-    // Créer le document d'abord pour avoir l'ID
     final docRef = _db.collection('publicites').doc();
     final pubId = docRef.id;
 
-    // Upload photos
     final photoUrls = await Future.wait(
       photos.map((img) => _uploadPhoto(pubId, img)),
     );
 
-    // Upload vidéo si présente
     String? videoUrl;
     if (video != null) {
       videoUrl = await _uploadVideo(pubId, video);
@@ -77,16 +84,51 @@ class PubliciteService {
       photos: photoUrls,
       videoUrl: videoUrl,
       dateCreation: DateTime.now(),
-      actif: true,
+      actif: false,           // pas encore diffusable
+      paymentPending: true,   // en attente du paiement initial
     );
 
     await docRef.set(pub.toMap());
     return pubId;
   }
 
+  // ── Mise à jour (gratuite, tant que la pub courante est active) ────
+  static Future<void> mettreAJour(
+    String pubId, {
+    String? titre,
+    String? description,
+  }) async {
+    final updates = <String, dynamic>{};
+    if (titre != null) updates['titre'] = titre;
+    if (description != null) updates['description'] = description;
+    if (updates.isEmpty) return;
+    await _db.collection('publicites').doc(pubId).update(updates);
+  }
+
   // ── Lecture ───────────────────────────────────────────────
 
-  /// Toutes les publicités actives (pour l'accueil visiteur)
+  /// Publicités diffusables côté visiteur : actif + non expirées.
+  /// Note : le filtrage `expiresAt > now` est fait côté client pour éviter
+  /// le besoin d'un index composite (actif + expiresAt).
+  static Stream<List<Publicite>> watchPublicitesDiffusables() {
+    return _db
+        .collection('publicites')
+        .where('actif', isEqualTo: true)
+        .orderBy('dateCreation', descending: true)
+        .snapshots()
+        .map((snap) {
+      final now = DateTime.now();
+      return snap.docs
+          .map((d) => Publicite.fromMap(d.id, d.data()))
+          .where((p) =>
+              !p.paymentPending &&
+              p.expiresAt != null &&
+              p.expiresAt!.isAfter(now))
+          .toList();
+    });
+  }
+
+  /// Toutes les publicités actives (legacy, conservée pour compat).
   static Stream<QuerySnapshot> getPublicitesActives() =>
       _db
           .collection('publicites')
@@ -107,7 +149,8 @@ class PubliciteService {
   static Future<void> setActif(String id, bool actif) async =>
       _db.collection('publicites').doc(id).update({'actif': actif});
 
-  /// Supprime une publicité (prestataire propriétaire ou admin)
+  /// Supprime une publicité (prestataire propriétaire ou admin).
+  /// Aucun remboursement même si la pub était encore active.
   static Future<void> supprimer(String id) async =>
       _db.collection('publicites').doc(id).delete();
 

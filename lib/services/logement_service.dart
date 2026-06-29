@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'notification_service.dart';
 import '../models/models.dart';
@@ -62,6 +61,8 @@ class LogementService {
     final snap = await q.get();
     return snap.docs
         .map((d) => Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
+        // Côté visiteur : exclut brouillons en attente de paiement et annonces masquées.
+        .where((l) => l.estVisiblePourVisiteur)
         .toList();
   }
 

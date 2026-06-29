@@ -17,7 +17,7 @@ import 'analytics_service.dart';
 const _kLoginAttempts    = 'login_attempts';
 const _kLoginBlockedUntil = 'login_blocked_until';
 
-class AuthService {
+class AuthService extends ChangeNotifier {
   AuthService._internal();
   static final AuthService instance = AuthService._internal();
 
@@ -27,6 +27,11 @@ class AuthService {
   UserModel? _currentUser;
   UserModel? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
+
+  void _setCurrentUser(UserModel? value) {
+    _currentUser = value;
+    notifyListeners();
+  }
 
   // ─── ÉTAT BRUTE-FORCE (cache mémoire, source de vérité = SharedPrefs) ──
   int      _failedAttempts = 0;
@@ -126,7 +131,7 @@ class AuthService {
   Future<void> _loadUserFromFirestore(String uid) async {
     final doc = await _db.collection('users').doc(uid).get();
     if (doc.exists) {
-      _currentUser = UserModel.fromMap(doc.data()!);
+      _setCurrentUser(UserModel.fromMap(doc.data()!));
     } else {
       final firebaseUser = _auth.currentUser;
       if (firebaseUser != null) {
@@ -142,7 +147,7 @@ class AuthService {
           ...minimal.toMap(),
           'createdAt': FieldValue.serverTimestamp(),
         });
-        _currentUser = minimal;
+        _setCurrentUser(minimal);
       }
     }
 
@@ -187,7 +192,7 @@ class AuthService {
       if (_currentUser?.role != UserRole.prestataire &&
           _currentUser?.role != UserRole.admin) {
         await _auth.signOut();
-        _currentUser = null;
+        _setCurrentUser(null);
         // On comptabilise comme échec pour éviter l'énumération de rôles
         await _recordFailedAttempt();
         return AuthResult.wrongCredentials;
@@ -270,7 +275,7 @@ class AuthService {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      _currentUser = user;
+      _setCurrentUser(user);
       return AuthResult.success;
     } on FirebaseAuthException catch (e) {
       if (e.code == 'email-already-in-use') {
@@ -397,7 +402,7 @@ class AuthService {
     if (_currentUser?.role != UserRole.prestataire &&
         _currentUser?.role != UserRole.admin) {
       await _auth.signOut();
-      _currentUser = null;
+      _setCurrentUser(null);
       if (countFailure) await _recordFailedAttempt();
       return AuthResult.wrongCredentials;
     }
@@ -411,7 +416,7 @@ class AuthService {
         },
         SetOptions(merge: true),
       );
-      _currentUser = UserModel(
+      _setCurrentUser(UserModel(
         id:              _currentUser!.id,
         email:           _currentUser!.email,
         nom:             _currentUser!.nom,
@@ -425,7 +430,7 @@ class AuthService {
         premiumExpiry:   _currentUser!.premiumExpiry,
         phoneVerified:   true,
         phoneVerifiedAt: DateTime.now(),
-      );
+      ));
     }
 
     await _resetBruteForce();
@@ -454,7 +459,7 @@ class AuthService {
       updates,
       SetOptions(merge: true),
     );
-    _currentUser = UserModel(
+    _setCurrentUser(UserModel(
       id:              _currentUser!.id,
       email:           email    ?? _currentUser!.email,
       nom:             nom      ?? _currentUser!.nom,
@@ -468,7 +473,7 @@ class AuthService {
       premiumExpiry:   _currentUser!.premiumExpiry,
       phoneVerified:   _currentUser!.phoneVerified,
       phoneVerifiedAt: _currentUser!.phoneVerifiedAt,
-    );
+    ));
   }
 
   // ─── MISE À JOUR PHOTO ────────────────────────────────────────────────
@@ -480,7 +485,7 @@ class AuthService {
       {'photoUrl': photoUrl},
       SetOptions(merge: true),
     );
-    _currentUser = UserModel(
+    _setCurrentUser(UserModel(
       id:              _currentUser!.id,
       email:           _currentUser!.email,
       nom:             _currentUser!.nom,
@@ -494,14 +499,14 @@ class AuthService {
       premiumExpiry:   _currentUser!.premiumExpiry,
       phoneVerified:   _currentUser!.phoneVerified,
       phoneVerifiedAt: _currentUser!.phoneVerifiedAt,
-    );
+    ));
   }
 
   // ─── DÉCONNEXION ──────────────────────────────────────────────────────
 
   Future<void> logout() async {
     await _auth.signOut();
-    _currentUser = null;
+    _setCurrentUser(null);
   }
 }
 

@@ -158,7 +158,19 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                 }
 
                 final docs = List.from(snapshot.data?.docs ?? []);
+                final now = DateTime.now();
+                bool urgenceActive(dynamic doc) {
+                  final u = (doc.data() as Map)['urgenceUntil'] as Timestamp?;
+                  return u != null && u.toDate().isAfter(now);
+                }
+
                 docs.sort((a, b) {
+                  // Urgences actives en tête.
+                  final ua = urgenceActive(a);
+                  final ub = urgenceActive(b);
+                  if (ua && !ub) return -1;
+                  if (!ua && ub) return 1;
+                  // Sinon : date du dernier message décroissante.
                   final tA =
                       (a.data() as Map)['lastMessageTime'] as Timestamp?;
                   final tB =
@@ -228,6 +240,11 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                     final contactLabel =
                         data['contact_label'] as String?;
 
+                    final urgenceUntilTs =
+                        data['urgenceUntil'] as Timestamp?;
+                    final estUrgent = urgenceUntilTs != null &&
+                        urgenceUntilTs.toDate().isAfter(now);
+
                     return _ConversationTile(
                       conversationId: convId,
                       logementTitre:
@@ -243,6 +260,8 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                       nbNonLus: unread,
                       currentUid: _uid!,
                       isCurrentUserPrestataire: _isPrestataire,
+                      urgenceUntil: urgenceUntilTs?.toDate(),
+                      estUrgent: estUrgent,
                       onTap: () async {
                         // UID unique selon mode courant
                         final myUids = await getAllMyUids();
@@ -293,6 +312,8 @@ class _ConversationTile extends StatelessWidget {
   final String currentUid;
   final bool isCurrentUserPrestataire;
   final VoidCallback onTap;
+  final DateTime? urgenceUntil;
+  final bool estUrgent;
 
   const _ConversationTile({
     required this.conversationId,
@@ -307,6 +328,8 @@ class _ConversationTile extends StatelessWidget {
     required this.isCurrentUserPrestataire,
     this.logementPhoto,
     this.contactLabel,
+    this.urgenceUntil,
+    this.estUrgent = false,
   });
 
   @override
@@ -345,7 +368,12 @@ class _ConversationTile extends StatelessWidget {
 
   Widget _buildTile(BuildContext context, String name,
       String? photoUrl, bool hasUnread) {
-    return ListTile(
+    return Container(
+      // Surlignage rouge pâle pour les conversations en urgence.
+      color: estUrgent
+          ? AppColors.error.withValues(alpha: 0.07)
+          : Colors.transparent,
+      child: ListTile(
       onTap: onTap,
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -391,11 +419,36 @@ class _ConversationTile extends StatelessWidget {
             ),
         ],
       ),
-      title: Text(name,
-          style: TextStyle(
-              fontWeight:
-                  hasUnread ? FontWeight.w700 : FontWeight.w500,
-              fontSize: 15)),
+      title: Row(children: [
+        Flexible(
+          child: Text(name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontWeight:
+                      hasUnread ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: 15)),
+        ),
+        if (estUrgent) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.error,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.bolt, color: Colors.white, size: 11),
+              SizedBox(width: 2),
+              Text('URGENT 48h',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900)),
+            ]),
+          ),
+        ],
+      ]),
       subtitle: Text(lastMessage,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -426,6 +479,7 @@ class _ConversationTile extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis),
         ],
+      ),
       ),
     );
   }

@@ -11,10 +11,8 @@ import '../services/auth_service.dart';
 import '../services/messagerie_service.dart';
 import '../services/analytics_service.dart';
 import '../services/favoris_service.dart'; // ← ÉTAPE 1
-import '../services/ads_service.dart';
 import '../services/paiement_service.dart';
 import '../l10n/app_localizations.dart';
-import 'dart:math';
 import 'messagerie_screen.dart';
 import 'urgence_screen.dart';
 
@@ -63,9 +61,6 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
 
   // ── État signalement ────────────────────────────────────────
   bool _dejaSignale = false;
-
-  // ── Publicité (interstitiel) ────────────────────────────────
-  bool _isPremium = false;
 
   // ── Accès prioritaire (urgence 48 H) ────────────────────────
   bool _aUrgence = false;        // le visiteur a payé l'accès
@@ -124,19 +119,9 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     // Chargement de l'état favori
     _loadFavoriState();
 
-    // [ADMOB] Précharge un interstitiel (sauf utilisateur Premium)
-    _isPremium = AuthService.instance.currentUser?.isPremiumActif ?? false;
-    if (!_isPremium) AdsService.instance.loadInterstitialAd();
   }
 
-  /// Quitte la fiche en affichant un interstitiel ~1 fois sur 3
-  /// (jamais pour les utilisateurs Premium).
   Future<void> _quitterAvecPub() async {
-    if (!_isPremium &&
-        AdsService.instance.isInterstitialReady &&
-        Random().nextInt(3) == 0) {
-      await AdsService.instance.showInterstitialAd();
-    }
     if (mounted) Navigator.pop(context);
   }
 
@@ -947,6 +932,35 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
   }
 
   Future<void> _contacterPrestataire() async {
+    // #26 — Avertir si annonce non vérifiée
+    if (!l.estVerifie) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Row(children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 22),
+            const SizedBox(width: 8),
+            Flexible(child: Text(_loc.t('detail_unverified_title'))),
+          ]),
+          content: Text(_loc.t('detail_unverified_body')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(_loc.t('detail_unverified_cancel')),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(_loc.t('detail_unverified_continue')),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
     setState(() => _contactLoading = true);
     try {
       final auth = AuthService.instance;
@@ -1009,8 +1023,8 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     // [ANALYTICS] Partage annonce
     AnalyticsService.instance.logPartageAnnonce(l.id);
     final texte = '${l.titre}\n${l.quartier}, ${l.ville}\n${l.prixLabel}\n\n'
-        'Découvrez cette annonce sur ImmoConnect.';
-    Share.share(texte, subject: 'Annonce ImmoConnect – ${l.titre}');
+        'Découvrez cette annonce sur Horem+.';
+    Share.share(texte, subject: 'Annonce Horem+ – ${l.titre}');
   }
 
   void _appelerPrestataire() async {

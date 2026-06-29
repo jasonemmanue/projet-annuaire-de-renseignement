@@ -76,7 +76,20 @@ class MessagerieService {
       contactLabel = 'Contact$contactNumber';
     }
 
-    // ── 3. Création de la conversation ───────────────────────
+    // ── 3. Lecture d'une éventuelle urgence active pour ce client+logement ─
+    Timestamp? urgenceUntil;
+    try {
+      final urgDoc = await _db
+          .collection('urgences')
+          .doc('${clientId}_$logementId')
+          .get();
+      final exp = urgDoc.data()?['expiresAt'];
+      if (exp is Timestamp && exp.toDate().isAfter(DateTime.now())) {
+        urgenceUntil = exp;
+      }
+    } catch (_) {}
+
+    // ── 4. Création de la conversation ───────────────────────
     final conv = await _db.collection('conversations').add({
       'participants': [clientId, prestataireId],
       'client_uid': clientId,
@@ -92,6 +105,7 @@ class MessagerieService {
       if (clientId.startsWith('visiteur_')) 'visitor_uid': clientId,
       if (contactLabel.isNotEmpty) 'contact_label': contactLabel,
       if (contactNumber > 0) 'contact_number': contactNumber,
+      if (urgenceUntil != null) 'urgenceUntil': urgenceUntil,
     });
 
     return conv.id;

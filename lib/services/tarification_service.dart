@@ -90,22 +90,40 @@ class TarificationService {
   /// Pourcentage de commission selon grade + type de bien.
   /// [typeBien] : 'Studio','Appartement','Villa','Chambre','Auberge',
   ///              'Hotel1','Hotel23','Hotel45','Boutique','Espace','Terrain'…
+  ///
+  /// Fallback : 5 % pour tout type non reconnu par la grille.
   double pourcentageCommission(GradeBien grade, String typeBien) {
     final t = typeBien.toLowerCase();
     switch (grade) {
       case GradeBien.standards:
-        return 0.03; // 3 %
+        // Types standards reconnus → 3 %, tout autre type → 5 %
+        if (t.contains('chambre') ||
+            t.contains('studio') ||
+            t.contains('appartement') ||
+            t.contains('villa')) {
+          return 0.03;
+        }
+        return 0.05; // autres types → 5 %
       case GradeBien.hautStanding:
         return 0.05; // 5 %
       case GradeBien.aLouer:
-        return 0.03; // boutiques / espaces / terrains → 3 %
+        // Types « à louer » reconnus → 3 %, tout autre type → 5 %
+        if (t.contains('boutique') ||
+            t.contains('espace') ||
+            t.contains('terrain') ||
+            t.contains('bureau') ||
+            t.contains('commerce') ||
+            t.contains('magasin')) {
+          return 0.03;
+        }
+        return 0.05; // autres types → 5 %
       case GradeBien.meubles:
         if (t.contains('auberge')) return 0.03;
         if (t.contains('motel') || t.contains('meubl')) return 0.035;
         if (t.contains('1') || t.contains('etoile1')) return 0.035; // 1★
         if (t.contains('23') || t.contains('2') || t.contains('3')) return 0.04; // 2-3★
         if (t.contains('45') || t.contains('4') || t.contains('5')) return 0.05; // 4-5★
-        return 0.035; // défaut meublés
+        return 0.05; // défaut meublés → 5 % (fallback)
     }
   }
 
@@ -132,6 +150,52 @@ class TarificationService {
   //   Hôtels 2-3★ 200 · Hôtels 4-5★ 500
   //
   // ⚠️ Plancher 200 appliqué : tous les 100 et 150 deviennent 200.
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ② BIS — SPONSORING IMMOBILIER — tarif fixe par durée
+  // ═══════════════════════════════════════════════════════════════════════════
+  static const Map<String, int> tarifsSponsoring = {
+    '1s': 500,   // 1 semaine
+    '2s': 1000,  // 2 semaines
+    '1m': 2000,  // 1 mois
+  };
+
+  static const Map<String, int> dureeJoursSponsoring = {
+    '1s': 7,
+    '2s': 14,
+    '1m': 30,
+  };
+
+  static const List<({String code, String label, int prix, int jours})>
+      optionsSponsoring = [
+    (code: '1s', label: '1 semaine', prix: 500, jours: 7),
+    (code: '2s', label: '2 semaines', prix: 1000, jours: 14),
+    (code: '1m', label: '1 mois', prix: 2000, jours: 30),
+  ];
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ③ VISIBILITÉ ANNUELLE — tarif fixe par type de service
+  // ═══════════════════════════════════════════════════════════════════════════
+  static const Duration dureeVisibilite = Duration(days: 365);
+
+  static const Map<String, int> _tarifsVisibilite = {
+    'entreprise': 3000,
+    'restaurant / snack': 2000,
+    'école': 1000,
+  };
+
+  /// Types éligibles à la visibilité annuelle (clés en minuscules).
+  static const List<String> typesVisibilite = [
+    'Entreprise',
+    'Restaurant / Snack',
+    'École',
+  ];
+
+  /// Montant de la visibilité annuelle selon le type de bien (insensible à la casse).
+  static int montantVisibilite(String typeBien) {
+    final key = typeBien.toLowerCase();
+    return _tarifsVisibilite[key] ?? 2000;
+  }
 
   /// Durée d'accès accordée au visiteur après paiement de l'urgence.
   static const Duration dureeUrgence = Duration(hours: 48);

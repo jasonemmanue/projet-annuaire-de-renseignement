@@ -127,6 +127,8 @@ class _CarteScreenState extends State<CarteScreen> {
               ? snap.data!.docs
                   .map((d) =>
                       Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
+                  // Côté visiteur : exclut brouillons + annonces masquées.
+                  .where((l) => l.estVisiblePourVisiteur)
                   .toList()
               : <Logement>[];
 
@@ -218,7 +220,7 @@ class _CarteScreenState extends State<CarteScreen> {
                 ),
               ),
 
-              // ─── BADGE IMMOCONNECT (bas-centre, discret) ─────
+              // ─── BADGE HOREM+ (bas-centre, discret) ─────
               Positioned(
                 bottom: _logementSelectionne != null ? 195 : 8,
                 left: 0,
@@ -232,7 +234,7 @@ class _CarteScreenState extends State<CarteScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text(
-                      'ImmoConnect',
+                      'Horem+',
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 10,

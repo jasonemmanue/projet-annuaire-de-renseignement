@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:in_app_review/in_app_review.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../app_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/notification_service.dart';
 import 'auth/login_screen.dart';
+import 'aide_faq_screen.dart';
+import 'legal/cgu_screen.dart';
+import 'legal/politique_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/profil_screen.dart
@@ -16,8 +22,14 @@ import 'auth/login_screen.dart';
 class ProfilScreen extends StatefulWidget {
   final bool isPrestataire;
   final Utilisateur? utilisateur;
+  final VoidCallback? onPrestataireAcces;
 
-  const ProfilScreen({super.key, this.isPrestataire = false, this.utilisateur});
+  const ProfilScreen({
+    super.key,
+    this.isPrestataire = false,
+    this.utilisateur,
+    this.onPrestataireAcces,
+  });
 
   @override
   State<ProfilScreen> createState() => _ProfilScreenState();
@@ -29,6 +41,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
   bool _notifAlertesPrix = false;
   late String _langue;
   late bool _modeSombre;
+  String _version = '';
 
   @override
   void initState() {
@@ -38,6 +51,12 @@ class _ProfilScreenState extends State<ProfilScreen> {
         ? 'English'
         : 'Français';
     _chargerPrefsNotifs();
+    _chargerVersion();
+  }
+
+  Future<void> _chargerVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _version = info.version);
   }
 
   Future<void> _chargerPrefsNotifs() async {
@@ -92,7 +111,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                 title: l.t('profil_my_info'),
                 children: [
                   _InfoTile(label: 'Nom', value: widget.utilisateur!.nomComplet),
-                  _InfoTile(label: 'Email', value: widget.utilisateur!.email ?? ''),
+                  _InfoTile(label: 'Email', value: widget.utilisateur?.email ?? ''),
                   _InfoTile(label: 'Téléphone', value: widget.utilisateur!.telephone),
                   _OptionTile(
                     icon: Icons.edit_outlined,
@@ -201,22 +220,22 @@ class _ProfilScreenState extends State<ProfilScreen> {
                 _OptionTile(
                   icon: Icons.help_outline,
                   label: l.t('profil_help'),
-                  onTap: () {},
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AideFaqScreen())),
                 ),
                 _OptionTile(
                   icon: Icons.privacy_tip_outlined,
                   label: l.t('profil_privacy'),
-                  onTap: () {},
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PolitiqueScreen())),
                 ),
                 _OptionTile(
                   icon: Icons.description_outlined,
                   label: l.t('profil_terms'),
-                  onTap: () {},
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CguScreen())),
                 ),
                 _OptionTile(
                   icon: Icons.star_outline,
                   label: l.t('profil_rate'),
-                  onTap: () {},
+                  onTap: () => _ouvrirStoreListing(context),
                 ),
                 ListTile(
                   leading: Container(
@@ -225,7 +244,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                     child: const Icon(Icons.info_outline, color: AppColors.primary, size: 20),
                   ),
                   title: Text(l.t('profil_version_label'), style: AppTextStyles.bodyLarge),
-                  trailing: const Text('1.0.0 MVP', style: AppTextStyles.caption),
+                  trailing: Text(_version.isEmpty ? '…' : _version, style: AppTextStyles.caption),
                 ),
               ],
             ),
@@ -252,11 +271,58 @@ class _ProfilScreenState extends State<ProfilScreen> {
               ),
             ],
 
+            // ─── BOUTON PRESTATAIRE (visiteur uniquement) ────────
+            if (!widget.isPrestataire && widget.onPrestataireAcces != null) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  children: [
+                    Text(
+                      l.t('profil_prestataire_question'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      onPressed: widget.onPrestataireAcces,
+                      icon: const Icon(Icons.business_center_outlined),
+                      label: Text(l.t('prestataire_access')),
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             const SizedBox(height: 40),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _ouvrirStoreListing(BuildContext context) async {
+    final review = InAppReview.instance;
+    if (await review.isAvailable()) {
+      await review.openStoreListing(appStoreId: 'com.horemplus.app');
+    } else {
+      final uri = Uri.parse(
+          'https://play.google.com/store/apps/details?id=com.horemplus.app');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    }
   }
 
   void _choisirLangue(BuildContext context) {
@@ -385,7 +451,7 @@ class _EnteteProfil extends StatelessWidget {
             style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
           ),
           if (utilisateur != null)
-            Text(utilisateur!.email ?? '', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            Text(utilisateur?.email ?? '', style: const TextStyle(color: Colors.white70, fontSize: 13)),
           const SizedBox(height: 8),
           if (isPrestataire)
             Row(

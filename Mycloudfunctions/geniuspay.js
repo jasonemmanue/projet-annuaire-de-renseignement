@@ -33,7 +33,7 @@ function _creds() {
 async function createPayment({
   reference,
   amount,
-  currency = "XAF",
+  currency = "XOF",  // GeniusPay (geniuspay.ci) n'accepte pas XAF
   paymentMethod = "pawapay",
   mmoProvider,        // ex: 'ORANGE_CMR' | 'MTN_MOMO_CMR' (PawaPay)
   customerCountry,    // ex: 'CM'
@@ -53,7 +53,7 @@ async function createPayment({
     payment_method: paymentMethod,
     // Opérateur explicite (PawaPay) — sinon auto-détection depuis le numéro.
     ...(mmoProvider ? { mmo_provider: mmoProvider } : {}),
-    description: description || "Paiement ImmoConnect",
+    description: description || "Paiement Horem+",
     customer: {
       email: customerEmail || "",
       ...(customerPhone ? { phone: customerPhone } : {}),
@@ -65,13 +65,13 @@ async function createPayment({
     error_url: errorUrl || returnUrl || "",
   };
 
-  // Côté serveur : authentification par la clé secrète (sk_...).
-  // La clé publique (pk_...) est transmise pour identification.
+  // Auth GeniusPay : X-API-Key (clé publique) + X-API-Secret (clé secrète).
+  // Cf. doc officielle : https://geniuspay.ci/docs/api#authentication
   const headers = {
     "Content-Type": "application/json",
     Accept: "application/json", // ⚠️ sinon Laravel redirige (302) au lieu de renvoyer du JSON
-    Authorization: `Bearer ${secretKey || apiKey}`,
     "X-API-Key": apiKey,
+    "X-API-Secret": secretKey || apiKey,
   };
 
   // Retry automatique sur erreurs de passerelle (Cloudflare 5xx) :
@@ -144,8 +144,8 @@ async function checkPayment(reference) {
   const { apiKey, secretKey } = _creds();
   const headers = {
     Accept: "application/json",
-    Authorization: `Bearer ${secretKey || apiKey}`,
     "X-API-Key": apiKey,
+    "X-API-Secret": secretKey || apiKey,
   };
 
   // Extrait un statut chaîne depuis un objet paiement (quelle que soit la forme).

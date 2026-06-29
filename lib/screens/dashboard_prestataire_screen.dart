@@ -1,6 +1,6 @@
 // ============================================================
 // FICHIER : lib/screens/dashboard_prestataire_screen.dart
-// IMMOCONNECT – Dashboard prestataire v6
+// HOREM+ – Dashboard prestataire v6
 // ✅ Onglets : Mes annonces | Messages | Statistiques | Profil
 // ✅ Badge non-lus temps réel sur l'onglet Messages
 // ✅ Profil prestataire dédié : infos, service client, déco
@@ -24,10 +24,15 @@ import '../services/storage_service.dart';
 import '../app_controller.dart';
 import '../l10n/app_localizations.dart';
 import 'messagerie_screen.dart';
-import 'paiement_premium_screen.dart';
+
+import 'paiement_publication_screen.dart';
+import '../services/tarification_service.dart';
+import '../services/paiement_service.dart';
 import 'sponsorisation_screen.dart';
 import 'publier_publicite_screen.dart';
+import 'aide_faq_screen.dart';
 import '../services/publicite_service.dart';
+import '../services/notification_service.dart';
 
 // ============================================================
 // CONSTANTES DE TRADUCTION (valeur FR Firestore → clé i18n)
@@ -42,6 +47,7 @@ const _typeBienKeys = <String, String>{
   'Pharmacie': 'type_pharmacie',
   'Restaurant / Snack': 'type_restaurant',
   'Entreprise': 'type_entreprise',
+  'École': 'type_ecole',
 };
 
 const _equipKeys = <String, String>{
@@ -82,10 +88,15 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
   String _ville = 'Yaoundé';
   final List<String> _equipements = [];
   bool _isSubmitting = false;
+  final _typeBienAutreCtrl = TextEditingController();
 
-  // Heures d'ouverture (Pharmacie / Restaurant)
+  // Heures d'ouverture (Pharmacie / Restaurant / Entreprise / École)
   final _heureOuvCtrl  = TextEditingController();
   final _heureFermCtrl = TextEditingController();
+
+  // Jours de garde / ouverture (tous les types service)
+  static const _joursLabels = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+  final List<String> _joursGarde = [];
 
   // Géolocalisation
   LatLng? _positionSelectionnee;
@@ -100,20 +111,34 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
 
   // ── Immobilier vs. Service ────────────────────────────────────
   static const _typesImmo    = ['Studio', 'Appartement', 'Villa', 'Terrain', 'Bureau', 'Commerce'];
-  static const _typesService = ['Pharmacie', 'Restaurant / Snack', 'Entreprise'];
+  static const _typesService = ['Pharmacie', 'Restaurant / Snack', 'Entreprise', 'École'];
+  static const _typeAutre    = 'Autre';
 
   final List<String> _villes = ['Yaoundé', 'Douala', 'Bafoussam', 'Garoua', 'Maroua'];
 
-  bool get _isServiceType  => _typesService.contains(_typeBien);
-  bool get _isImmoType     => _typesImmo.contains(_typeBien);
-  bool get _isPharmacieType => _typeBien == 'Pharmacie';
+  bool get _isServiceType    => _typesService.contains(_typeBien);
+  bool get _isImmoType       => _typesImmo.contains(_typeBien);
+  bool get _isPharmacieType  => _typeBien == 'Pharmacie';
   bool get _isRestaurantType => _typeBien == 'Restaurant / Snack';
+  bool get _isEntrepriseType => _typeBien == 'Entreprise';
+  bool get _isEcoleType      => _typeBien == 'École';
+  bool get _isAutreType      => _typeBien == _typeAutre;
+  // Types qui paient la visibilité annuelle (pas la commission %)
+  bool get _isVisibiliteType => _isRestaurantType || _isEntrepriseType || _isEcoleType;
+
+  // Valeur Firestore pour le type : si Autre, utilise le texte libre
+  String get _typeBienFirestore =>
+      _isAutreType && _typeBienAutreCtrl.text.trim().isNotEmpty
+          ? _typeBienAutreCtrl.text.trim()
+          : _typeBien;
 
   // Grade automatique selon le type de bien
   String get _gradeEffectif {
     if (_isPharmacieType)  return 'pharmacie';
     if (_isRestaurantType) return 'restaurant';
-    if (_typeBien == 'Entreprise') return 'entreprise';
+    if (_isEntrepriseType) return 'entreprise';
+    if (_isEcoleType)      return 'ecole';
+    if (_isAutreType)      return 'standards';
     return _grade;
   }
   final List<String> _equipementsDispos = [
@@ -147,9 +172,16 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
       _photosExistantes.addAll(l.photos);
       _heureOuvCtrl.text  = l.heureOuverture ?? '';
       _heureFermCtrl.text = l.heureFermeture ?? '';
+      _joursGarde.addAll(l.joursGarde);
       if (l.latitude != 0 && l.longitude != 0) {
         _positionSelectionnee = LatLng(l.latitude, l.longitude);
         _adresseAffichee = '${l.quartier}, ${l.ville}';
+      }
+      // Si type non connu → "Autre"
+      final connu = [..._typesImmo, ..._typesService];
+      if (!connu.contains(l.typeBien)) {
+        _typeBien = _typeAutre;
+        _typeBienAutreCtrl.text = l.typeBien;
       }
     }
   }
@@ -159,6 +191,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
     _titreCtrl.dispose(); _descCtrl.dispose(); _prixCtrl.dispose();
     _surfaceCtrl.dispose(); _quartierCtrl.dispose();
     _heureOuvCtrl.dispose(); _heureFermCtrl.dispose();
+    _typeBienAutreCtrl.dispose();
     _mapController?.dispose();
     super.dispose();
   }
@@ -224,41 +257,164 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         setState(() => _isUploadingPhotos = false);
       }
 
+      final prix = (_isPharmacieType || _isVisibiliteType)
+          ? 0.0
+          : (double.tryParse(_prixCtrl.text) ?? 0);
+      final estNouvelle = widget.logement == null;
+
+      final prestataire = AuthService.instance.currentUser;
       final data = {
         'titre': _titreCtrl.text.trim(),
         'description': _descCtrl.text.trim(),
-        'prix': _isPharmacieType ? 0.0 : (double.tryParse(_prixCtrl.text) ?? 0),
+        'prix': prix,
         'surface': int.tryParse(_surfaceCtrl.text) ?? 0,
         'quartier': _quartierCtrl.text.trim(),
         'ville': _ville,
         'typeLocation': _isServiceType ? 'service' : _typeLocation,
-        'typeBien': _typeBien,
+        'typeBien': _typeBienFirestore,
         'grade': _gradeEffectif,
         'equipements': _equipements,
         'latitude': _positionSelectionnee!.latitude,
         'longitude': _positionSelectionnee!.longitude,
         'photos': photoUrls,
         'uid_prestataire': uid,
-        'disponible': true,
+        'prestatireId': uid,
+        'prestatireNom': prestataire?.nom ?? prestataire?.displayName ?? '',
+        'prestatirePhone': prestataire?.telephone ?? '',
         'isSponsored': false,
         if (_heureOuvCtrl.text.trim().isNotEmpty)
           'heureOuverture': _heureOuvCtrl.text.trim(),
         if (_heureFermCtrl.text.trim().isNotEmpty)
           'heureFermeture': _heureFermCtrl.text.trim(),
+        if (_joursGarde.isNotEmpty) 'joursGarde': _joursGarde,
       };
 
-      if (widget.logement == null) {
-        await LogementService.addLogement(data);
-      } else {
+      if (!estNouvelle) {
+        // Édition : pas de paiement requis
         await LogementService.updateLogement(widget.logement!.id, data);
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(_loc.t('form_updated_ok')),
+              backgroundColor: AppColors.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))));
+        }
+        return;
       }
 
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(widget.logement == null ? _loc.t('form_published_ok') : _loc.t('form_updated_ok')),
-            backgroundColor: AppColors.success, behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))));
+      // ─── Pharmacie → publication directement gratuite ─────────────────────
+      if (_isPharmacieType) {
+        await LogementService.addLogement({
+          ...data,
+          'disponible': true,
+          'paymentPending': false,
+        });
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(_loc.t('form_published_ok')),
+              backgroundColor: AppColors.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))));
+        }
+        return;
+      }
+
+      // ─── Création brouillon + écran de paiement ───────────────────────────
+      final brouillonId = await LogementService.addLogement({
+        ...data,
+        'disponible': false,
+        'paymentPending': true,
+      });
+
+      int montant;
+      String titreEcran;
+      String dureeLabel;
+      InitierPaiementCb initierCb;
+
+      if (_isVisibiliteType) {
+        // Visibilité annuelle Entreprise / Restaurant / École
+        montant = TarificationService.montantVisibilite(_typeBienFirestore);
+        titreEcran = 'Visibilité annuelle';
+        dureeLabel = 'Votre fiche sera visible pendant 1 an sur SGK HOME.';
+        initierCb = ({required String telephone, required String operateur}) =>
+            PaiementService.instance.initierVisibilite(
+              logementId: brouillonId,
+              telephone: telephone,
+              channel: operateur,
+            );
+      } else {
+        // Immobilier → sélection durée de sponsoring (tarif fixe)
+        if (!mounted) return;
+        final optionChoisie = await showModalBottomSheet<
+            ({String code, String label, int prix, int jours})>(
+          context: context,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          builder: (_) => const _DureeSponsoringSheet(),
+        );
+        if (!mounted) return;
+        if (optionChoisie == null) {
+          // Annulé → supprimer le brouillon
+          await LogementService.deleteLogement(brouillonId);
+          setState(() => _isSubmitting = false);
+          return;
+        }
+        montant = optionChoisie.prix;
+        titreEcran = 'Frais de publication';
+        dureeLabel = 'Votre annonce sera mise en avant pendant ${optionChoisie.label}.';
+        initierCb = ({required String telephone, required String operateur}) =>
+            PaiementService.instance.initierSponsorisation(
+              logementId: brouillonId,
+              telephone: telephone,
+              channel: operateur,
+              duree: optionChoisie.code,
+            );
+      }
+
+      if (!mounted) return;
+      final paye = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PaiementPublicationScreen(
+            logementId: brouillonId,
+            titreAnnonce: _titreCtrl.text.trim(),
+            montant: montant,
+            titreEcran: titreEcran,
+            dureeLabel: dureeLabel,
+            initierPersonnalise: initierCb,
+            boutonLabel: _isVisibiliteType
+                ? 'Payer et activer la visibilité'
+                : 'Payer et publier l\'annonce',
+            succesMessage: _isVisibiliteType
+                ? 'Votre fiche est maintenant visible pendant 1 an sur SGK HOME.'
+                : 'Votre annonce est maintenant publiée et mise en avant.',
+          ),
+        ),
+      );
+
+      if (paye == true) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(_loc.t('form_published_ok')),
+              backgroundColor: AppColors.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))));
+        }
+      } else {
+        // Paiement annulé/échoué → supprimer le brouillon
+        try {
+          await LogementService.deleteLogement(brouillonId);
+        } catch (_) {}
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Publication annulée : aucun paiement validé.'),
+            backgroundColor: AppColors.warning,
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -335,11 +491,35 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                           style: const TextStyle(color: AppColors.textHint, fontSize: 13)),
                     ),
                     ..._typesService.map((t) => DropdownMenuItem(value: t, child: Text(t))),
+                    const DropdownMenuItem(
+                      value: null, enabled: false,
+                      child: Divider(height: 1),
+                    ),
+                    DropdownMenuItem(
+                      value: _typeAutre,
+                      child: Text(_loc.t('form_type_autre')),
+                    ),
                   ],
                   onChanged: (v) {
                     if (v == null) return;
                     setState(() { _typeBien = v; });
                   }),
+
+              // ── Champ libre si "Autre" ────────────────────────
+              if (_isAutreType) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _typeBienAutreCtrl,
+                  decoration: InputDecoration(
+                    labelText: _loc.t('form_type_autre_label'),
+                    hintText: _loc.t('form_type_autre_hint'),
+                    prefixIcon: const Icon(Icons.edit_outlined),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? _loc.t('form_required') : null,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ],
 
               // ── Type de transaction (immobilier uniquement) ───
               if (_isImmoType) ...[
@@ -390,19 +570,26 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                         ? Colors.green.shade50
                         : _isRestaurantType
                             ? Colors.orange.shade50
-                            : Colors.blue.shade50,
+                            : _isEcoleType
+                                ? Colors.purple.shade50
+                                : Colors.blue.shade50,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: _isPharmacieType
                           ? Colors.green.shade200
                           : _isRestaurantType
                               ? Colors.orange.shade200
-                              : Colors.blue.shade200,
+                              : _isEcoleType
+                                  ? Colors.purple.shade200
+                                  : Colors.blue.shade200,
                     ),
                   ),
                   child: Row(children: [
                     Text(
-                      _isPharmacieType ? '💊' : _isRestaurantType ? '🍽️' : '🏢',
+                      _isPharmacieType ? '💊'
+                          : _isRestaurantType ? '🍽️'
+                          : _isEcoleType ? '🎓'
+                          : '🏢',
                       style: const TextStyle(fontSize: 20),
                     ),
                     const SizedBox(width: 10),
@@ -411,14 +598,18 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                           ? _loc.t('form_pharma_info')
                           : _isRestaurantType
                               ? _loc.t('form_resto_info')
-                              : _loc.t('form_entreprise_info'),
+                              : _isEcoleType
+                                  ? _loc.t('form_ecole_info')
+                                  : _loc.t('form_entreprise_info'),
                       style: TextStyle(
                         fontSize: 12,
                         color: _isPharmacieType
                             ? Colors.green.shade800
                             : _isRestaurantType
                                 ? Colors.orange.shade800
-                                : Colors.blue.shade800,
+                                : _isEcoleType
+                                    ? Colors.purple.shade800
+                                    : Colors.blue.shade800,
                         fontWeight: FontWeight.w600,
                       ),
                     )),
@@ -441,17 +632,14 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                   decoration: InputDecoration(hintText: _loc.t('form_neighborhood_hint')),
                   validator: (v) => v!.isEmpty ? _loc.t('form_required') : null),
 
-              // ── Prix (masqué pour pharmacie) ──────────────────
-              if (!_isPharmacieType) ...[
+              // ── Prix (masqué pour pharmacie et types visibilité) ──────────
+              if (!_isPharmacieType && !_isVisibiliteType) ...[
                 const SizedBox(height: 16),
-                Text(
-                  _isRestaurantType ? _loc.t('form_price_avg') : _loc.t('form_price'),
-                  style: AppTextStyles.h3,
-                ),
+                Text(_loc.t('form_price'), style: AppTextStyles.h3),
                 const SizedBox(height: 8),
                 TextFormField(controller: _prixCtrl, keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                        hintText: _isRestaurantType ? _loc.t('form_price_hint_resto') : _loc.t('form_price_hint'),
+                        hintText: _loc.t('form_price_hint'),
                         suffixText: _isImmoType && _typeLocation == 'location'
                             ? 'XAF/mois'
                             : 'XAF'),
@@ -460,8 +648,8 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                         : null),
               ],
 
-              // ── Heures d'ouverture (Pharmacie / Restaurant) ───
-              if (_isPharmacieType || _isRestaurantType) ...[
+              // ── Heures d'ouverture (tous les types service) ───
+              if (_isServiceType) ...[
                 const SizedBox(height: 16),
                 Text(_loc.t('form_opening_hours'), style: AppTextStyles.h3),
                 const SizedBox(height: 8),
@@ -488,6 +676,33 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(_loc.t('form_time_format'),
                       style: const TextStyle(fontSize: 11, color: AppColors.textHint)),
+                ),
+              ],
+
+              // ── Jours de garde / d'ouverture (types service) ──
+              if (_isServiceType) ...[
+                const SizedBox(height: 16),
+                Text(
+                  _isPharmacieType
+                      ? _loc.t('form_jours_garde')
+                      : _loc.t('form_jours_ouverture'),
+                  style: AppTextStyles.h3,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _joursLabels.map((j) {
+                    final sel = _joursGarde.contains(j);
+                    return FilterChip(
+                      label: Text(j, style: const TextStyle(fontSize: 13)),
+                      selected: sel,
+                      selectedColor: context.appPrimaryLight,
+                      checkmarkColor: AppColors.primary,
+                      onSelected: (v) => setState(() =>
+                          v ? _joursGarde.add(j) : _joursGarde.remove(j)),
+                    );
+                  }).toList(),
                 ),
               ],
 
@@ -636,6 +851,81 @@ class _ChoixCard extends StatelessWidget {
             const SizedBox(width: 8),
             Text(label, style: TextStyle(color: selected ? Colors.white : context.appTextSecondary, fontWeight: FontWeight.w600)),
           ])));
+}
+
+// ============================================================
+// Sélecteur de durée de sponsoring (bottom sheet)
+// ============================================================
+class _DureeSponsoringSheet extends StatelessWidget {
+  const _DureeSponsoringSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 40, height: 4,
+            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(height: 16),
+        const Text('Durée de diffusion', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        const Text('Votre annonce sera mise en avant sur SGK HOME.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+        const SizedBox(height: 20),
+        ...TarificationService.optionsSponsoring.map((opt) {
+          final Color couleur = opt.code == '1m' ? AppColors.primary : AppColors.textPrimary;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: InkWell(
+              onTap: () => Navigator.pop(context, opt),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                decoration: BoxDecoration(
+                  color: opt.code == '1m'
+                      ? AppColors.primary.withValues(alpha: 0.06)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: opt.code == '1m' ? AppColors.primary : Colors.grey.shade300,
+                    width: opt.code == '1m' ? 2 : 1,
+                  ),
+                ),
+                child: Row(children: [
+                  Icon(
+                    opt.code == '1s' ? Icons.looks_one_outlined
+                        : opt.code == '2s' ? Icons.looks_two_outlined
+                        : Icons.star_rounded,
+                    color: couleur,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(opt.label,
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: couleur)),
+                    Text('${opt.jours} jours de mise en avant',
+                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  ])),
+                  Text('${opt.prix} F',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w900, fontSize: 18, color: couleur)),
+                  if (opt.code == '1m') ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: AppColors.primary, borderRadius: BorderRadius.circular(6)),
+                      child: const Text('TOP', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+                    ),
+                  ],
+                ]),
+              ),
+            ),
+          );
+        }),
+      ]),
+    );
+  }
 }
 
 // ============================================================
@@ -903,18 +1193,11 @@ class _ProfilPrestataireHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
-                Row(
-                  children: [
-                    if (user!.isVerifie)
-                      _BadgeDash(label: AppLocalizations.of(context).t('prest_header_verified'), color: Colors.green.shade400)
-                    else
-                      _BadgeDash(label: AppLocalizations.of(context).t('prest_header_not_verified'), color: Colors.orange.shade300),
-                    if (user!.isPremium) ...[
-                      const SizedBox(width: 6),
-                      _BadgeDash(label: AppLocalizations.of(context).t('prest_header_premium'), color: Colors.amber.shade400),
-                    ],
-                  ],
-                ),
+                if (user!.isVerifie)
+                  _BadgeDash(
+                    label: AppLocalizations.of(context).t('prest_header_verified'),
+                    color: Colors.green.shade400,
+                  ),
               ],
             ),
           ),
@@ -2066,6 +2349,8 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
   late AppLocalizations _loc;
   UserModel? _user;
 
+  bool _notifMessages = true;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -2076,118 +2361,19 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
   void initState() {
     super.initState();
     _user = widget.user;
+    _loadNotifPrefs();
   }
 
-  // ── Abonnement Premium ───────────────────────────────────────
-  Future<void> _ouvrirPaiementPremium() async {
-    final ok = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(builder: (_) => const PaiementPremiumScreen()),
-    );
-    if (ok == true) {
-      await AuthService.instance.refreshCurrentUser();
-      if (mounted) setState(() => _user = AuthService.instance.currentUser);
-    }
+  Future<void> _loadNotifPrefs() async {
+    final enabled = await NotificationService.isCategoryEnabled(
+        NotificationService.kNotifMessages);
+    if (!mounted) return;
+    setState(() => _notifMessages = enabled);
   }
 
-  String _formatDate(DateTime d) =>
-      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-
-  Widget _buildAbonnementSection(UserModel? u) {
-    final actif = u?.isPremiumActif ?? false;
-
-    if (actif) {
-      final expiry = u!.premiumExpiry;
-      return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.amber.shade600, Colors.amber.shade400],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(children: [
-          const Icon(Icons.workspace_premium, color: Colors.white, size: 32),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(_loc.t('prest_premium_active'),
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15)),
-              const SizedBox(height: 2),
-              Text(
-                expiry != null
-                    ? '${_loc.t('prest_premium_until')} ${_formatDate(expiry)}'
-                    : _loc.t('prest_premium_active_label'),
-                style: const TextStyle(color: Colors.white, fontSize: 12),
-              ),
-            ]),
-          ),
-          TextButton(
-            onPressed: _ouvrirPaiementPremium,
-            style: TextButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.amber.shade800,
-              shape:
-                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            child: Text(_loc.t('prest_premium_renew'),
-                style: const TextStyle(fontWeight: FontWeight.w700)),
-          ),
-        ]),
-      );
-    }
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: context.appPrimaryLight,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Icon(Icons.star_rounded, color: Colors.amber, size: 24),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(_loc.t('prest_upgrade_title'),
-                style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    color: AppColors.primary)),
-          ),
-          Text(_loc.t('prest_upgrade_price'),
-              style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                  color: AppColors.primary)),
-        ]),
-        const SizedBox(height: 10),
-        Text(
-          _loc.t('prest_upgrade_desc'),
-          style: TextStyle(fontSize: 13, color: context.appTextSecondary, height: 1.4),
-        ),
-        const SizedBox(height: 14),
-        ElevatedButton.icon(
-          onPressed: _ouvrirPaiementPremium,
-          icon: const Icon(Icons.workspace_premium, size: 18),
-          label: Text(_loc.t('prest_activate_premium')),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 46),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        ),
-      ]),
-    );
+  Future<void> _toggleNotifMessages(bool value) async {
+    setState(() => _notifMessages = value);
+    await NotificationService.setCategory(NotificationService.kNotifMessages, value);
   }
 
   Future<void> _deconnecter() async {
@@ -2207,6 +2393,8 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
       ),
     );
     if (confirm != true || !mounted) return;
+    final uid = AuthService.instance.currentUser?.id;
+    if (uid != null) await NotificationService.clearToken(uid);
     await AuthService.instance.logout();
   }
 
@@ -2215,12 +2403,6 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
     final u = _user;
     return ListView(
       children: [
-        const SizedBox(height: 16),
-        // ── Abonnement Premium ──
-        _SectionProfil(title: _loc.t('prest_section_subscription'), children: [
-          _buildAbonnementSection(u),
-          const SizedBox(height: 8),
-        ]),
         const SizedBox(height: 16),
         _SectionProfil(title: _loc.t('prest_section_info'), children: [
           if (u != null) ...[
@@ -2262,6 +2444,37 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
           ),
         ]),
         const SizedBox(height: 16),
+        // ── Notifications ─────────────────────────────────────
+        _SectionProfil(title: _loc.t('profil_notifs'), children: [
+          SwitchListTile(
+            secondary: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.chat_bubble_outline, color: AppColors.primary, size: 20),
+            ),
+            title: Text(_loc.t('prest_notif_messages'), style: AppTextStyles.bodyLarge),
+            subtitle: Text(_loc.t('prest_notif_messages_sub'), style: const TextStyle(fontSize: 12)),
+            value: _notifMessages,
+            activeColor: AppColors.primary,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            onChanged: _toggleNotifMessages,
+          ),
+        ]),
+        const SizedBox(height: 16),
+        // ── Aide ──────────────────────────────────────────────
+        _SectionProfil(title: _loc.t('profil_info_section'), children: [
+          ListTile(
+            leading: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.help_outline, color: AppColors.primary, size: 20),
+            ),
+            title: Text(_loc.t('profil_help')),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textHint),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AideFaqScreen())),
+          ),
+        ]),
+        const SizedBox(height: 16),
         _SectionProfil(title: _loc.t('prest_section_support'), children: [
           _ContactOption(
             icon: Icons.support_agent_outlined,
@@ -2283,7 +2496,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
             sublabel: _loc.t('prest_email_sub'),
             color: Colors.teal,
             onTap: () async {
-              final uri = Uri.parse('mailto:support@immoconnect.cm');
+              final uri = Uri.parse('mailto:support@horemplus.app');
               if (await canLaunchUrl(uri)) await launchUrl(uri);
             },
           ),
@@ -2581,6 +2794,88 @@ class _MesPublicitesTabState extends State<_MesPublicitesTab> {
     }
   }
 
+  Future<void> _modifier(Publicite pub) async {
+    final titreCtrl = TextEditingController(text: pub.titre);
+    final descCtrl = TextEditingController(text: pub.description);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Modifier la publicité'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titreCtrl,
+              decoration: const InputDecoration(labelText: 'Titre'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: descCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Description'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(_loc.t('common_cancel'))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await PubliciteService.mettreAJour(
+        pub.id,
+        titre: titreCtrl.text.trim(),
+        description: descCtrl.text.trim(),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Publicité modifiée.'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    }
+  }
+
+  Future<void> _reactiver(Publicite pub) async {
+    final paye = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaiementPublicationScreen(
+          logementId: pub.id,
+          titreAnnonce: pub.titre,
+          montant: PubliciteService.montantParPeriode,
+          titreEcran: 'Réactiver la publicité',
+          dureeLabel:
+              'Nouvelle diffusion de ${PubliciteService.dureeJours} jours.',
+          boutonLabel: 'Payer et réactiver',
+          succesMessage:
+              'Votre publicité est de nouveau en ligne pour ${PubliciteService.dureeJours} jours.',
+          initierPersonnalise: ({required telephone, required operateur}) {
+            return PaiementService.instance.initierPaiementPublicite(
+              publiciteId: pub.id,
+              telephone: telephone,
+              channel: operateur,
+            );
+          },
+        ),
+      ),
+    );
+    if (paye == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Publicité réactivée.'),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2660,8 +2955,8 @@ class _MesPublicitesTabState extends State<_MesPublicitesTab> {
               return _CartePublicite(
                 pub: pub,
                 onSupprimer: () => _confirmerSuppression(pub.id),
-                onToggle: (actif) =>
-                    PubliciteService.setActif(pub.id, actif),
+                onModifier: () => _modifier(pub),
+                onReactiver: () => _reactiver(pub),
               );
             },
           );
@@ -2675,17 +2970,57 @@ class _MesPublicitesTabState extends State<_MesPublicitesTab> {
 class _CartePublicite extends StatelessWidget {
   final Publicite pub;
   final VoidCallback onSupprimer;
-  final ValueChanged<bool> onToggle;
+  final VoidCallback onModifier;
+  final VoidCallback onReactiver;
 
   const _CartePublicite({
     required this.pub,
     required this.onSupprimer,
-    required this.onToggle,
+    required this.onModifier,
+    required this.onReactiver,
   });
+
+  ({String label, Color color, IconData icon}) _statut() {
+    if (pub.paymentPending) {
+      return (
+        label: 'En attente de paiement',
+        color: Colors.orange,
+        icon: Icons.hourglass_top
+      );
+    }
+    if (pub.estExpiree) {
+      return (
+        label: 'Expirée — réactivez',
+        color: AppColors.error,
+        icon: Icons.timer_off
+      );
+    }
+    if (pub.estDiffusable) {
+      return (
+        label: 'En diffusion',
+        color: AppColors.success,
+        icon: Icons.campaign
+      );
+    }
+    return (
+      label: 'Désactivée',
+      color: AppColors.textHint,
+      icon: Icons.pause_circle
+    );
+  }
+
+  String _resteJusqua(DateTime d) {
+    final diff = d.difference(DateTime.now());
+    if (diff.isNegative) return 'Échue';
+    if (diff.inDays >= 1) return '${diff.inDays}j restants';
+    if (diff.inHours >= 1) return '${diff.inHours}h restantes';
+    return '< 1 h';
+  }
 
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
+    final st = _statut();
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).cardTheme.color ?? context.appSurface,
@@ -2700,82 +3035,79 @@ class _CartePublicite extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Photo de couverture ──
-          if (pub.photos.isNotEmpty)
-            ClipRRect(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(12)),
-              child: Image.network(
-                pub.photos.first,
-                height: 160,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
+          // ── Photo de couverture + bandeau statut ──
+          Stack(children: [
+            if (pub.photos.isNotEmpty)
+              ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(12)),
+                child: Image.network(
+                  pub.photos.first,
                   height: 160,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    height: 160,
+                    color: context.appPrimaryLight,
+                    child: const Icon(Icons.campaign_outlined,
+                        color: AppColors.primary, size: 40),
+                  ),
+                ),
+              )
+            else
+              Container(
+                height: 100,
+                decoration: BoxDecoration(
                   color: context.appPrimaryLight,
-                  child: const Icon(Icons.campaign_outlined,
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(12)),
+                ),
+                child: const Center(
+                  child: Icon(Icons.campaign_outlined,
                       color: AppColors.primary, size: 40),
                 ),
               ),
-            )
-          else
-            Container(
-              height: 100,
-              decoration: BoxDecoration(
-                color: context.appPrimaryLight,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(12)),
-              ),
-              child: const Center(
-                child: Icon(Icons.campaign_outlined,
-                    color: AppColors.primary, size: 40),
+            Positioned(
+              top: 8,
+              left: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: st.color,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(st.icon, color: Colors.white, size: 12),
+                  const SizedBox(width: 4),
+                  Text(st.label,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                ]),
               ),
             ),
+          ]),
 
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Titre + badge statut ──
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(pub.titre,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 15),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: pub.actif
-                            ? AppColors.success.withValues(alpha: 0.12)
-                            : Colors.orange.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        pub.actif ? l.t('pub_status_active') : l.t('pub_status_pending'),
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: pub.actif
-                                ? AppColors.success
-                                : Colors.orange.shade700),
-                      ),
-                    ),
-                  ],
-                ),
+                Text(pub.titre,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 15),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 6),
                 Text(pub.description,
-                    style:
-                        TextStyle(color: context.appTextSecondary, fontSize: 13),
+                    style: TextStyle(
+                        color: context.appTextSecondary, fontSize: 13),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 10),
-                // ── Médias info ──
+
+                // ── Médias + échéance ──
                 Row(
                   children: [
                     Icon(Icons.photo_library_outlined,
@@ -2794,17 +3126,58 @@ class _CartePublicite extends StatelessWidget {
                               fontSize: 12, color: context.appTextHint)),
                     ],
                     const Spacer(),
-                    // ── Bouton supprimer ──
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline,
-                          color: AppColors.error, size: 20),
-                      onPressed: onSupprimer,
-                      tooltip: l.t('common_delete'),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
+                    if (pub.expiresAt != null)
+                      Text(_resteJusqua(pub.expiresAt!),
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: pub.estExpiree
+                                  ? AppColors.error
+                                  : context.appTextSecondary)),
                   ],
                 ),
+                const SizedBox(height: 12),
+
+                // ── Actions ──
+                Row(children: [
+                  // Modifier : disponible tant que la pub n'est pas en attente paiement.
+                  if (!pub.paymentPending) ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: onModifier,
+                        icon: const Icon(Icons.edit_outlined, size: 16),
+                        label: const Text('Modifier'),
+                        style: OutlinedButton.styleFrom(
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 8)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  // Réactiver : seulement si expirée.
+                  if (pub.estExpiree && !pub.paymentPending) ...[
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: onReactiver,
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('Réactiver'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  // Supprimer : toujours disponible.
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline,
+                        color: AppColors.error),
+                    onPressed: onSupprimer,
+                    tooltip: l.t('common_delete'),
+                  ),
+                ]),
               ],
             ),
           ),

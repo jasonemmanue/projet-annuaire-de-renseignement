@@ -1,4 +1,4 @@
-# ImmoConnect Cameroun 🏠
+# Horem+ Cameroun 🏠
 ### Application mobile immobilière — MVP Flutter
 
 > Plateforme collaborative de services immobiliers dédiée au Cameroun  
@@ -107,7 +107,7 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const ImmoConnectApp());
+  runApp(const Horem+App());
 }
 ```
 

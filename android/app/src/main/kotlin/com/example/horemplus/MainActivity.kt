@@ -1,4 +1,4 @@
-package com.example.immoconnect
+package com.example.horemplus
 
 import io.flutter.embedding.android.FlutterActivity
 

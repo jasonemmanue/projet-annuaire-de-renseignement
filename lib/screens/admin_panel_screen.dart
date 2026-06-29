@@ -66,9 +66,6 @@ class AdminPanelScreen extends StatelessWidget {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-// ONGLET 1 — SIGNALEMENTS
-// ════════════════════════════════════════════════════════════
 class _SignalementsTab extends StatelessWidget {
   const _SignalementsTab();
 

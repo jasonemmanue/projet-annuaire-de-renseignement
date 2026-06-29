@@ -1,12 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
-import '../services/ads_service.dart';
-import '../services/auth_service.dart';
 import '../services/favoris_service.dart';
 import '../services/publicite_service.dart';
 
@@ -647,84 +644,17 @@ class SectionTitle extends StatelessWidget {
 }
 
 // ----------------------------------------------------------
-// BANDEAU PUBLICITAIRE
+// BANDEAU PUBLICITAIRE (AdMob désactivé)
 // ----------------------------------------------------------
-// Vraie bannière Google AdMob.
-//  • isPremium == true  → aucune publicité (SizedBox.shrink).
-//  • Sinon              → bannière AdMob (50 px) avec mention « Publicité ».
-//  • Pendant le chargement : placeholder gris discret.
-//  • En cas d'échec de chargement : rien (pas de gêne pour l'utilisateur).
-class PubliciteBanner extends StatefulWidget {
-  /// null → déduit automatiquement depuis le profil connecté.
+// Les publicités prestataires sont désormais diffusées via StoriesPublicitesOverlay.
+// Ce widget est conservé pour éviter les erreurs de compilation dans les écrans
+// qui y font référence, mais il ne rend rien.
+class PubliciteBanner extends StatelessWidget {
   final bool? isPremium;
   const PubliciteBanner({super.key, this.isPremium});
 
   @override
-  State<PubliciteBanner> createState() => _PubliciteBannerState();
-}
-
-class _PubliciteBannerState extends State<PubliciteBanner> {
-  BannerAd? _ad;
-  bool _loaded = false;
-  bool _failed = false;
-  late final bool _premium;
-
-  @override
-  void initState() {
-    super.initState();
-    _premium = widget.isPremium ??
-        (AuthService.instance.currentUser?.isPremiumActif ?? false);
-    if (!_premium) {
-      _ad = AdsService.instance.createBannerAd(
-        onLoaded: () {
-          if (mounted) setState(() => _loaded = true);
-        },
-        onFailed: () {
-          if (mounted) {
-            setState(() {
-              _failed = true;
-              _ad = null;
-            });
-          }
-        },
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _ad?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Premium ou échec de chargement → aucune pub.
-    if (_premium || _failed) return const SizedBox.shrink();
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(AppLocalizations.of(context).t('common_ad'),
-              style: const TextStyle(fontSize: 10, color: AppColors.textHint)),
-        ),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          height: 50,
-          alignment: Alignment.center,
-          color: _loaded ? null : Colors.grey.shade200,
-          child: (_loaded && _ad != null)
-              ? SizedBox(
-                  width: _ad!.size.width.toDouble(),
-                  height: 50,
-                  child: AdWidget(ad: _ad!),
-                )
-              : const SizedBox(height: 50),
-        ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 // ----------------------------------------------------------
@@ -734,14 +664,12 @@ class MainBottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
   final bool isPrestataire;
-  final bool isAdmin;
 
   const MainBottomNav({
     super.key,
     required this.currentIndex,
     required this.onTap,
     this.isPrestataire = false,
-    this.isAdmin = false,
   });
 
   @override
@@ -751,39 +679,6 @@ class MainBottomNav extends StatelessWidget {
     final bgColor = isDark ? const Color(0xFF1E293B) : Colors.white;
     const selectedColor = AppColors.primary;
     final unselectedColor = isDark ? const Color(0xFF94A3B8) : AppColors.textSecondary;
-
-    // ─── Admin : Accueil | Carte | Favoris | Admin ───────────────
-    if (isAdmin) {
-      return BottomNavigationBar(
-        currentIndex: currentIndex,
-        onTap: onTap,
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: bgColor,
-        selectedItemColor: selectedColor,
-        unselectedItemColor: unselectedColor,
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
-        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 11),
-        elevation: 12,
-        items: [
-          BottomNavigationBarItem(
-              icon: const Icon(Icons.home_outlined),
-              activeIcon: const Icon(Icons.home),
-              label: l.t('nav_accueil')),
-          BottomNavigationBarItem(
-              icon: const Icon(Icons.map_outlined),
-              activeIcon: const Icon(Icons.map),
-              label: l.t('nav_carte')),
-          BottomNavigationBarItem(
-              icon: const Icon(Icons.bookmark_border),
-              activeIcon: const Icon(Icons.bookmark),
-              label: l.t('nav_favoris')),
-          BottomNavigationBarItem(
-              icon: const Icon(Icons.shield_outlined),
-              activeIcon: const Icon(Icons.shield),
-              label: l.t('nav_admin')),
-        ],
-      );
-    }
 
     // ─── Prestataire : 4 onglets (Messages dans le Dashboard) ────
     if (isPrestataire) {

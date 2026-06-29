@@ -3,8 +3,15 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const geniuspay = require("./geniuspay");
+const nodemailer = require("nodemailer");
 
-// ── GeniusPay (Wave CI) – paiement réel ──
+// ── Email admin ──
+// Secrets à configurer AVANT le premier déploiement :
+//   firebase functions:secrets:set GMAIL_SENDER_EMAIL    (ex: horemplus.notif@gmail.com)
+//   firebase functions:secrets:set GMAIL_APP_PASSWORD    (mot de passe d'app Gmail)
+const ADMIN_EMAIL = "Horem+49@gmail.com";
+
+// ── GeniusPay – paiement Mobile Money Cameroun (MTN / Orange) ──
 // Clés à configurer via Firebase Secrets :
 //   firebase functions:secrets:set GENIUSPAY_API_KEY
 //   firebase functions:secrets:set GENIUSPAY_SECRET_KEY
@@ -15,13 +22,24 @@ const GENIUSPAY_WEBHOOK_URL =
   "https://geniuspaywebhook-qhxw7o6nha-uc.a.run.app";
 
 // ── Tarifs ──
-const DEVISE = "XAF";          // Cameroun
+const DEVISE = "XOF";          // GeniusPay (CI) accepte XOF — même cours que XAF (655,957/EUR)
 const MIN_PAIEMENT = 200;      // plancher (100/150 → 200)
 const PREMIUM_MONTANT = 200;   // XAF / mois
 const PREMIUM_DUREE_JOURS = 30;
 
-const SPONSOR_DUREE_JOURS = 30;        // durée d'une sponsorisation
+// Sponsoring à tarif fixe — Semaine / 2 semaines / Mois
+const SPONSOR_TARIFS = { "1s": 500, "2s": 1000, "1m": 2000 };
+const SPONSOR_DUREES = { "1s": 7, "2s": 14, "1m": 30 };   // jours
+const SPONSOR_DUREE_JOURS = 30;        // durée d'une sponsorisation (legacy/default)
 const URGENCE_DUREE_HEURES = 48;       // accès prioritaire visiteur
+const PUBLICITE_DUREE_JOURS = 4;       // durée d'une diffusion publicitaire
+const PUBLICITE_MONTANT = 500;         // XAF par période de 4 jours
+const VISIBILITE_DUREE_JOURS = 365;    // visibilité annuelle (entreprise/restaurant/école)
+const VISIBILITE_TARIFS = {            // tarifs visibilité annuelle par type (clé en minuscules)
+  "entreprise": 3000,
+  "restaurant / snack": 2000,
+  "école": 1000,
+};
 
 // ── GRILLE DE PRIX (miroir de lib/services/tarification_service.dart) ──
 function planche(montant) {
@@ -30,20 +48,31 @@ function planche(montant) {
 }
 
 // Commission sponsorisation = % du prix du bien selon grade + type.
+// Fallback : 5% pour tout type non reconnu par la grille.
 function pourcentageCommission(grade, typeBien) {
   const t = (typeBien || "").toLowerCase();
   switch (grade) {
     case "haut_standing": return 0.05;
-    case "a_louer":       return 0.03;
+    case "a_louer":
+      if (t.includes("boutique") || t.includes("espace") || t.includes("terrain") ||
+          t.includes("bureau") || t.includes("commerce") || t.includes("magasin")) {
+        return 0.03;
+      }
+      return 0.05; // autres types → 5%
     case "meubles":
       if (t.includes("auberge")) return 0.03;
       if (t.includes("motel") || t.includes("meubl")) return 0.035;
       if (t.includes("45") || t.includes("4") || t.includes("5")) return 0.05;
       if (t.includes("23") || t.includes("2") || t.includes("3")) return 0.04;
       if (t.includes("1")) return 0.035;
-      return 0.035;
+      return 0.05; // fallback meublés → 5%
     case "standards":
-    default:              return 0.03;
+    default:
+      if (t.includes("chambre") || t.includes("studio") ||
+          t.includes("appartement") || t.includes("villa")) {
+        return 0.03;
+      }
+      return 0.05; // autres types → 5%
   }
 }
 
@@ -248,6 +277,13 @@ exports.sendNouvelleAnnonceNotification = onDocumentCreated(
   async (event) => {
     const logement = event.data.data();
     const logementId = event.params.logementId;
+
+    // Ne notifie pas un brouillon en attente de paiement.
+    // La notification sera émise par appliquerTransactionReussie après paiement.
+    if (logement.paymentPending === true || logement.disponible === false) {
+      console.log("Skip notif (brouillon ou indisponible):", logementId);
+      return null;
+    }
 
     const titre = logement.titre ?? "Nouvelle annonce";
     const ville = logement.ville ?? "";
@@ -530,10 +566,10 @@ exports.sendVuesMilestoneNotification = onDocumentUpdated(
 
 // ================================================================
 // CLOUD FUNCTION 5 : initierPaiementPremium (HTTP)
-// Initie un paiement GeniusPay (Wave CI) pour le Pack Premium (100 XOF/mois).
+// Initie un paiement GeniusPay pour le Pack Premium.
 // Sécurité : ID token Firebase obligatoire → uid dérivé du token.
 //
-// Body : { telephone: "+225XXXXXXXXXX", channel?: "wave_ci"|"orange_money_ci"|... }
+// Body : { telephone: "+237XXXXXXXXX", channel?: "orange"|"mtn" }
 // Réponse : { success, reference, checkoutUrl, message }
 //
 // Variables d'environnement requises :
@@ -599,7 +635,7 @@ exports.initierPaiementPremium = onRequest(
             success: true,
             reference: existing.reference,
             checkoutUrl: existing.checkoutUrl || "",
-            message: "Paiement déjà en cours. Validez sur Wave.",
+            message: "Paiement déjà en cours. Finalisez le via Mobile Money.",
           });
           return;
         }
@@ -615,7 +651,7 @@ exports.initierPaiementPremium = onRequest(
         paymentMethod: "pawapay",
         mmoProvider: mmoProviderCM(channel),
         customerCountry: "CM",
-        description: "Pack Premium ImmoConnect — 1 mois",
+        description: "Pack Premium Horem+ — 1 mois",
         customerEmail: u.email || "",
         customerPhone: telephone,
         metadata: { uid, type: "premium" },
@@ -648,11 +684,11 @@ exports.initierPaiementPremium = onRequest(
         success: true,
         reference,
         checkoutUrl: paiement.paymentUrl || "",
-        message: "Page Wave ouverte. Finalisez le paiement de 200 XOF sur Wave.",
+        message: "Paiement initié. Confirmez la demande sur votre téléphone (Mobile Money).",
       });
     } catch (error) {
-      console.error("initierPaiementPremium :", error);
-      res.status(500).json({ success: false, error: "Erreur lors de l'initiation du paiement." });
+      console.error("initierPaiementPremium :", error.message, error.stack);
+      res.status(500).json({ success: false, error: "Erreur lors de l'initiation du paiement.", geniuspayError: error.message });
     }
   }
 );
@@ -663,7 +699,7 @@ exports.initierPaiementPremium = onRequest(
 // Body : { logementId, duree: "1s"|"2s"|"1m", telephone, operateur? }
 // ================================================================
 exports.initierSponsorisation = onRequest(
-  { cors: true },
+  { cors: true, secrets: ["GENIUSPAY_API_KEY", "GENIUSPAY_SECRET_KEY", "GENIUSPAY_WEBHOOK_SECRET"] },
   async (req, res) => {
     if (req.method === "OPTIONS") {
       res.status(204).send("");
@@ -693,7 +729,7 @@ exports.initierSponsorisation = onRequest(
       }
       const uid = decoded.uid;
 
-      const { logementId, telephone, operateur } = req.body || {};
+      const { logementId, telephone, operateur, duree } = req.body || {};
       if (!logementId || !telephone) {
         res.status(400).json({ success: false, error: "Paramètres manquants" });
         return;
@@ -712,9 +748,9 @@ exports.initierSponsorisation = onRequest(
         return;
       }
 
-      // Montant = % du prix du bien selon le grade (grille DEVIS IMMO)
-      const grade = log.grade || "standards";
-      const montant = montantSponsorisation(grade, log.typeBien, log.prix);
+      // Montant = tarif fixe selon durée choisie (1s=500, 2s=1000, 1m=2000)
+      const codeduree = duree || "1m";
+      const montant = SPONSOR_TARIFS[codeduree] || SPONSOR_TARIFS["1m"];
 
       // 3. Récupère les infos du prestataire (pour le customer GeniusPay)
       const userSnap = await admin.firestore().collection("users").doc(uid).get();
@@ -730,10 +766,10 @@ exports.initierSponsorisation = onRequest(
         paymentMethod: "pawapay",
         mmoProvider: mmoProviderCM(operateur),
         customerCountry: "CM",
-        description: `Sponsorisation « ${log.titre || "annonce"} »`,
+        description: `Publication SGK HOME — ${log.titre || "annonce"}`,
         customerEmail: u.email || "",
         customerPhone: telephone,
-        metadata: { uid, type: "sponsorisation", logementId },
+        metadata: { uid, type: "sponsorisation", logementId, duree: codeduree },
         callbackUrl: GENIUSPAY_WEBHOOK_URL,
         returnUrl: PAIEMENT_SUCCESS_URL,
         errorUrl: PAIEMENT_ERROR_URL,
@@ -751,6 +787,7 @@ exports.initierSponsorisation = onRequest(
           uid,
           type: "sponsorisation",
           logementId,
+          duree: codeduree,
           montant,
           devise: DEVISE,
           statut: "en_attente",
@@ -770,10 +807,8 @@ exports.initierSponsorisation = onRequest(
         message: "Paiement initié. Finalisez sur la page Mobile Money.",
       });
     } catch (error) {
-      console.error("initierSponsorisation :", error);
-      res
-        .status(500)
-        .json({ success: false, error: "Erreur lors de l'initiation du paiement." });
+      console.error("initierSponsorisation :", error.message, error.stack);
+      res.status(500).json({ success: false, error: "Erreur lors de l'initiation du paiement.", geniuspayError: error.message });
     }
   }
 );
@@ -880,8 +915,8 @@ exports.initierUrgence = onRequest(
         message: "Paiement initié. Finalisez sur la page Mobile Money.",
       });
     } catch (error) {
-      console.error("initierUrgence :", error);
-      res.status(500).json({ success: false, error: "Erreur lors de l'initiation du paiement." });
+      console.error("initierUrgence :", error.message, error.stack);
+      res.status(500).json({ success: false, error: "Erreur lors de l'initiation du paiement.", geniuspayError: error.message });
     }
   }
 );
@@ -924,7 +959,7 @@ exports.desactiverSponsorisationsExpirees = onSchedule("every 1 hours", async ()
 //   Webhook URL : https://us-central1-sgk-home.cloudfunctions.net/geniuspayWebhook
 // ================================================================
 exports.geniuspayWebhook = onRequest(
-  { cors: false, secrets: ["GENIUSPAY_API_KEY", "GENIUSPAY_SECRET_KEY", "GENIUSPAY_WEBHOOK_SECRET"] },
+  { cors: false, secrets: ["GENIUSPAY_API_KEY", "GENIUSPAY_SECRET_KEY", "GENIUSPAY_WEBHOOK_SECRET", "GMAIL_SENDER_EMAIL", "GMAIL_APP_PASSWORD"] },
   async (req, res) => {
     try {
       // 1. Vérification signature HMAC
@@ -1118,11 +1153,196 @@ exports.verifierPaiement = onRequest(
       await txRef.update({ dernierStatutBrut: status || "PENDING" });
       res.status(200).json({ success: true, statut: "en_attente" });
     } catch (error) {
-      console.error("verifierPaiement :", error);
-      res.status(500).json({ success: false, error: "Erreur lors de la vérification." });
+      console.error("verifierPaiement :", error.message, error.stack);
+      res.status(500).json({ success: false, error: "Erreur lors de la vérification.", geniuspayError: error.message });
     }
   }
 );
+
+// ================================================================
+// CLOUD FUNCTION : initierVisibilite (HTTP)
+// Prestataire : paie la visibilité annuelle pour Entreprise / Restaurant / École.
+// Montant fixe selon le type : Entreprise 3000 XAF · Restaurant 2000 XAF · École 1000 XAF.
+// Body : { logementId, telephone, operateur? }
+// ================================================================
+exports.initierVisibilite = onRequest(
+  { cors: true, secrets: ["GENIUSPAY_API_KEY", "GENIUSPAY_SECRET_KEY", "GENIUSPAY_WEBHOOK_SECRET"] },
+  async (req, res) => {
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    if (req.method !== "POST") {
+      res.status(405).json({ success: false, error: "Méthode non autorisée" });
+      return;
+    }
+
+    try {
+      const authHeader = req.headers.authorization || "";
+      const idToken = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null;
+      if (!idToken) {
+        res.status(401).json({ success: false, error: "Authentification requise" });
+        return;
+      }
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (_) {
+        res.status(401).json({ success: false, error: "Session invalide" });
+        return;
+      }
+      const uid = decoded.uid;
+
+      const { logementId, telephone, operateur } = req.body || {};
+      if (!logementId || !telephone) {
+        res.status(400).json({ success: false, error: "Paramètres manquants" });
+        return;
+      }
+
+      const logSnap = await admin.firestore().collection("logements").doc(logementId).get();
+      if (!logSnap.exists) {
+        res.status(404).json({ success: false, error: "Annonce introuvable" });
+        return;
+      }
+      const log = logSnap.data();
+      const owner = log.uid_prestataire || log.prestatireId;
+      if (owner !== uid) {
+        res.status(403).json({ success: false, error: "Cette annonce ne vous appartient pas" });
+        return;
+      }
+
+      const typeBienKey = (log.typeBien || "").toLowerCase();
+      const montant = VISIBILITE_TARIFS[typeBienKey] || 2000;
+
+      const userSnap = await admin.firestore().collection("users").doc(uid).get();
+      const u = userSnap.exists ? userSnap.data() : {};
+
+      const internalRef = `visib_${logementId}_${Date.now()}`;
+
+      const paiement = await geniuspay.createPayment({
+        reference: internalRef,
+        amount: montant,
+        currency: DEVISE,
+        paymentMethod: "pawapay",
+        mmoProvider: mmoProviderCM(operateur),
+        customerCountry: "CM",
+        description: `Visibilité 1 an — ${log.titre || log.typeBien || "fiche"}`,
+        customerEmail: u.email || "",
+        customerPhone: telephone,
+        metadata: { uid, type: "visibilite", logementId },
+        callbackUrl: GENIUSPAY_WEBHOOK_URL,
+        returnUrl: PAIEMENT_SUCCESS_URL,
+        errorUrl: PAIEMENT_ERROR_URL,
+      });
+
+      const reference = paiement.reference;
+
+      await admin.firestore().collection("transactions").doc(reference).set({
+        uid,
+        type: "visibilite",
+        logementId,
+        montant,
+        devise: DEVISE,
+        statut: "en_attente",
+        reference,
+        internalRef,
+        telephone,
+        checkoutUrl: paiement.paymentUrl,
+        geniuspayTransactionId: paiement.transactionId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      res.status(200).json({
+        success: true,
+        reference,
+        montant,
+        checkoutUrl: paiement.paymentUrl,
+        message: "Paiement initié. Finalisez sur la page Mobile Money.",
+      });
+    } catch (error) {
+      console.error("initierVisibilite :", error.message, error.stack);
+      res.status(500).json({ success: false, error: "Erreur lors de l'initiation du paiement.", geniuspayError: error.message });
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// EMAIL ADMIN — notification nouvelle publication
+// Secrets requis : GMAIL_SENDER_EMAIL, GMAIL_APP_PASSWORD
+// ════════════════════════════════════════════════════════════════════════════
+async function sendAdminEmail({ logement, prestataire, logementId }) {
+  const senderEmail = process.env.GMAIL_SENDER_EMAIL;
+  const appPassword = process.env.GMAIL_APP_PASSWORD;
+  if (!senderEmail || !appPassword) {
+    console.warn("sendAdminEmail : secrets GMAIL_SENDER_EMAIL / GMAIL_APP_PASSWORD non configurés.");
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: senderEmail, pass: appPassword },
+  });
+
+  const mapsLink = logement.latitude && logement.longitude
+    ? `https://www.google.com/maps?q=${logement.latitude},${logement.longitude}`
+    : "Non renseigné";
+
+  const html = `
+    <h2>🏠 Nouvelle publication sur SGK HOME</h2>
+    <table style="border-collapse:collapse;width:100%;font-family:sans-serif;">
+      <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">Annonce</td>
+          <td style="padding:8px;border:1px solid #ddd;">${logement.titre || "–"}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">Type</td>
+          <td style="padding:8px;border:1px solid #ddd;">${logement.typeBien || "–"}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">Ville / Quartier</td>
+          <td style="padding:8px;border:1px solid #ddd;">${logement.ville || "–"} · ${logement.quartier || "–"}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">Prix</td>
+          <td style="padding:8px;border:1px solid #ddd;">${logement.prix ? `${logement.prix.toLocaleString()} XAF` : "Gratuit"}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">Coordonnées GPS</td>
+          <td style="padding:8px;border:1px solid #ddd;"><a href="${mapsLink}">${logement.latitude || "–"}, ${logement.longitude || "–"}</a></td></tr>
+      <tr><td colspan="2" style="padding:8px;border:1px solid #ddd;background:#e8f4fd;"><strong>Prestataire</strong></td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">Nom</td>
+          <td style="padding:8px;border:1px solid #ddd;">${prestataire?.nom || logement.prestatireNom || "–"}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">Téléphone</td>
+          <td style="padding:8px;border:1px solid #ddd;">${prestataire?.telephone || logement.prestatirePhone || "–"}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">UID</td>
+          <td style="padding:8px;border:1px solid #ddd;">${logement.uid_prestataire || "–"}</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">ID Annonce</td>
+          <td style="padding:8px;border:1px solid #ddd;">${logementId}</td></tr>
+    </table>
+    <p style="margin-top:16px;color:#666;font-size:12px;">
+      SGK HOME — Notification automatique. Ne pas répondre à ce mail.
+    </p>
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: `"SGK HOME" <${senderEmail}>`,
+      to: ADMIN_EMAIL,
+      subject: `[SGK HOME] Nouvelle annonce : ${logement.titre || logement.typeBien || "sans titre"}`,
+      html,
+    });
+    console.log("Email admin envoyé à", ADMIN_EMAIL);
+  } catch (e) {
+    console.error("sendAdminEmail erreur:", e.message);
+  }
+}
+
+// Sauvegarde une notification dans Firestore (visible dans le dashboard admin).
+async function saveAdminNotification({ logement, logementId, type }) {
+  await admin.firestore().collection("admin_notifications").add({
+    type: type || "nouvelle_publication",
+    logementId,
+    titre: logement.titre || logement.typeBien || "",
+    typeBien: logement.typeBien || "",
+    ville: logement.ville || "",
+    quartier: logement.quartier || "",
+    latitude: logement.latitude || null,
+    longitude: logement.longitude || null,
+    prestatireNom: logement.prestatireNom || "",
+    prestatirePhone: logement.prestatirePhone || "",
+    uid_prestataire: logement.uid_prestataire || "",
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    lu: false,
+  });
+}
 
 // Applique l'effet métier d'une transaction réussie.
 async function appliquerTransactionReussie(tx) {
@@ -1144,32 +1364,101 @@ async function appliquerTransactionReussie(tx) {
       { type: "transaction", reference: tx.reference }
     );
   } else if (tx.type === "sponsorisation") {
-    const until = new Date(Date.now() + SPONSOR_DUREE_JOURS * 24 * 60 * 60 * 1000);
+    // Durée selon le choix de l'utilisateur (1s=7j, 2s=14j, 1m=30j)
+    const jours = SPONSOR_DUREES[tx.duree] || SPONSOR_DUREE_JOURS;
+    const until = new Date(Date.now() + jours * 24 * 60 * 60 * 1000);
     const untilTs = admin.firestore.Timestamp.fromDate(until);
+
+    // Lit le logement pour détecter une publication initiale et pour l'email admin.
+    let logData = {};
+    let isNouvellePublication = false;
+    try {
+      const logSnap = await db.collection("logements").doc(tx.logementId).get();
+      if (logSnap.exists) {
+        logData = logSnap.data();
+        isNouvellePublication = logData.paymentPending === true;
+      }
+    } catch (_) {}
 
     await db.collection("logements").doc(tx.logementId).set(
       {
         isSponsored: true,
         sponsoredUntil: untilTs,
         sponsoredAt: admin.firestore.FieldValue.serverTimestamp(),
+        disponible: true,
+        paymentPending: admin.firestore.FieldValue.delete(),
       },
       { merge: true }
     );
 
-    // Titre de l'annonce pour la notification
-    let titre = "votre annonce";
-    try {
-      const logDoc = await db.collection("logements").doc(tx.logementId).get();
-      if (logDoc.exists && logDoc.data().titre) titre = logDoc.data().titre;
-    } catch (_) {
-      /* ignore */
+    if (isNouvellePublication) {
+      // Email + notification admin uniquement à la première publication
+      await sendAdminEmail({ logement: logData, logementId: tx.logementId });
+      await saveAdminNotification({ logement: logData, logementId: tx.logementId, type: "nouvelle_publication" });
     }
+
+    const titre = logData.titre || "votre annonce";
+    const dateFr = until.toLocaleDateString("fr-FR");
+    const labelDuree = { "1s": "1 semaine", "2s": "2 semaines", "1m": "1 mois" }[tx.duree] || `${jours} jours`;
+    await notifierPrestataire(
+      tx.uid,
+      "🚀 Annonce publiée et mise en avant !",
+      `Votre annonce « ${titre} » est publiée et mise en avant pendant ${labelDuree} (jusqu'au ${dateFr}).`,
+      { type: "logement_update", logementId: tx.logementId, reference: tx.reference }
+    );
+  } else if (tx.type === "publicite") {
+    // Diffusion publicitaire 4 jours : active la pub et fixe l'échéance.
+    const until = new Date(Date.now() + PUBLICITE_DUREE_JOURS * 24 * 60 * 60 * 1000);
+    const untilTs = admin.firestore.Timestamp.fromDate(until);
+
+    await db.collection("publicites").doc(tx.publiciteId).set(
+      {
+        actif: true,
+        paymentPending: false,
+        expiresAt: untilTs,
+        transactionRef: tx.reference,
+        dernierPaiementAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
 
     const dateFr = until.toLocaleDateString("fr-FR");
     await notifierPrestataire(
       tx.uid,
-      "🚀 Annonce mise en avant !",
-      `Votre annonce « ${titre} » est sponsorisée jusqu'au ${dateFr}.`,
+      "📣 Publicité en ligne !",
+      `Votre publicité est diffusée jusqu'au ${dateFr}.`,
+      { type: "publicite", publiciteId: tx.publiciteId, reference: tx.reference }
+    );
+  } else if (tx.type === "visibilite") {
+    // Visibilité annuelle : active l'annonce et pose la date d'expiration.
+    const until = new Date(Date.now() + VISIBILITE_DUREE_JOURS * 24 * 60 * 60 * 1000);
+    const untilTs = admin.firestore.Timestamp.fromDate(until);
+
+    let logData = {};
+    try {
+      const logDoc = await admin.firestore().collection("logements").doc(tx.logementId).get();
+      if (logDoc.exists) logData = logDoc.data();
+    } catch (_) {}
+
+    await admin.firestore().collection("logements").doc(tx.logementId).set(
+      {
+        visibiliteExpiry: untilTs,
+        disponible: true,
+        paymentPending: admin.firestore.FieldValue.delete(),
+      },
+      { merge: true }
+    );
+
+    // Email + notification admin
+    await sendAdminEmail({ logement: logData, logementId: tx.logementId });
+    await saveAdminNotification({ logement: logData, logementId: tx.logementId, type: "nouvelle_publication" });
+
+    const titre = logData.titre || "votre fiche";
+    const dateFr = until.toLocaleDateString("fr-FR");
+    await notifierPrestataire(
+      tx.uid,
+      "✅ Fiche activée !",
+      `Votre fiche « ${titre} » est visible jusqu'au ${dateFr}.`,
       { type: "logement_update", logementId: tx.logementId, reference: tx.reference }
     );
   } else if (tx.type === "urgence") {
@@ -1188,6 +1477,23 @@ async function appliquerTransactionReussie(tx) {
       },
       { merge: true }
     );
+
+    // Propage l'urgence sur les conversations existantes pour ce visiteur
+    // et ce logement : permet au prestataire de voir « URGENT » en tête.
+    try {
+      const convsSnap = await db
+        .collection("conversations")
+        .where("client_uid", "==", tx.uid)
+        .where("logement_id", "==", tx.logementId)
+        .get();
+      const batch = db.batch();
+      convsSnap.docs.forEach((doc) => {
+        batch.update(doc.ref, { urgenceUntil: untilTs });
+      });
+      if (!convsSnap.empty) await batch.commit();
+    } catch (e) {
+      console.warn("Propagation urgenceUntil sur conversations:", e.message);
+    }
 
     // Notifie le prestataire propriétaire qu'une demande prioritaire arrive.
     try {
@@ -1327,4 +1633,137 @@ exports.envoyerNotifGlobale = onRequest({ cors: true }, async (req, res) => {
     console.error("envoyerNotifGlobale :", error);
     res.status(500).json({ success: false, error: "Erreur lors de l'envoi." });
   }
+});
+
+// ================================================================
+// CLOUD FUNCTION : initierPaiementPublicite (HTTP)
+// Prestataire : paie 500 XAF pour 4 jours de diffusion publicitaire.
+// Body : { publiciteId, telephone, operateur }
+// La publicité doit déjà exister en brouillon (paymentPending: true).
+// ================================================================
+exports.initierPaiementPublicite = onRequest(
+  {
+    cors: true,
+    secrets: ["GENIUSPAY_API_KEY", "GENIUSPAY_SECRET_KEY", "GENIUSPAY_WEBHOOK_SECRET"],
+  },
+  async (req, res) => {
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    if (req.method !== "POST") {
+      res.status(405).json({ success: false, error: "Méthode non autorisée" });
+      return;
+    }
+    try {
+      const authHeader = req.headers.authorization || "";
+      const idToken = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null;
+      if (!idToken) {
+        res.status(401).json({ success: false, error: "Authentification requise" });
+        return;
+      }
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (_) {
+        res.status(401).json({ success: false, error: "Session invalide" });
+        return;
+      }
+      const uid = decoded.uid;
+
+      const { publiciteId, telephone, operateur } = req.body || {};
+      if (!publiciteId || !telephone) {
+        res.status(400).json({ success: false, error: "Paramètres manquants" });
+        return;
+      }
+
+      // Vérifier que la pub appartient au prestataire connecté.
+      const pubSnap = await admin.firestore().collection("publicites").doc(publiciteId).get();
+      if (!pubSnap.exists) {
+        res.status(404).json({ success: false, error: "Publicité introuvable" });
+        return;
+      }
+      if (pubSnap.data().prestataireId !== uid) {
+        res.status(403).json({ success: false, error: "Cette publicité ne vous appartient pas" });
+        return;
+      }
+
+      const userSnap = await admin.firestore().collection("users").doc(uid).get();
+      const u = userSnap.exists ? userSnap.data() : {};
+
+      const internalRef = `publicite_${publiciteId}_${Date.now()}`;
+      const paiement = await geniuspay.createPayment({
+        reference: internalRef,
+        amount: PUBLICITE_MONTANT,
+        currency: DEVISE,
+        paymentMethod: "pawapay",
+        mmoProvider: mmoProviderCM(operateur),
+        customerCountry: "CM",
+        description: `Publicité ${PUBLICITE_DUREE_JOURS} jours — ${pubSnap.data().titre || "Horem+"}`,
+        customerEmail: u.email || "",
+        customerPhone: telephone,
+        metadata: { uid, type: "publicite", publiciteId },
+        callbackUrl: GENIUSPAY_WEBHOOK_URL,
+        returnUrl: PAIEMENT_SUCCESS_URL,
+        errorUrl: PAIEMENT_ERROR_URL,
+      });
+
+      const reference = paiement.reference;
+      await admin.firestore().collection("transactions").doc(reference).set({
+        uid,
+        type: "publicite",
+        publiciteId,
+        montant: PUBLICITE_MONTANT,
+        devise: DEVISE,
+        statut: "en_attente",
+        reference,
+        internalRef,
+        telephone,
+        checkoutUrl: paiement.paymentUrl || "",
+        geniuspayTransactionId: paiement.transactionId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Marquer la pub comme « paiement en cours » (paymentPending reste true).
+      await admin.firestore().collection("publicites").doc(publiciteId).set(
+        { paymentPending: true },
+        { merge: true }
+      );
+
+      res.status(200).json({
+        success: true,
+        reference,
+        montant: PUBLICITE_MONTANT,
+        checkoutUrl: paiement.paymentUrl || "",
+        message: "Paiement initié. Finalisez sur la page Mobile Money.",
+      });
+    } catch (error) {
+      console.error("initierPaiementPublicite :", error.message, error.stack);
+      res.status(500).json({ success: false, error: "Erreur lors de l'initiation du paiement.", geniuspayError: error.message });
+    }
+  }
+);
+
+// ================================================================
+// CLOUD FUNCTION : desactiverPublicitesExpirees (scheduler)
+// Toutes les heures : désactive les pubs dont expiresAt est dépassé.
+// La pub reste en base, le prestataire peut la réactiver en repayant.
+// ================================================================
+exports.desactiverPublicitesExpirees = onSchedule("every 1 hours", async () => {
+  const now = admin.firestore.Timestamp.now();
+  const snap = await admin.firestore()
+    .collection("publicites")
+    .where("actif", "==", true)
+    .where("expiresAt", "<", now)
+    .get();
+
+  if (snap.empty) {
+    console.log("Publicités : aucune expiration à traiter");
+    return null;
+  }
+
+  const batch = admin.firestore().batch();
+  snap.docs.forEach((doc) => {
+    batch.update(doc.ref, { actif: false });
+  });
+  await batch.commit();
+  console.log(`Publicités désactivées : ${snap.size}`);
+  return null;
 });

@@ -1,4 +1,4 @@
-# CLAUDE.md — ImmoConnect / SGK HOME
+# CLAUDE.md — Horem+ / SGK HOME
 
 > Fichier de référence pour Claude Code. Lis-le à chaque session avant toute modification.
 
@@ -6,9 +6,10 @@
 
 ## Identité du projet
 
-**App :** immoconnect (titre affiché « SGK HOME »)  
-**Domaine :** Petites annonces immobilières au Cameroun  
-**Stack :** Flutter + Firebase (Auth, Firestore, Storage, Messaging, Analytics) + Google Maps + Provider
+**App :** horem_plus (titre affiché « SGK HOME »)  
+**Domaine :** Petites annonces immobilières + services au Cameroun  
+**Stack :** Flutter + Firebase (Auth, Firestore, Storage, Messaging, Analytics) + Google Maps + Provider  
+**Package ID Android :** `com.example.horemplus`
 
 ---
 
@@ -33,18 +34,37 @@
 ### Services existants
 `auth_service`, `messagerie_service`, `paiement_service`, `notification_service`,
 `logement_service`, `favoris_service`, `storage_service`, `geolocation_service`,
-`analytics_service`, `cache_service`, `tarification_service`, `ads_service`
+`analytics_service`, `cache_service`, `tarification_service`,
+`publicite_service`, `rating_service`
+
+> ⚠️ `ads_service` existe encore dans le code mais est **désactivé côté visiteur** (AdMob retiré).
+> `shared_widgets.dart` → `PubliciteBanner` retourne `SizedBox.shrink()`.
+> `main.dart` → `AdsService.instance.initialize()` commenté.
 
 ### Écrans existants
 `splash`, `accueil`, `carte`, `favoris`, `messagerie`, `profil`, `detail_logement`,
-`dashboard_prestataire`, `admin_panel`, `urgence`, `sponsorisation`, `paiement_premium`,
-`visitor_onboarding`, `auth/login_screen`, `auth/diag_otp_screen`
+`dashboard_prestataire`, `admin_panel`, `urgence`, `sponsorisation`,
+`paiement_publication_screen`, `publier_publicite_screen`, `aide_faq_screen`,
+`visitor_onboarding`, `auth/login_screen`, `auth/diag_otp_screen`,
+`screens/legal/` (cgu_screen, politique_screen, consentement_screen)
+
+### Widgets clés
+- `stories_publicites_overlay` — overlay Instagram-style sur l'accueil visiteur, affiche les pubs actives
+- `operateur_selector` — sélecteur Orange / MTN utilisé sur tous les écrans de paiement
 
 ---
 
-## Champs Logement clés
-`estVerifie`, `estSponsorie`, `latitude`, `longitude`, `typeBien`, `grade`,
-`photos`, `prix`, `ville`, `quartier`, `nbVues`
+## Champs Logement clés (Firestore `logements`)
+
+```
+estVerifie, estSponsorie, disponible, latitude, longitude,
+typeBien, grade, photos, prix, ville, quartier, nbVues,
+prestatireId, prestatireNom, prestatirePhone,   ← contact prestataire (rempli à la publication)
+joursGarde: List<String>,                        ← pour pharmacies / services
+heureOuverture, heureFermeture,                  ← pour pharmacies / services
+visibiliteExpiry: Timestamp,                     ← date expiration visibilité annuelle
+uid_prestataire                                  ← id Firebase Auth du prestataire
+```
 
 ---
 
@@ -68,12 +88,135 @@
 
 ---
 
+## Tarification des annonces
+
+### ① Sponsoring immobilier — tarif FIXE par durée
+Remplace l'ancienne commission variable. Sélectionné via `_DureeSponsoringSheet` dans `dashboard_prestataire_screen.dart`.
+
+| Code | Durée | Prix |
+|------|-------|------|
+| `1s` | 1 semaine | **500 XAF** |
+| `2s` | 2 semaines | **1 000 XAF** |
+| `1m` | 1 mois | **2 000 XAF** |
+
+Défini dans `TarificationService.optionsSponsoring` (`lib/services/tarification_service.dart`).
+
+### ② Visibilité annuelle (services uniquement)
+Payant UNE FOIS par an. Types éligibles :
+
+| Type | Prix annuel |
+|------|-------------|
+| Entreprise | 3 000 XAF |
+| Restaurant / Snack | 2 000 XAF |
+| École | 1 000 XAF |
+
+Pharmacie : **gratuite** (pas de prix). `_isPharmacieType` masque le champ prix et le paiement.
+
+### ③ Publicités prestataires
+500 XAF / 4 jours de diffusion (`PubliciteService.montantParPeriode` = 500, `dureeJours` = 4).
+
+### ④ Ancienne grille commission (OBSOLÈTE, conservée dans le code pour référence)
+`TarificationService.montantSponsorisation()` existe encore mais n'est plus utilisé pour les nouvelles publications.
+
+---
+
+## Publicités prestataires — flux complet
+
+### Côté prestataire (`dashboard_prestataire_screen.dart` → onglet Mes Publicités)
+1. Prestataire crée une pub (titre + description + photos/vidéo) via `PublierPubliciteScreen`.
+2. `PubliciteService.creerBrouillon()` crée le document Firestore : `actif: false, paymentPending: true`.
+3. L'écran de paiement est ouvert (500 XAF / 4 jours).
+4. Le webhook GeniusPay (`appliquerTransactionReussie`) fixe :
+   `actif: true, paymentPending: false, expiresAt: now + 4 jours`.
+5. Le prestataire peut modifier le texte (gratuit) ou re-diffuser (nouveau paiement requis).
+
+### Côté visiteur (`main.dart` + `stories_publicites_overlay.dart`)
+- Au démarrage de l'app (après auth), `ouvrirStoriesPublicites()` est appelé automatiquement.
+- `PubliciteService.watchPublicitesDiffusables()` retourne les pubs où `actif: true` et `expiresAt > now`.
+- `StoriesPublicitesOverlay` les affiche en plein écran, style stories Instagram.
+- Le visiteur peut appuyer pour contacter le prestataire directement depuis l'overlay.
+
+---
+
 ## Paiements
 
-- Flag global `kSimulationPaiement` dans `paiement_service.dart`.
+- Flag global `kSimulationPaiement` dans `paiement_service.dart` (mettre à `true` pour tests).
 - Widget de sélection : `lib/widgets/operateur_selector.dart` (Orange / MTN, +237).
 - Les méthodes de paiement acceptent un paramètre `channel` (`'orange'` | `'mtn'`).
-- GeniusPay = nom du backend de paiement, ne pas l'afficher dans l'UI (remplacer par « Paiement Mobile Money sécurisé »).
+- **GeniusPay** = nom du backend — **NE PAS afficher dans l'UI** (afficher « Paiement Mobile Money sécurisé »).
+- Backend GeniusPay via PawaPay : opérateurs `MTN_MOMO_CMR` / `ORANGE_CMR`.
+- **Devise API GeniusPay : `XOF`** (pas XAF — GeniusPay est ivoirien). PawaPay gère la conversion interne vers XAF pour le Cameroun. Les montants sont numériquement identiques.
+- Auth API GeniusPay : headers `X-API-Key` + `X-API-Secret` (pas de `Authorization: Bearer`).
+- **Pas de redirect navigateur** : PawaPay Cameroun envoie un USSD push directement sur le téléphone du client. `paiement_publication_screen.dart` poll via `watchStatut()` + `verifierPaiementServeur()` toutes les 5 s.
+
+### Frais réels GeniusPay/PawaPay (pour info, ne pas afficher dans l'UI)
+```
+Net reçu = montant × 0,955 − 100 XOF
+(PawaPay 3,5% + GeniusPay 100 fixe + 1%)
+```
+| Montant | Net reçu |
+|---------|----------|
+| 500 XAF | ~377 XAF |
+| 1 000 XAF | ~855 XAF |
+| 2 000 XAF | ~1 810 XAF |
+| 45 000 XAF | ~42 875 XAF |
+
+---
+
+## Cloud Functions Firebase (`functions/index.js`)
+
+Déployées sur `us-central1`, projet `sgk-home`. URLs Cloud Run :
+
+| Fonction | URL | Usage |
+|---|---|---|
+| `initierSponsorisation` | `https://initiersponsorisation-qhxw7o6nha-uc.a.run.app` | Lance paiement sponsoring |
+| `initierPaiementPublicite` | `https://initierpaiementpublicite-qhxw7o6nha-uc.a.run.app` | Lance paiement pub |
+| `initierVisibilite` | `https://initiervisibilite-qhxw7o6nha-uc.a.run.app` | Lance paiement visibilité annuelle |
+| `initierUrgence` | `https://initierurgence-qhxw7o6nha-uc.a.run.app` | Lance paiement urgence visiteur |
+| `geniuspayWebhook` | `https://geniuspaywebhook-qhxw7o6nha-uc.a.run.app` | Webhook GeniusPay (paiements reçus) |
+| `verifierPaiement` | `https://verifierpaiement-qhxw7o6nha-uc.a.run.app` | Polling statut paiement |
+| `envoyerNotifGlobale` | `https://envoyernotifglobale-qhxw7o6nha-uc.a.run.app` | Notif push tous les users |
+
+### Secrets Firebase (Secret Manager)
+- `GENIUSPAY_API_KEY` / `GENIUSPAY_SECRET_KEY` / `GENIUSPAY_WEBHOOK_SECRET` — sur toutes les fonctions paiement
+- `GMAIL_SENDER_EMAIL` / `GMAIL_APP_PASSWORD` — sur `geniuspayWebhook` (pour emails admin)
+
+> ⚠️ Les secrets Gmail sont des **placeholders** à remplacer par un vrai compte Gmail + App Password Google.
+> Commande : `echo "adresse@gmail.com" | firebase functions:secrets:set GMAIL_SENDER_EMAIL`
+
+### Webhook `appliquerTransactionReussie`
+Gère tous les types de paiement via le champ `tx.type` :
+- `'sponsorisation'` → `disponible: true`, `estSponsorie: true`, expiry selon `tx.duree` (`1s`/`2s`/`1m`)
+- `'publicite'` → `actif: true`, expiry + 4 jours
+- `'visibilite'` → `visibiliteExpiry: now + 365 jours`
+- `'urgence'` → accès visiteur + 48h
+
+**Admin notifications** : à chaque paiement réussi (sauf urgence), le webhook :
+1. Envoie un email HTML à `Horem+49@gmail.com` (Nodemailer + Gmail SMTP)
+2. Crée un document dans `admin_notifications` Firestore
+
+---
+
+## Notifications admin (`admin_notifications` Firestore)
+
+Structure d'un document :
+```json
+{
+  "type": "sponsorisation",
+  "logementId": "...",
+  "titre": "Chambre à louer Bastos",
+  "typeBien": "Chambre",
+  "ville": "Yaoundé",
+  "quartier": "Bastos",
+  "latitude": 3.87,
+  "longitude": 11.52,
+  "prestatireNom": "Jean Dupont",
+  "prestatirePhone": "+237612345678",
+  "uid_prestataire": "uid...",
+  "createdAt": Timestamp,
+  "lu": false
+}
+```
 
 ---
 
@@ -82,6 +225,46 @@
 - Flux : Firebase Phone Auth (OTP SMS), 2 étapes (numéro → code à 6 chiffres).
 - Pas d'email ni de mot de passe dans l'UI.
 - Anti-brute-force via `SharedPreferences` (3 tentatives → 30 s, 5 → 5 min).
+
+---
+
+## Panneau Admin Flutter (`lib/screens/admin_panel_screen.dart`)
+
+Accessible uniquement aux utilisateurs avec `role == 'admin'` dans Firestore.
+
+---
+
+## Dashboard Admin Web (Next.js)
+
+**Repo :** `https://github.com/jasonemmanue/Horem-a-ADMIN.git`  
+**Chemin local :** `C:\Users\hp\StudioProjects\Immoconnect_admin`  
+**Stack :** Next.js 14 + TypeScript + Tailwind + Firebase Firestore/Auth  
+**Déploiement cible :** Railway (`railway.app`)
+
+Pages disponibles :
+- `/dashboard` — statistiques globales
+- `/dashboard/annonces` — modération annonces (valider, rejeter, sponsoriser)
+- `/dashboard/notifications` — nouvelles publications prestataires (depuis `admin_notifications`)
+- `/dashboard/utilisateurs` — liste utilisateurs
+- `/dashboard/transactions` — historique paiements
+- `/dashboard/conversations` — messagerie
+- `/dashboard/signalements` — signalements
+- `/dashboard/spots` — publicités actives
+
+---
+
+## Types de services (`_isServiceType`, `_isPharmacieType`, `_isVisibiliteType`)
+
+Dans `dashboard_prestataire_screen.dart` :
+
+| Flag | Types concernés | Comportement |
+|------|----------------|--------------|
+| `_isPharmacieType` | Pharmacie | Gratuit, pas de prix, jours de garde, horaires |
+| `_isVisibiliteType` | Entreprise / Restaurant / École | Prix annuel fixe, horaires |
+| `_isServiceType` | Pharmacie + Visibilité + Restaurant | Affiche jours + horaires |
+| Immobilier | Tout le reste | Sponsoring durée fixe (500/1000/2000) |
+
+Badge couleur (info banner) : Pharmacie=vert, Restaurant=orange, École=violet, Entreprise=bleu.
 
 ---
 
@@ -97,7 +280,34 @@ lib/models/models.dart                # Logement + autres modèles
 lib/models/user_model.dart            # Utilisateur, UserRole
 lib/services/auth_service.dart        # Authentification OTP
 lib/services/logement_service.dart    # Requêtes Firestore logements
+lib/services/paiement_service.dart    # Paiements GeniusPay, simulation, polling
+lib/services/tarification_service.dart # Grilles de prix (sponsoring, visibilité, urgence)
 lib/widgets/operateur_selector.dart   # Sélecteur Orange/MTN
+functions/index.js                    # Toutes les Cloud Functions (déployer avec firebase deploy --only functions)
+```
+
+---
+
+## Commandes utiles
+
+```bash
+# Déployer les Cloud Functions (depuis le dossier racine)
+$env:NODE_TLS_REJECT_UNAUTHORIZED = "0"   # si proxy corporate
+firebase deploy --only functions
+
+# Mettre à jour un secret
+echo "valeur" | firebase functions:secrets:set NOM_SECRET
+
+# Analyser le code Flutter
+flutter analyze lib
+
+# Build APK release
+flutter build apk --release
+# APK : build/app/outputs/flutter-apk/app-release.apk
+
+# Push admin vers GitHub
+cd C:\Users\hp\StudioProjects\Immoconnect_admin
+git add -A && git commit -m "..." && git push
 ```
 
 ---

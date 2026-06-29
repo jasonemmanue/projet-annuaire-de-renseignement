@@ -1,7 +1,28 @@
-# PROMPTS_RESTANTS.md — ImmoConnect
+# PROMPTS_RESTANTS.md — Horem+
 
 Fonctionnalités à implémenter, dans l'ordre conseillé.
 Coche chaque bloc une fois la fonctionnalité validée (critères ✅ satisfaits).
+
+---
+
+## ✅ FONCTIONNALITÉS LIVRÉES (sessions précédentes)
+
+| # | Fonctionnalité | Notes |
+|---|----------------|-------|
+| — | Paiement Mobile Money (Orange/MTN via GeniusPay/PawaPay) | Devise XOF, USSD push, polling, pas de redirect |
+| — | Sponsoring flat fee (500/1000/2000 XAF) | Remplace l'ancienne commission %, durée 1s/2s/1m |
+| — | Visibilité annuelle services | Entreprise 3000 / Restaurant 2000 / École 1000 XAF/an |
+| — | Pharmacie gratuite + jours garde + horaires | `_isPharmacieType`, champ prix masqué |
+| — | Jours & horaires ouverture pour tous les services | `_isServiceType` |
+| — | Badge École (violet) dans formulaire annonce | |
+| — | Contact prestataire dans logement Firestore | `prestatireNom`, `prestatirePhone`, `prestatireId` |
+| — | Email admin à `Horem+49@gmail.com` à chaque publication | Nodemailer + Gmail SMTP, secrets Firebase |
+| — | `admin_notifications` Firestore | Collecte par le webhook après chaque paiement réussi |
+| — | AdMob retiré côté visiteur | `PubliciteBanner` = `SizedBox.shrink()`, `AdsService` désactivé |
+| — | Stories publicités overlay (Instagram-style) | `stories_publicites_overlay.dart` |
+| — | Messagerie : envoi photos/vidéos, tag messages, réponse | |
+| — | Dashboard admin web Next.js (pages + notifications) | Repo `Horem-a-ADMIN` sur GitHub |
+| — | Dialog « annonce non vérifiée » texte sans overflow | `Flexible` sur le titre |
 
 ---
 
@@ -13,7 +34,7 @@ Coche chaque bloc une fois la fonctionnalité validée (critères ✅ satisfaits
 
 **Problèmes actuels :**
 - `_distanceFiltreKm` est stocké dans l'état mais JAMAIS appliqué aux marqueurs Firestore.
-- Le badge « ImmoConnect » (Positioned top-right) chevauche le sélecteur de distance (aussi top-left / top-right).
+- Le badge « Horem+ » (Positioned top-right) chevauche le sélecteur de distance (aussi top-left / top-right).
 - Aucun cercle n'est dessiné sur la carte.
 - L'option max est « 10 km » ; il faut un sentinelle « > 10 km ».
 
@@ -39,7 +60,7 @@ Améliore lib/screens/carte_screen.dart :
    La liste _distances passe à [0.5, 1.0, 5.0, 10.0, 999.0] et les labels à
    ['500m', '1km', '5km', '10km', '>10km'].
 
-5) ANTI-CHEVAUCHEMENT : le badge « ImmoConnect » (Positioned top: 12, right: 12)
+5) ANTI-CHEVAUCHEMENT : le badge « Horem+ » (Positioned top: 12, right: 12)
    chevauche les contrôles. Déplace-le en bas-centre (Positioned bottom: 16, left: 0, right: 0,
    child: Center(...)) avec un style discret (petit, semi-transparent).
    Le _FiltreDistanceWidget reste en haut-gauche, le bouton géoloc en bas-droite.
@@ -50,7 +71,7 @@ flutter analyze à la fin. Montre le build() complet modifié.
 **Critères ✅ :**
 - Changer le rayon filtre réellement les points et redessine le cercle.
 - « > 10 km » montre toutes les annonces, sans cercle.
-- « ImmoConnect » ne chevauche plus les contrôles km.
+- « Horem+ » ne chevauche plus les contrôles km.
 - Chaque marqueur affiche le nom de l'annonce en InfoWindow.
 
 ---
@@ -137,10 +158,10 @@ flutter analyze à la fin.
 ```
 Crée lib/screens/aide_faq_screen.dart avec :
 - une liste de questions/réponses repliables (ExpansionTile) : recherche d'annonce,
-  contact prestataire, signification de « Vérifié par ImmoConnect », devenir prestataire,
+  contact prestataire, signification de « Vérifié par Horem+ », devenir prestataire,
   sponsorisation/paiement Mobile Money, notifications, mode visiteur ;
 - section « Contacter le support » avec 2 boutons :
-  • E-mail → url_launcher mailto: (constante SUPPORT_EMAIL = 'support@immoconnect.cm') ;
+  • E-mail → url_launcher mailto: (constante SUPPORT_EMAIL = 'support@horemplus.cm') ;
   • WhatsApp → url_launcher https://wa.me/SUPPORT_WHATSAPP (constante SUPPORT_WHATSAPP = '237XXXXXXXXX').
 Branche l'onTap de « Aide & FAQ » dans profil_screen.dart vers cet écran.
 Textes FR + EN. flutter analyze à la fin.
@@ -223,7 +244,7 @@ Textes FR + EN. flutter analyze à la fin.
 Dans profil_screen.dart, branche l'onTap de « Évaluer l'application » :
 - appelle InAppReview.instance.openStoreListing() (package in_app_review, cf. #12) ;
 - fallback : url_launcher vers
-  https://play.google.com/store/apps/details?id=com.immoconnect.app
+  https://play.google.com/store/apps/details?id=com.horemplus.app
   (constante APP_STORE_ID à placer en haut du fichier — à confirmer).
 flutter analyze à la fin.
 ```
@@ -328,7 +349,7 @@ stepper) et bouton « Suivant » / « Commencer » :
 - Page 2 : Être contacté via la messagerie ; photos/vidéos ; tag de messages.
 - Page 3 : LA SPONSORISATION — payer (Orange Money/MTN) pour mettre une annonce
   en avant, durée, effet attendu (vues/contacts). Mentionner le statut
-  « Vérifié par ImmoConnect ».
+  « Vérifié par Horem+ ».
 - Page 4 : bouton « Accéder à mon espace ».
 
 Comportement :
@@ -365,7 +386,7 @@ Dans dashboard_prestataire_screen.dart, ajoute dans le menu/paramètres :
 
 2) AIDE : bouton vers AideFaqScreen, avec une section supplémentaire prestataire
    expliquant : publier/modifier une annonce, messagerie (photos/vidéos/tag),
-   sponsorisation Mobile Money, statut « Vérifié par ImmoConnect », statistiques.
+   sponsorisation Mobile Money, statut « Vérifié par Horem+ », statistiques.
 
 FR + EN. flutter analyze à la fin.
 ```
@@ -449,7 +470,7 @@ Liste-moi les emplacements modifiés avant de modifier. flutter analyze à la fi
 Dans detail_logement_screen.dart, ajoute :
 1) En haut du détail (sous l'AppBar) :
    - Si estVerifie == false : Container bannière couleur AppColors.warning/orange
-     avec le texte « Cette annonce n'est pas encore vérifiée par ImmoConnect.
+     avec le texte « Cette annonce n'est pas encore vérifiée par Horem+.
      Par prudence, ne versez aucun acompte et ne finalisez une commande/
      réservation qu'avec une annonce vérifiée. »
    - Si estVerifie == true : petite note verte rassurante + conseil général
@@ -469,7 +490,7 @@ Clés i18n FR + EN. flutter analyze à la fin.
 
 ## PHASE I — Administration
 
-### [ ] #21 — Admin : validation des annonces + statut « Vérifié par ImmoConnect »
+### [ ] #21 — Admin : validation des annonces + statut « Vérifié par Horem+ »
 
 **Fichiers :** `lib/models/models.dart`, `lib/services/logement_service.dart`,
 `lib/screens/admin_panel_screen.dart`, `lib/screens/dashboard_prestataire_screen.dart`,
@@ -481,11 +502,11 @@ Mets en place un cycle de modération.
 
 1) MODÈLE (models.dart) : ajoute à Logement :
    - statutModeration : String — 'en_attente' | 'valide' | 'rejete' (défaut 'en_attente') ;
-   - verifieParImmoConnect : bool (défaut false).
+   - verifieParHorem+ : bool (défaut false).
    Mets à jour fromMap/toMap. Migration douce : annonce sans champ = 'en_attente'.
 
 2) PUBLICATION (dashboard_prestataire_screen.dart) : à la création, force
-   statutModeration='en_attente' et verifieParImmoConnect=false. Informe le prestataire
+   statutModeration='en_attente' et verifieParHorem+=false. Informe le prestataire
    que l'annonce sera visible après validation.
 
 3) VISIBILITÉ (logement_service.dart + accueil, liste, carte) : ne montre aux
@@ -494,7 +515,7 @@ Mets en place un cycle de modération.
 
 4) PANNEAU ADMIN (admin_panel_screen.dart) : file « À vérifier » listant
    les annonces 'en_attente'. Par annonce : « Valider », « Rejeter » (+ motif),
-   toggle « Vérifié par ImmoConnect ». Ces actions écrivent dans Firestore.
+   toggle « Vérifié par Horem+ ». Ces actions écrivent dans Firestore.
 
 5) Rappelle de mettre à jour firestore.rules.
 
@@ -504,7 +525,7 @@ flutter analyze après chacun.
 
 **Critères ✅ :**
 - Nouvelle annonce invisible aux visiteurs jusqu'à validation admin.
-- Admin peut toggler « Vérifié par ImmoConnect ».
+- Admin peut toggler « Vérifié par Horem+ ».
 - Prestataire voit l'état de ses annonces.
 
 ---

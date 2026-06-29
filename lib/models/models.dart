@@ -29,10 +29,17 @@ class Logement {
   final DateTime datePublication;
   final int nbVues;
   final bool disponible;
+  /// True tant que les frais de publication ne sont pas confirmés.
+  final bool paymentPending;
   final String? documentPdf; // URL PDF si présent
   final DateTime? sponsoredUntil; // fin de la sponsorisation (null si non sponsorisé)
-  final String? heureOuverture;  // Format 'HH:MM' — pharmacies/restaurants
-  final String? heureFermeture;  // Format 'HH:MM'
+  final String? heureOuverture;   // Format 'HH:MM' — pharmacies/restaurants/entreprises
+  final String? heureFermeture;   // Format 'HH:MM'
+  final List<String> joursGarde;  // Jours de garde/ouverture ex: ['Lun','Mer','Ven']
+  final DateTime? visibiliteExpiry; // Fin de la visibilité annuelle (entreprise/restaurant/école)
+
+  /// Annonce visible côté visiteur : disponible et paiement validé.
+  bool get estVisiblePourVisiteur => disponible && !paymentPending;
 
   const Logement({
     required this.id,
@@ -59,10 +66,13 @@ class Logement {
     required this.datePublication,
     required this.nbVues,
     required this.disponible,
+    this.paymentPending = false,
     this.documentPdf,
     this.sponsoredUntil,
     this.heureOuverture,
     this.heureFermeture,
+    this.joursGarde = const [],
+    this.visibiliteExpiry,
   });
 
   bool get estOuvertMaintenant {
@@ -126,12 +136,17 @@ class Logement {
         : DateTime.now(),
     nbVues: (map['vues'] as num?)?.toInt() ?? 0,
     disponible: map['disponible'] ?? true,
+    paymentPending: map['paymentPending'] ?? false,
     documentPdf: map['documentPdf'],
     sponsoredUntil: map['sponsoredUntil'] is Timestamp
         ? (map['sponsoredUntil'] as Timestamp).toDate()
         : null,
     heureOuverture: map['heureOuverture'],
     heureFermeture: map['heureFermeture'],
+    joursGarde: List<String>.from(map['joursGarde'] ?? []),
+    visibiliteExpiry: map['visibiliteExpiry'] is Timestamp
+        ? (map['visibiliteExpiry'] as Timestamp).toDate()
+        : null,
   );
 
   factory Logement.fromJson(Map<String, dynamic> json) => Logement(
@@ -165,6 +180,10 @@ class Logement {
         : null,
     heureOuverture: json['heureOuverture'],
     heureFermeture: json['heureFermeture'],
+    joursGarde: List<String>.from(json['joursGarde'] ?? []),
+    visibiliteExpiry: json['visibiliteExpiry'] != null
+        ? DateTime.tryParse(json['visibiliteExpiry'])
+        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -196,6 +215,8 @@ class Logement {
     'sponsoredUntil': sponsoredUntil?.toIso8601String(),
     'heureOuverture': heureOuverture,
     'heureFermeture': heureFermeture,
+    'joursGarde': joursGarde,
+    'visibiliteExpiry': visibiliteExpiry?.toIso8601String(),
   };
 }
 
@@ -433,6 +454,12 @@ class Publicite {
   final String? videoUrl;
   final DateTime dateCreation;
   final bool actif;
+  /// Date d'expiration : la pub se désactive automatiquement après.
+  final DateTime? expiresAt;
+  /// Référence de la transaction GeniusPay qui a financé la diffusion.
+  final String? transactionRef;
+  /// Brouillon en attente du paiement initial (true) ou diffusable (false).
+  final bool paymentPending;
 
   const Publicite({
     required this.id,
@@ -446,7 +473,23 @@ class Publicite {
     this.videoUrl,
     required this.dateCreation,
     this.actif = true,
+    this.expiresAt,
+    this.transactionRef,
+    this.paymentPending = false,
   });
+
+  /// Indique si la pub est dans sa période de diffusion (actif + non expirée).
+  bool get estDiffusable {
+    if (!actif || paymentPending) return false;
+    if (expiresAt == null) return false;
+    return expiresAt!.isAfter(DateTime.now());
+  }
+
+  /// Indique si la pub est expirée (et donc nécessite un repaiement).
+  bool get estExpiree {
+    if (expiresAt == null) return false;
+    return expiresAt!.isBefore(DateTime.now());
+  }
 
   factory Publicite.fromMap(String docId, Map<String, dynamic> map) => Publicite(
         id: docId,
@@ -462,6 +505,11 @@ class Publicite {
             ? (map['dateCreation'] as Timestamp).toDate()
             : DateTime.now(),
         actif: map['actif'] ?? true,
+        expiresAt: map['expiresAt'] is Timestamp
+            ? (map['expiresAt'] as Timestamp).toDate()
+            : null,
+        transactionRef: map['transactionRef'] as String?,
+        paymentPending: map['paymentPending'] ?? false,
       );
 
   Map<String, dynamic> toMap() => {
@@ -475,6 +523,9 @@ class Publicite {
         if (videoUrl != null) 'videoUrl': videoUrl,
         'dateCreation': Timestamp.fromDate(dateCreation),
         'actif': actif,
+        if (expiresAt != null) 'expiresAt': Timestamp.fromDate(expiresAt!),
+        if (transactionRef != null) 'transactionRef': transactionRef,
+        'paymentPending': paymentPending,
       };
 }
 

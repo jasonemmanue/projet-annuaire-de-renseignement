@@ -124,7 +124,7 @@ class _SplashScreenState extends State<SplashScreen>
                   FadeTransition(
                     opacity: _fadeTextAnimation,
                     child: const Text(
-                      'ImmoConnect',
+                      'Horem+',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 36,

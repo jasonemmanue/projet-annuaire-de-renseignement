@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // ============================================================
 // AppController — Singleton pour piloter le thème et la langue
-// depuis n'importe quel écran sans accéder à _ImmoConnectAppState
+// depuis n'importe quel écran sans accéder à _HoremPlusAppState
 // ============================================================
 class AppController extends ChangeNotifier {
   AppController._();
