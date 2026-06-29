@@ -138,28 +138,163 @@ Pharmacie : **gratuite** (pas de prix). `_isPharmacieType` masque le champ prix 
 
 ---
 
-## Paiements
+## Paiements — Architecture complète
 
-- Flag global `kSimulationPaiement` dans `paiement_service.dart` (mettre à `true` pour tests).
-- Widget de sélection : `lib/widgets/operateur_selector.dart` (Orange / MTN, +237).
-- Les méthodes de paiement acceptent un paramètre `channel` (`'orange'` | `'mtn'`).
-- **GeniusPay** = nom du backend — **NE PAS afficher dans l'UI** (afficher « Paiement Mobile Money sécurisé »).
-- Backend GeniusPay via PawaPay : opérateurs `MTN_MOMO_CMR` / `ORANGE_CMR`.
-- **Devise API GeniusPay : `XOF`** (pas XAF — GeniusPay est ivoirien). PawaPay gère la conversion interne vers XAF pour le Cameroun. Les montants sont numériquement identiques.
-- Auth API GeniusPay : headers `X-API-Key` + `X-API-Secret` (pas de `Authorization: Bearer`).
-- **Pas de redirect navigateur** : PawaPay Cameroun envoie un USSD push directement sur le téléphone du client. `paiement_publication_screen.dart` poll via `watchStatut()` + `verifierPaiementServeur()` toutes les 5 s.
+### Acteurs de la chaîne de paiement
 
-### Frais réels GeniusPay/PawaPay (pour info, ne pas afficher dans l'UI)
+```
+Utilisateur (téléphone Cameroun)
+    │
+    ▼
+App Flutter  ──── HTTPS ────►  Cloud Function (Firebase)
+                                    │
+                                    ▼
+                              GeniusPay API (geniuspay.ci)
+                                    │  orchestrateur ivoirien
+                                    ▼
+                              PawaPay  (agrégateur africain)
+                                    │
+                          ┌─────────┴──────────┐
+                          ▼                    ▼
+                   MTN Mobile Money      Orange Money
+                   Cameroun (XAF)        Cameroun (XAF)
+```
+
+### Pourquoi GeniusPay et pas un opérateur direct ?
+
+GeniusPay est un agrégateur de paiement ivoirien (`geniuspay.ci`) qui expose une API unifiée vers PawaPay, lui-même agrégateur multi-pays. Cela permet d'atteindre MTN et Orange Cameroun via une seule intégration.
+
+**⚠️ Règle absolue : ne jamais afficher « GeniusPay » dans l'UI.** Afficher uniquement « Paiement Mobile Money sécurisé ».
+
+### Devise : XOF obligatoire (pas XAF)
+
+GeniusPay est ivoirien → son API n'accepte que `XOF` (Franc CFA BCEAO, zone Afrique de l'Ouest).  
+Le Cameroun utilise `XAF` (Franc CFA BEAC, zone Afrique Centrale).  
+**Ces deux devises ont exactement le même taux de change** (1 XOF = 1 XAF = 1/655,957 EUR).  
+PawaPay gère la conversion interne : on envoie 500 XOF, le client voit 500 XAF sur son téléphone.
+
+```js
+// functions/index.js
+const DEVISE = "XOF";  // ← obligatoire pour l'API GeniusPay, pas XAF
+```
+
+```dart
+// paiement_service.dart — mapping opérateurs vers codes PawaPay
+'orange' → 'orange_money_cm'   // Orange Money Cameroun
+'mtn'    → 'mtn_momo_cm'       // MTN Mobile Money Cameroun
+```
+
+### Mécanisme USSD push — AUCUNE REDIRECTION
+
+**C'est le point le plus important.** PawaPay Cameroun fonctionne par **USSD push** :
+1. L'app Flutter envoie le numéro de téléphone à GeniusPay via la Cloud Function.
+2. PawaPay envoie directement sur le téléphone du client un **menu USSD** (une fenêtre système s'ouvre automatiquement sur le téléphone, sans que l'utilisateur n'ait à rien chercher).
+3. Le client tape son PIN Mobile Money dans ce menu USSD.
+4. PawaPay notifie GeniusPay → GeniusPay appelle le webhook Firebase → le paiement est confirmé.
+
+**L'utilisateur ne quitte JAMAIS l'app Flutter.**  
+Il n'y a pas de page web GeniusPay, pas de redirect, pas de navigateur externe à ouvrir.
+
+> ⛔ **La propriété `checkoutUrl`** est renvoyée par l'API GeniusPay mais elle sert à d'autres pays/méthodes (Wave CI, etc.). Pour le Cameroun (MTN/Orange via USSD), elle est vide ou inutile. **Ne jamais appeler `launchUrl(checkoutUrl)` dans aucun écran de paiement.**
+
+### Flux de paiement étape par étape
+
+```
+Flutter                     Cloud Function              GeniusPay/PawaPay
+  │                               │                           │
+  │  POST /initierXxx             │                           │
+  │  { telephone, operateur,      │                           │
+  │    logementId, duree, ... }   │                           │
+  │──────────────────────────────►│                           │
+  │                               │  createPayment(XOF)       │
+  │                               │──────────────────────────►│
+  │                               │                           │ USSD push
+  │                               │                           │────────► téléphone client
+  │                               │  { reference, paymentUrl }│         (menu PIN s'ouvre)
+  │                               │◄──────────────────────────│
+  │                               │                           │
+  │  { success, reference }       │                           │
+  │◄──────────────────────────────│                           │
+  │                               │                           │
+  │  → _etape = attente           │          [client tape PIN] │
+  │  → polling toutes les 5s      │                           │
+  │                               │                           │
+  │  POST /verifierPaiement       │                           │
+  │──────────────────────────────►│                           │
+  │  { statut: 'en_attente' }     │                           │
+  │◄──────────────────────────────│           Webhook POST    │
+  │                               │◄──────────────────────────│
+  │                               │  appliquerTransactionReussie()
+  │  Firestore update             │  met à jour Firestore     │
+  │  (watchStatut stream)         │                           │
+  │◄ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │                           │
+  │                               │                           │
+  │  → _etape = succes ✅         │                           │
+```
+
+### Fichiers Flutter impliqués
+
+| Fichier | Rôle |
+|---------|------|
+| `lib/widgets/operateur_selector.dart` | Sélecteur Orange / MTN + numéro +237 |
+| `lib/screens/paiement_publication_screen.dart` | Écran de paiement réutilisable (sponsoring, pub, visibilité) |
+| `lib/screens/urgence_screen.dart` | Paiement urgence visiteur |
+| `lib/screens/sponsorisation_screen.dart` | Ancien écran sponsoring (conservé) |
+| `lib/screens/paiement_premium_screen.dart` | Paiement abonnement premium |
+| `lib/services/paiement_service.dart` | Appels Cloud Functions + polling statut |
+| `lib/services/paiement_debug_log.dart` | Panneau de logs diagnostic (visible si `kDebugPaiement = true`) |
+
+### Règles de code anti-régression
+
+```dart
+// ✅ CORRECT — après initiation, on va à l'écran d'attente, c'est tout
+_reference = result.reference;
+setState(() { _etape = _Etape.attente; });
+_demarrerAttente();
+
+// ❌ INTERDIT — ne jamais ouvrir checkoutUrl pour les paiements Cameroun
+if (result.checkoutUrl != null) {
+  await launchUrl(Uri.parse(result.checkoutUrl!)); // ← à ne jamais faire
+}
+```
+
+### Mode simulation (tests sans vrai paiement)
+
+```dart
+// paiement_service.dart — ligne 9
+const bool kSimulationPaiement = false;  // passer à true pour les tests
+
+// En kDebugMode (flutter run), la simulation est automatique
+bool get _simulation => kSimulationPaiement || kDebugMode;
+```
+
+En simulation : la Cloud Function n'est pas appelée, Firestore est mis à jour directement côté Flutter, et un statut `reussi` est émis après 4 secondes.
+
+### Auth API GeniusPay
+
+```
+Headers → X-API-Key: <GENIUSPAY_API_KEY>
+           X-API-Secret: <GENIUSPAY_SECRET_KEY>
+// PAS de "Authorization: Bearer ..." — c'est différent de Firebase Auth
+```
+
+### Frais réels GeniusPay/PawaPay (ne pas afficher dans l'UI)
+
 ```
 Net reçu = montant × 0,955 − 100 XOF
-(PawaPay 3,5% + GeniusPay 100 fixe + 1%)
+           └── PawaPay 3,5% ──┘ └── GeniusPay : 100 fixe + 1% ──┘
 ```
-| Montant | Net reçu |
-|---------|----------|
-| 500 XAF | ~377 XAF |
-| 1 000 XAF | ~855 XAF |
-| 2 000 XAF | ~1 810 XAF |
-| 45 000 XAF | ~42 875 XAF |
+
+| Montant envoyé | Frais total | **Net reçu** |
+|----------------|-------------|--------------|
+| 200 XAF | 109 XAF | **91 XAF** |
+| 500 XAF | 123 XAF | **377 XAF** |
+| 1 000 XAF | 145 XAF | **855 XAF** |
+| 2 000 XAF | 190 XAF | **1 810 XAF** |
+| 3 000 XAF | 235 XAF | **2 765 XAF** |
+| 45 000 XAF | 2 125 XAF | **42 875 XAF** |
+
+> Le forfait fixe de 100 XAF est très pénalisant sur les petits montants. Ne pas descendre sous **500 XAF** par transaction.
 
 ---
 

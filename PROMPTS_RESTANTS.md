@@ -19,6 +19,7 @@ Coche chaque bloc une fois la fonctionnalité validée (critères ✅ satisfaits
 | — | Email admin à `Horem+49@gmail.com` à chaque publication | Nodemailer + Gmail SMTP, secrets Firebase |
 | — | `admin_notifications` Firestore | Collecte par le webhook après chaque paiement réussi |
 | — | AdMob retiré côté visiteur | `PubliciteBanner` = `SizedBox.shrink()`, `AdsService` désactivé |
+| — | Suppression redirect vers GeniusPay | `launchUrl(checkoutUrl)` retiré de urgence/sponsorisation/premium — USSD push, utilisateur reste dans l'app |
 | — | Stories publicités overlay (Instagram-style) | `stories_publicites_overlay.dart` |
 | — | Messagerie : envoi photos/vidéos, tag messages, réponse | |
 | — | Dashboard admin web Next.js (pages + notifications) | Repo `Horem-a-ADMIN` sur GitHub |
