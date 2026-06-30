@@ -184,18 +184,27 @@ const DEVISE = "XOF";  // ← obligatoire pour l'API GeniusPay, pas XAF
 'mtn'    → 'mtn_momo_cm'       // MTN Mobile Money Cameroun
 ```
 
-### Mécanisme USSD push — AUCUNE REDIRECTION
+### Mécanisme USSD push — la page `checkoutUrl` EST le déclencheur
 
-**C'est le point le plus important.** PawaPay Cameroun fonctionne par **USSD push** :
-1. L'app Flutter envoie le numéro de téléphone à GeniusPay via la Cloud Function.
-2. PawaPay envoie directement sur le téléphone du client un **menu USSD** (une fenêtre système s'ouvre automatiquement sur le téléphone, sans que l'utilisateur n'ait à rien chercher).
-3. Le client tape son PIN Mobile Money dans ce menu USSD.
-4. PawaPay notifie GeniusPay → GeniusPay appelle le webhook Firebase → le paiement est confirmé.
+**Réalité technique vérifiée en production :** la création d'un paiement côté Cloud Function ne déclenche PAS l'USSD push toute seule. C'est l'ouverture de la page `paymentUrl` (= `checkoutUrl`) renvoyée par GeniusPay qui déclenche réellement l'envoi de l'USSD à PawaPay → opérateur → téléphone du client.
 
-**L'utilisateur ne quitte JAMAIS l'app Flutter.**  
-Il n'y a pas de page web GeniusPay, pas de redirect, pas de navigateur externe à ouvrir.
+```
+1. App Flutter → Cloud Function → GeniusPay createPayment()
+   ↳ GeniusPay réserve une transaction, renvoie { reference, paymentUrl }
+   ↳ aucun USSD envoyé à ce stade.
 
-> ⛔ **La propriété `checkoutUrl`** est renvoyée par l'API GeniusPay mais elle sert à d'autres pays/méthodes (Wave CI, etc.). Pour le Cameroun (MTN/Orange via USSD), elle est vide ou inutile. **Ne jamais appeler `launchUrl(checkoutUrl)` dans aucun écran de paiement.**
+2. App Flutter → launchUrl(paymentUrl) (navigateur externe)
+   ↳ la page GeniusPay détecte PawaPay CM → envoie l'ordre à PawaPay.
+   ↳ PawaPay envoie l'USSD push au téléphone (menu PIN).
+
+3. Client tape son PIN → PawaPay → GeniusPay → webhook Firebase.
+4. Webhook met à jour Firestore → l'app détecte via watchStatut() → écran succès.
+```
+
+> ⚠️ **`launchUrl(checkoutUrl)` est OBLIGATOIRE après l'initiation.**  
+> Sans ce `launchUrl`, l'USSD n'est jamais envoyé, le paiement reste indéfiniment en `pending`, l'écran d'attente tourne dans le vide jusqu'au timeout.
+
+**L'utilisateur sort temporairement de l'app**, mais l'écran d'attente continue de tourner derrière. Quand le webhook met à jour Firestore, l'app affiche automatiquement l'écran de succès dès le retour. Si l'utilisateur valide l'USSD avant même de revenir dans l'app, l'état est déjà à `succès` quand il revient.
 
 ### Flux de paiement étape par étape
 
@@ -247,15 +256,21 @@ Flutter                     Cloud Function              GeniusPay/PawaPay
 ### Règles de code anti-régression
 
 ```dart
-// ✅ CORRECT — après initiation, on va à l'écran d'attente, c'est tout
+// ✅ CORRECT — après initiation : launch puis attente + polling
 _reference = result.reference;
-setState(() { _etape = _Etape.attente; });
-_demarrerAttente();
-
-// ❌ INTERDIT — ne jamais ouvrir checkoutUrl pour les paiements Cameroun
-if (result.checkoutUrl != null) {
-  await launchUrl(Uri.parse(result.checkoutUrl!)); // ← à ne jamais faire
+if (result.checkoutUrl != null && result.checkoutUrl!.isNotEmpty) {
+  try {
+    await launchUrl(
+      Uri.parse(result.checkoutUrl!),
+      mode: LaunchMode.externalApplication,
+    );
+  } catch (_) {}
 }
+setState(() { _etape = _Etape.attente; });
+_demarrerAttente(); // watchStatut Firestore + verifierPaiementServeur toutes les 5s
+
+// ❌ INTERDIT — supprimer le launchUrl sous prétexte que "c'est plus propre"
+// L'USSD ne part pas, l'écran d'attente tourne 2 minutes pour rien.
 ```
 
 ### Mode simulation (tests sans vrai paiement)

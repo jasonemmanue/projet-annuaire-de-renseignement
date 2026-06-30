@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/paiement_service.dart';
 import '../services/paiement_debug_log.dart';
@@ -142,8 +143,22 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
 
     _reference = result.reference;
 
-    // PawaPay Cameroun : paiement par USSD push — pas de redirection externe.
-    // L'app attend la confirmation via polling (voir _demarrerAttente).
+    // GeniusPay/PawaPay : le déclenchement de l'USSD push se fait quand
+    // l'utilisateur ouvre la page de checkout. Sans ce launch, l'USSD n'est
+    // jamais envoyé au téléphone → le paiement reste bloqué en pending.
+    // Après validation par l'utilisateur, le webhook met à jour Firestore et
+    // l'écran d'attente détecte automatiquement la confirmation via le polling.
+    if (result.checkoutUrl != null && result.checkoutUrl!.isNotEmpty) {
+      try {
+        await launchUrl(
+          Uri.parse(result.checkoutUrl!),
+          mode: LaunchMode.externalApplication,
+        );
+      } catch (_) {
+        // Continue même si l'ouverture échoue — l'utilisateur peut composer
+        // manuellement le code USSD si PawaPay l'a déjà envoyé.
+      }
+    }
 
     setState(() {
       _loading = false;
