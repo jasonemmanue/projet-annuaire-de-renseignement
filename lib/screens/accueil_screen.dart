@@ -16,6 +16,7 @@ import '../app_controller.dart';
 import 'liste_logements_screen.dart';
 import 'detail_logement_screen.dart';
 import 'messagerie_screen.dart';
+import 'urgence_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/accueil_screen.dart
@@ -449,6 +450,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
         ),
         ),
       ),
+      floatingActionButton: const _UrgenceFab(),
     );
   }
 
@@ -1382,4 +1384,69 @@ class _Suggestion {
   final String? prix;
   final String searchText;
   const _Suggestion({required this.label, this.prix, required this.searchText});
+}
+
+// ── FAB Urgence animé (pulse rouge) ──────────────────────────
+
+class _UrgenceFab extends StatefulWidget {
+  const _UrgenceFab();
+
+  @override
+  State<_UrgenceFab> createState() => _UrgenceFabState();
+}
+
+class _UrgenceFabState extends State<_UrgenceFab>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _scale = Tween<double>(begin: 1.0, end: 1.15).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    return ScaleTransition(
+      scale: _scale,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton(
+            heroTag: 'urgenceFab',
+            backgroundColor: Colors.red.shade600,
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const UrgenceScreen()),
+            ),
+            child: const Icon(Icons.notifications_active,
+                color: Colors.white, size: 28),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            loc.t('urgence_fab_label'),
+            style: TextStyle(
+              color: Colors.red.shade600,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -12,10 +12,8 @@ import '../services/auth_service.dart';
 import '../services/messagerie_service.dart';
 import '../services/analytics_service.dart';
 import '../services/favoris_service.dart'; // ← ÉTAPE 1
-import '../services/paiement_service.dart';
 import '../l10n/app_localizations.dart';
 import 'messagerie_screen.dart';
-import 'urgence_screen.dart';
 import '../widgets/shared_widgets.dart' as sw;
 
 // ============================================================
@@ -65,9 +63,6 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
   // ── État signalement ────────────────────────────────────────
   bool _dejaSignale = false;
 
-  // ── Accès prioritaire (urgence 48 H) ────────────────────────
-  bool _aUrgence = false;        // le visiteur a payé l'accès
-  bool _estProprietaire = false; // c'est sa propre annonce
 
   // ── Fallback : infos prestataire chargées depuis /users si les champs
   //    prestatireNom / prestatirePhone / prestatirePhoto sont vides dans
@@ -99,7 +94,6 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     super.initState();
     _incrementerVues();
     _chargerEtatSignalement();
-    _verifierAccesUrgence();
     _chargerInfosPrestataireExtra();
     // [ANALYTICS] Vue logement — event GA4 "view_item"
     AnalyticsService.instance.logVueLogement(
@@ -840,17 +834,14 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                               ],
                             ]),
                             Text(
-                              (_aUrgence || _estProprietaire)
-                                  ? (_prestatirePhoneAffiche.isNotEmpty
-                                      ? _prestatirePhoneAffiche
-                                      : _loc.t('detail_phone_missing'))
-                                  : _loc.t('detail_phone_masked'),
+                              _prestatirePhoneAffiche.isNotEmpty
+                                  ? _prestatirePhoneAffiche
+                                  : _loc.t('detail_phone_missing'),
                               style: AppTextStyles.bodyMedium,
                             ),
                           ]),
                         ),
-                        if ((_aUrgence || _estProprietaire) &&
-                            _prestatirePhoneAffiche.isNotEmpty)
+                        if (_prestatirePhoneAffiche.isNotEmpty)
                           IconButton(
                             onPressed: _appelerPrestataire,
                             icon: const Icon(Icons.phone, color: AppColors.primary),
@@ -883,49 +874,6 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                         ),
                       ],
 
-                      // ── Accès prioritaire 48 H (si contact masqué) ──
-                      if (!_aUrgence && !_estProprietaire && l.typeBien != 'Pharmacie') ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.red.shade200),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(children: [
-                                Icon(Icons.bolt, color: Colors.red.shade700, size: 20),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    _loc.t('detail_priority_desc'),
-                                    style: TextStyle(
-                                        fontSize: 13,
-                                        color: Colors.red.shade900,
-                                        fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                              ]),
-                              const SizedBox(height: 10),
-                              ElevatedButton.icon(
-                                onPressed: _ouvrirUrgence,
-                                icon: const Icon(Icons.flash_on, size: 18),
-                                label: Text(_loc.t('detail_unlock_priority')),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.red.shade600,
-                                  foregroundColor: Colors.white,
-                                  minimumSize: const Size(double.infinity, 44),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ]),
                   ),
 
@@ -1196,28 +1144,6 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     return null;
   }
 
-  // ── Accès prioritaire (urgence 48 H) ──────────────────────────────────────
-  Future<void> _verifierAccesUrgence() async {
-    final uid = AuthService.instance.currentUser?.id;
-    final estProp = uid != null && uid == l.prestatireId;
-    // Pour les pharmacies (et autres services gratuits), l'accès est toujours accordé
-    final isServiceGratuit = l.typeBien == 'Pharmacie';
-    final aAcces = estProp || isServiceGratuit ||
-        await PaiementService.instance.aAccesUrgence(l.id);
-    if (!mounted) return;
-    setState(() {
-      _estProprietaire = estProp;
-      _aUrgence = aAcces;
-    });
-  }
-
-  Future<void> _ouvrirUrgence() async {
-    final ok = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(builder: (_) => UrgenceScreen(logement: l)),
-    );
-    if (ok == true) _verifierAccesUrgence();
-  }
 }
 
 // ============================================================

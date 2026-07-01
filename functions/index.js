@@ -1499,6 +1499,13 @@ async function appliquerTransactionReussie(tx) {
       `Votre annonce « ${titre} » est visible pendant 1 mois (jusqu'au ${dateFr}).`,
       { type: "logement_update", logementId: tx.logementId, reference: tx.reference }
     );
+
+    // ── Notification prioritaire : alertes urgences matching ──
+    try {
+      await notifierAlertesUrgence(db, logData, tx.logementId);
+    } catch (e) {
+      console.warn("notifierAlertesUrgence:", e.message);
+    }
   } else if (tx.type === "sponsorisation") {
     // Sponsorisation = boost optionnel (annonce déjà publiée)
     const jours = SPONSOR_DUREES[tx.duree] || SPONSOR_DUREE_JOURS;
@@ -1585,64 +1592,26 @@ async function appliquerTransactionReussie(tx) {
       { type: "logement_update", logementId: tx.logementId, reference: tx.reference }
     );
   } else if (tx.type === "urgence") {
-    // Accès prioritaire visiteur 48 H : voir contact + message prioritaire.
+    // Alerte prioritaire visiteur : notifié en premier quand un bien
+    // correspondant est publié. 200 XAF / 48 H.
     const until = new Date(Date.now() + URGENCE_DUREE_HEURES * 60 * 60 * 1000);
     const untilTs = admin.firestore.Timestamp.fromDate(until);
 
-    // Clé déterministe : un accès par (visiteur, logement).
-    await db.collection("urgences").doc(`${tx.uid}_${tx.logementId}`).set(
-      {
-        uid: tx.uid,
-        logementId: tx.logementId,
-        expiresAt: untilTs,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        reference: tx.reference,
-      },
-      { merge: true }
-    );
+    // Active l'alerte dans la collection urgences.
+    const alerteId = tx.logementId; // réutilise le champ pour l'id de l'alerte
+    await db.collection("urgences").doc(alerteId).update({
+      actif: true,
+      paymentPending: false,
+      expiresAt: untilTs,
+      reference: tx.reference,
+    });
 
-    // Propage l'urgence sur les conversations existantes pour ce visiteur
-    // et ce logement : permet au prestataire de voir « URGENT » en tête.
-    try {
-      const convsSnap = await db
-        .collection("conversations")
-        .where("client_uid", "==", tx.uid)
-        .where("logement_id", "==", tx.logementId)
-        .get();
-      const batch = db.batch();
-      convsSnap.docs.forEach((doc) => {
-        batch.update(doc.ref, { urgenceUntil: untilTs });
-      });
-      if (!convsSnap.empty) await batch.commit();
-    } catch (e) {
-      console.warn("Propagation urgenceUntil sur conversations:", e.message);
-    }
-
-    // Notifie le prestataire propriétaire qu'une demande prioritaire arrive.
-    try {
-      const logDoc = await db.collection("logements").doc(tx.logementId).get();
-      const ownerId = logDoc.exists
-        ? (logDoc.data().uid_prestataire || logDoc.data().prestataireId)
-        : null;
-      const titre = logDoc.exists ? (logDoc.data().titre || "votre annonce") : "votre annonce";
-      if (ownerId) {
-        await notifierPrestataire(
-          ownerId,
-          "🔴 Demande prioritaire (urgence)",
-          `Un client a un accès prioritaire sur « ${titre} ». Répondez en priorité.`,
-          { type: "urgence", logementId: tx.logementId, reference: tx.reference }
-        );
-      }
-    } catch (_) {
-      /* ignore */
-    }
-
-    // Notifie le visiteur que son accès est ouvert.
+    // Notifie le visiteur que son alerte est activée.
     await notifierPrestataire(
       tx.uid,
-      "✅ Accès prioritaire activé (48 H)",
-      "Vous pouvez voir le contact et être traité en priorité pendant 48 heures.",
-      { type: "urgence", logementId: tx.logementId, reference: tx.reference }
+      "✅ Alerte prioritaire activée (48 H)",
+      "Vous serez notifié en premier dès qu'un bien correspondant sera publié.",
+      { type: "urgence", alerteId, reference: tx.reference }
     );
   }
 }
@@ -1890,3 +1859,56 @@ exports.desactiverPublicitesExpirees = onSchedule("every 1 hours", async () => {
   console.log(`Publicités désactivées : ${snap.size}`);
   return null;
 });
+
+// ================================================================
+// FONCTION UTILITAIRE : notifierAlertesUrgence
+// Quand un nouveau logement est publié, cherche les alertes actives
+// dont typeBien correspond et prixMin <= prix <= prixMax.
+// Notifie immédiatement les visiteurs avec alerte matching.
+// ================================================================
+async function notifierAlertesUrgence(db, logData, logementId) {
+  const typeBien = logData.typeBien || "";
+  const prix = logData.prix || 0;
+  const titre = logData.titre || "Nouveau bien";
+  const ville = logData.ville || "";
+
+  if (!typeBien) return;
+
+  const now = admin.firestore.Timestamp.now();
+
+  // Cherche les alertes actives pour ce type de bien.
+  const snap = await db
+    .collection("urgences")
+    .where("actif", "==", true)
+    .where("typeBien", "==", typeBien)
+    .where("expiresAt", ">", now)
+    .get();
+
+  if (snap.empty) return;
+
+  const promises = [];
+  for (const doc of snap.docs) {
+    const alerte = doc.data();
+    const pMin = alerte.prixMin || 0;
+    const pMax = alerte.prixMax || 0;
+
+    // Vérifie la fourchette de prix (si pMax = 0, pas de limite haute).
+    if (prix < pMin) continue;
+    if (pMax > 0 && prix > pMax) continue;
+
+    // Matching trouvé → notification immédiate au visiteur.
+    promises.push(
+      notifierPrestataire(
+        alerte.uid,
+        `🔴 ${titre} — ${ville}`,
+        `Un ${typeBien} à ${prix} XAF correspond à votre alerte ! Consultez-le en priorité.`,
+        { type: "alerte_urgence", logementId, alerteId: doc.id }
+      )
+    );
+  }
+
+  if (promises.length > 0) {
+    await Promise.all(promises);
+    console.log(`Alertes urgence notifiées : ${promises.length} pour logement ${logementId}`);
+  }
+}

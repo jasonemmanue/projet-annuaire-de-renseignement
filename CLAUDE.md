@@ -228,7 +228,7 @@ const DEVISE = "XOF";  // ← obligatoire pour l'API GeniusPay, pas XAF
 
 **Fichiers concernés (4 écrans) :**
 - `paiement_publication_screen.dart` (sponsoring + pub + visibilité)
-- `urgence_screen.dart`
+- `urgence_screen.dart` (alerte prioritaire visiteur)
 - `sponsorisation_screen.dart`
 - `paiement_premium_screen.dart`
 
@@ -276,7 +276,7 @@ Flutter                     Cloud Function              GeniusPay/PawaPay
 |---------|------|
 | `lib/widgets/operateur_selector.dart` | Sélecteur Orange / MTN + numéro +237 |
 | `lib/screens/paiement_publication_screen.dart` | Écran de paiement réutilisable (sponsoring, pub, visibilité) |
-| `lib/screens/urgence_screen.dart` | Paiement urgence visiteur |
+| `lib/screens/urgence_screen.dart` | Alerte prioritaire visiteur (formulaire + CRUD + paiement 200 XAF/48H) |
 | `lib/screens/sponsorisation_screen.dart` | Ancien écran sponsoring (conservé) |
 | `lib/screens/paiement_premium_screen.dart` | Paiement abonnement premium |
 | `lib/services/paiement_service.dart` | Appels Cloud Functions + polling statut |
@@ -374,7 +374,7 @@ Gère tous les types de paiement via le champ `tx.type` :
 - `'sponsorisation'` → `disponible: true`, `estSponsorie: true`, expiry selon `tx.duree` (`1s`/`2s`/`1m`)
 - `'publicite'` → `actif: true`, expiry + 4 jours
 - `'visibilite'` → `visibiliteExpiry: now + 365 jours`
-- `'urgence'` → accès visiteur + 48h
+- `'urgence'` → active l'alerte prioritaire visiteur pendant 48h
 
 **Admin notifications** : à chaque paiement réussi (sauf urgence), le webhook :
 1. Envoie un email HTML à `Horem+49@gmail.com` (Nodemailer + Gmail SMTP)
@@ -591,6 +591,45 @@ Les jours de garde saisis lors de la publication s'affichent sous le bandeau hor
 - Badges bleus avec icône calendrier
 - Visible uniquement si `joursGarde` non vide
 - Clé i18n : `detail_guard_days`
+
+---
+
+## Alerte prioritaire visiteur (urgence)
+
+Le visiteur peut créer des alertes pour être notifié en premier quand un bien correspondant est publié.
+
+### Flux
+1. Bouton FAB rouge animé (pulse) en bas à droite de l'accueil visiteur → ouvre `UrgenceScreen`
+2. Page avec fond skyline, question introductive, liste des alertes existantes (CRUD)
+3. Formulaire : type de bien, description, fourchette de prix (min/max)
+4. Paiement : **200 XAF / 48H** via Mobile Money (flux WebView silencieux)
+5. Quand un nouveau logement est publié et correspond (même type + dans la fourchette de prix), le visiteur avec alerte active est notifié **immédiatement** (les autres 30 min après)
+6. L'alerte expire après 48H, le visiteur peut renouveler ou en créer d'autres
+
+### Contact prestataire
+Le contact du prestataire (nom, téléphone, photo) est **toujours visible** pour tous les visiteurs sur le détail d'une annonce. L'ancien système de masquage/déblocage via paiement urgence a été supprimé.
+
+### Firestore collection `urgences`
+```json
+{
+  "uid": "visiteur_uid",
+  "typeBien": "Studio",
+  "description": "Studio meublé proche université",
+  "prixMin": 15000,
+  "prixMax": 30000,
+  "actif": true,
+  "paymentPending": false,
+  "expiresAt": "Timestamp",
+  "createdAt": "Timestamp"
+}
+```
+
+### Modèle Flutter
+`AlerteUrgence` dans `lib/models/models.dart` — getters `estActive`, `estExpiree`.
+
+### Cloud Function — notification prioritaire
+`notifierAlertesUrgence()` dans `functions/index.js` — appelée après chaque publication réussie.
+Cherche les alertes actives dont `typeBien` correspond et `prixMin <= prix <= prixMax`, puis envoie une notification push immédiate aux visiteurs matching.
 
 ---
 

@@ -249,6 +249,72 @@ class Logement {
 }
 
 // ============================================================
+// Modèle AlerteUrgence — alerte prioritaire visiteur
+// ============================================================
+
+class AlerteUrgence {
+  final String id;
+  final String uid;
+  final String typeBien;
+  final String description;
+  final double prixMin;
+  final double prixMax;
+  final bool actif;
+  final bool paymentPending;
+  final DateTime? expiresAt;
+  final DateTime createdAt;
+
+  const AlerteUrgence({
+    required this.id,
+    required this.uid,
+    required this.typeBien,
+    required this.description,
+    required this.prixMin,
+    required this.prixMax,
+    this.actif = false,
+    this.paymentPending = true,
+    this.expiresAt,
+    required this.createdAt,
+  });
+
+  bool get estActive =>
+      actif && !paymentPending && expiresAt != null && expiresAt!.isAfter(DateTime.now());
+
+  bool get estExpiree =>
+      expiresAt != null && expiresAt!.isBefore(DateTime.now());
+
+  factory AlerteUrgence.fromMap(String docId, Map<String, dynamic> map) =>
+      AlerteUrgence(
+        id: docId,
+        uid: map['uid'] ?? '',
+        typeBien: map['typeBien'] ?? '',
+        description: map['description'] ?? '',
+        prixMin: (map['prixMin'] as num?)?.toDouble() ?? 0,
+        prixMax: (map['prixMax'] as num?)?.toDouble() ?? 0,
+        actif: map['actif'] ?? false,
+        paymentPending: map['paymentPending'] ?? true,
+        expiresAt: map['expiresAt'] is Timestamp
+            ? (map['expiresAt'] as Timestamp).toDate()
+            : null,
+        createdAt: map['createdAt'] is Timestamp
+            ? (map['createdAt'] as Timestamp).toDate()
+            : DateTime.now(),
+      );
+
+  Map<String, dynamic> toMap() => {
+        'uid': uid,
+        'typeBien': typeBien,
+        'description': description,
+        'prixMin': prixMin,
+        'prixMax': prixMax,
+        'actif': actif,
+        'paymentPending': paymentPending,
+        'expiresAt': expiresAt != null ? Timestamp.fromDate(expiresAt!) : null,
+        'createdAt': Timestamp.fromDate(createdAt),
+      };
+}
+
+// ============================================================
 // FICHIER : lib/models/utilisateur.dart
 // Modèle Prestataire (seul type avec compte)
 // ============================================================
