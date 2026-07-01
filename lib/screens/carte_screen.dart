@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -25,6 +26,23 @@ class CarteScreen extends StatefulWidget {
 }
 
 class _CarteScreenState extends State<CarteScreen> {
+  static const Map<String, Color> _typeCouleurs = {
+    'Chambre':           Color(0xFF0071C2),
+    'Studio':            Color(0xFF7C3AED),
+    'Appartement':       Color(0xFFE67E22),
+    'Villa':             Color(0xFF28A745),
+    'Terrain':           Color(0xFF8B4513),
+    'Bureau':            Color(0xFF00897B),
+    'Commerce':          Color(0xFF00897B),
+    'Pharmacie':         Color(0xFFE91E63),
+    'Restaurant / Snack':Color(0xFFFF5722),
+    'Entreprise':        Color(0xFF1565C0),
+    'École':             Color(0xFF9C27B0),
+  };
+
+  static Color _couleurPourType(String typeBien) =>
+      _typeCouleurs[typeBien] ?? AppColors.primary;
+
   Logement? _logementSelectionne;
   double _distanceFiltreKm = 5.0;
   bool _isLocating = false;
@@ -33,15 +51,16 @@ class _CarteScreenState extends State<CarteScreen> {
 
   GoogleMapController? _mapController;
 
-  // Position GPS de l'utilisateur (pour le point bleu natif)
   LatLng? _positionUtilisateur;
-
-  // Centre du rayon de filtrage — null = aucun filtre actif, tous les logements affichés
   LatLng? _centreFiltre;
+
+  // Cache des icônes custom par logement id
+  final Map<String, BitmapDescriptor> _iconCache = {};
+  Set<Marker> _markers = {};
+  List<Logement> _lastLogements = [];
 
   static const LatLng _yaoundeCenter = LatLng(3.8480, 11.5021);
 
-  // Le filtre n'est actif que si un centre a été sélectionné ET le rayon n'est pas sentinel
   bool get _isFiltering =>
       _centreFiltre != null && _distanceFiltreKm < _kNoFilterSentinel;
 
@@ -56,25 +75,98 @@ class _CarteScreenState extends State<CarteScreen> {
     return distanceM <= _distanceFiltreKm * 1000;
   }
 
-  Set<Marker> _buildMarkers(List<Logement> logements) {
-    final set = logements
+  /// Génère un BitmapDescriptor avec le nom de l'annonce dans une bulle colorée.
+  Future<BitmapDescriptor> _creerIconePerso(String titre, Color couleur) async {
+    final label = titre.length > 18 ? '${titre.substring(0, 16)}…' : titre;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+
+    // Mesurer le texte
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(
+          fontSize: 26,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final textW = textPainter.width;
+    const paddingH = 20.0;
+    const paddingV = 12.0;
+    final bubbleW = textW + paddingH * 2;
+    final bubbleH = textPainter.height + paddingV * 2;
+    const arrowH = 16.0;
+    final totalW = bubbleW;
+    final totalH = bubbleH + arrowH;
+
+    // Bulle arrondie
+    final rrect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, bubbleW, bubbleH),
+      const Radius.circular(14),
+    );
+    canvas.drawRRect(rrect, Paint()..color = couleur);
+
+    // Ombre fine
+    canvas.drawRRect(
+      rrect.shift(const Offset(0, 2)),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.2)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+    canvas.drawRRect(rrect, Paint()..color = couleur);
+
+    // Flèche vers le bas
+    final arrowPath = Path()
+      ..moveTo(bubbleW / 2 - 10, bubbleH)
+      ..lineTo(bubbleW / 2, bubbleH + arrowH)
+      ..lineTo(bubbleW / 2 + 10, bubbleH)
+      ..close();
+    canvas.drawPath(arrowPath, Paint()..color = couleur);
+
+    // Texte centré
+    textPainter.paint(canvas, Offset(paddingH, paddingV));
+
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(totalW.ceil(), totalH.ceil());
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+
+    return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
+  }
+
+  /// Construit les marqueurs de manière asynchrone avec icônes personnalisées.
+  Future<void> _buildMarkersAsync(List<Logement> logements) async {
+    final visibles = logements
         .where((l) => l.latitude != 0 || l.longitude != 0)
         .where(_dansLeRayon)
-        .map((l) => Marker(
-              markerId: MarkerId(l.id),
-              position: LatLng(l.latitude, l.longitude),
-              icon: l.estSponsorie
-                  ? BitmapDescriptor.defaultMarkerWithHue(
-                      BitmapDescriptor.hueOrange)
-                  : BitmapDescriptor.defaultMarker,
-              infoWindow: InfoWindow(title: l.titre, snippet: l.prixLabel),
-              onTap: () => setState(() => _logementSelectionne = l),
-            ))
-        .toSet();
+        .toList();
 
-    // Marqueur épingle au centre du rayon (hors position GPS — déjà matérialisé par le point bleu)
+    final Set<Marker> newMarkers = {};
+
+    for (final l in visibles) {
+      // Générer l'icône si pas encore en cache
+      if (!_iconCache.containsKey(l.id)) {
+        final couleur = _couleurPourType(l.typeBien);
+        _iconCache[l.id] = await _creerIconePerso(l.titre, couleur);
+      }
+
+      newMarkers.add(Marker(
+        markerId: MarkerId(l.id),
+        position: LatLng(l.latitude, l.longitude),
+        icon: _iconCache[l.id]!,
+        anchor: const Offset(0.5, 1.0),
+        infoWindow: InfoWindow(title: l.titre, snippet: l.prixLabel),
+        onTap: () => setState(() => _logementSelectionne = l),
+      ));
+    }
+
+    // Marqueur centre du rayon
     if (_centreFiltre != null && _centreFiltre != _positionUtilisateur) {
-      set.add(Marker(
+      newMarkers.add(Marker(
         markerId: const MarkerId('_centre_rayon'),
         position: _centreFiltre!,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
@@ -82,7 +174,12 @@ class _CarteScreenState extends State<CarteScreen> {
       ));
     }
 
-    return set;
+    if (mounted) setState(() => _markers = newMarkers);
+  }
+
+  /// Appelé quand la liste change ou quand le filtre change.
+  void _rafraichirMarkers() {
+    _buildMarkersAsync(_lastLogements);
   }
 
   Set<Circle> _buildCircles() {
@@ -112,7 +209,10 @@ class _CarteScreenState extends State<CarteScreen> {
             IconButton(
               icon: const Icon(Icons.cancel_outlined),
               tooltip: 'Effacer le rayon',
-              onPressed: () => setState(() => _centreFiltre = null),
+              onPressed: () {
+                setState(() => _centreFiltre = null);
+                _rafraichirMarkers();
+              },
             ),
           IconButton(
             icon: const Icon(Icons.filter_list),
@@ -127,12 +227,21 @@ class _CarteScreenState extends State<CarteScreen> {
               ? snap.data!.docs
                   .map((d) =>
                       Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
-                  // Côté visiteur : exclut brouillons + annonces masquées.
                   .where((l) => l.estVisiblePourVisiteur)
                   .toList()
               : <Logement>[];
 
-          final markers = _buildMarkers(logements);
+          // Reconstruire les marqueurs si les données ont changé
+          if (logements.length != _lastLogements.length ||
+              (logements.isNotEmpty && _lastLogements.isNotEmpty &&
+               logements.first.id != _lastLogements.first.id)) {
+            _lastLogements = logements;
+            _buildMarkersAsync(logements);
+          } else if (_lastLogements.isEmpty && logements.isNotEmpty) {
+            _lastLogements = logements;
+            _buildMarkersAsync(logements);
+          }
+
           final circles = _buildCircles();
 
           return Stack(
@@ -142,13 +251,15 @@ class _CarteScreenState extends State<CarteScreen> {
                 initialCameraPosition: const CameraPosition(
                     target: _yaoundeCenter, zoom: 12),
                 onMapCreated: (ctrl) => _mapController = ctrl,
-                markers: markers,
+                markers: _markers,
                 circles: circles,
                 myLocationEnabled: _positionUtilisateur != null,
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: false,
-                // Tap sur la carte = définir le centre du rayon
-                onTap: (latlng) => setState(() => _centreFiltre = latlng),
+                onTap: (latlng) {
+                  setState(() => _centreFiltre = latlng);
+                  _rafraichirMarkers();
+                },
               ),
 
               // ─── FILTRE DISTANCE (haut-gauche) ───────────────
@@ -158,7 +269,10 @@ class _CarteScreenState extends State<CarteScreen> {
                 child: _FiltreDistanceWidget(
                   distanceActuelle: _distanceFiltreKm,
                   distances: _distances,
-                  onChanged: (d) => setState(() => _distanceFiltreKm = d),
+                  onChanged: (d) {
+                    setState(() => _distanceFiltreKm = d);
+                    _rafraichirMarkers();
+                  },
                 ),
               ),
 
@@ -278,8 +392,9 @@ class _CarteScreenState extends State<CarteScreen> {
         final latlng = LatLng(pos.latitude, pos.longitude);
         setState(() {
           _positionUtilisateur = latlng;
-          _centreFiltre = latlng; // le cercle se centre sur ma position GPS
+          _centreFiltre = latlng;
         });
+        _rafraichirMarkers();
         _mapController?.animateCamera(CameraUpdate.newLatLngZoom(latlng, 14));
       }
     } finally {
@@ -317,6 +432,7 @@ class _CarteScreenState extends State<CarteScreen> {
                     : null,
                 onTap: () {
                   setState(() => _distanceFiltreKm = val);
+                  _rafraichirMarkers();
                   Navigator.pop(context);
                 },
               );
