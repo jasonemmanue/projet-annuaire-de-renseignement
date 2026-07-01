@@ -198,6 +198,46 @@ class _AccueilScreenState extends State<AccueilScreen> {
       .replaceAll(RegExp(r'[ùúû]'), 'u')
       .replaceAll(RegExp(r'ç'), 'c');
 
+  /// Extrait un montant numérique d'une requête de recherche.
+  /// Ex: "chambre 10000" → 10000, "50 000" → 50000, "25k" → 25000
+  static ({double? montant, String texte}) _extraireBudget(String query) {
+    final cleaned = query.trim();
+    if (cleaned.isEmpty) return (montant: null, texte: cleaned);
+
+    // "25k" / "25K" → 25000
+    final kMatch = RegExp(r'(\d+)\s*[kK]').firstMatch(cleaned);
+    if (kMatch != null) {
+      final val = double.tryParse(kMatch.group(1)!);
+      if (val != null) {
+        final reste = cleaned.replaceFirst(kMatch.group(0)!, '').trim();
+        return (montant: val * 1000, texte: reste);
+      }
+    }
+
+    // "10 000" ou "10000" (nombres avec ou sans espaces)
+    final numMatch = RegExp(r'(\d[\d\s]{2,})').firstMatch(cleaned);
+    if (numMatch != null) {
+      final raw = numMatch.group(1)!.replaceAll(' ', '');
+      final val = double.tryParse(raw);
+      if (val != null && val >= 1000) {
+        final reste = cleaned.replaceFirst(numMatch.group(0)!, '').trim();
+        return (montant: val, texte: reste);
+      }
+    }
+
+    // Nombre simple ≥ 1000 (ex: "10000")
+    final simpleMatch = RegExp(r'(\d{4,})').firstMatch(cleaned);
+    if (simpleMatch != null) {
+      final val = double.tryParse(simpleMatch.group(1)!);
+      if (val != null) {
+        final reste = cleaned.replaceFirst(simpleMatch.group(0)!, '').trim();
+        return (montant: val, texte: reste);
+      }
+    }
+
+    return (montant: null, texte: cleaned);
+  }
+
   List<Logement> get _logementsFiltres {
     var result = List<Logement>.from(_logements);
 
@@ -210,18 +250,32 @@ class _AccueilScreenState extends State<AccueilScreen> {
           .toList();
     }
 
-    // 2. Texte de recherche (titre, type, ville, quartier, description)
+    // 2. Texte de recherche + budget
     if (_texteRecherche.isNotEmpty) {
-      final q = _n(_texteRecherche);
-      result = result
-          .where((l) =>
-              _n(l.titre).contains(q) ||
-              _n(l.typeBien).contains(q) ||
-              _n(l.typeLocation).contains(q) ||
-              _n(l.ville).contains(q) ||
-              _n(l.quartier).contains(q) ||
-              _n(l.description).contains(q))
-          .toList();
+      final parsed = _extraireBudget(_texteRecherche);
+      final budget = parsed.montant;
+      final texte = parsed.texte;
+
+      // Filtrer par texte (titre, type, ville, quartier, description)
+      if (texte.isNotEmpty) {
+        final q = _n(texte);
+        result = result
+            .where((l) =>
+                _n(l.titre).contains(q) ||
+                _n(l.typeBien).contains(q) ||
+                _n(l.typeLocation).contains(q) ||
+                _n(l.ville).contains(q) ||
+                _n(l.quartier).contains(q) ||
+                _n(l.description).contains(q))
+            .toList();
+      }
+
+      // Filtrer par budget (tolérance ±10% pour des résultats pertinents)
+      if (budget != null) {
+        final min = budget * 0.9;
+        final max = budget * 1.1;
+        result = result.where((l) => l.prix >= min && l.prix <= max).toList();
+      }
     }
 
     // 3. Filtres avancés
@@ -263,15 +317,32 @@ class _AccueilScreenState extends State<AccueilScreen> {
         _suggestions = [];
         return;
       }
+
+      final parsed = _extraireBudget(query);
+      final budget = parsed.montant;
+      final texte = parsed.texte;
       final q = _n(query);
+
       final Set<String> suggs = {};
       for (final l in _logements) {
         if (_n(l.titre).contains(q))    suggs.add(l.titre);
         if (_n(l.quartier).contains(q)) suggs.add(l.quartier);
         if (_n(l.ville).contains(q))    suggs.add(l.ville);
         if (_n(l.typeBien).contains(q)) suggs.add(l.typeBien);
+
+        // Suggestions par budget : "Chambre · 10 000 XAF"
+        if (budget != null) {
+          final min = budget * 0.9;
+          final max = budget * 1.1;
+          if (l.prix >= min && l.prix <= max) {
+            if (texte.isEmpty || _n(l.titre).contains(_n(texte)) ||
+                _n(l.typeBien).contains(_n(texte))) {
+              suggs.add('${l.typeBien} · ${l.prixFormate}');
+            }
+          }
+        }
       }
-      _suggestions = suggs.take(6).toList();
+      _suggestions = suggs.take(8).toList();
     });
   }
 
