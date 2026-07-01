@@ -66,6 +66,13 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
   bool _aUrgence = false;        // le visiteur a payé l'accès
   bool _estProprietaire = false; // c'est sa propre annonce
 
+  // ── Fallback : infos prestataire chargées depuis /users si les champs
+  //    prestatireNom / prestatirePhone / prestatirePhoto sont vides dans
+  //    le logement (ancien logement créé avant qu'on remplisse ces champs).
+  String? _extraNom;
+  String? _extraPhone;
+  String? _extraPhoto;
+
   // ─── Favoris ────────────────────────────────────────────────────────────
   // ÉTAPE 3 — champs favoris
   final _favorisService = FavorisService.instance;
@@ -90,6 +97,7 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     _incrementerVues();
     _chargerEtatSignalement();
     _verifierAccesUrgence();
+    _chargerInfosPrestataireExtra();
     // [ANALYTICS] Vue logement — event GA4 "view_item"
     AnalyticsService.instance.logVueLogement(
       l.id,
@@ -707,13 +715,13 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                         CircleAvatar(
                           radius: 28,
                           backgroundColor: primaryLight,
-                          backgroundImage: l.prestatirePhoto != null
-                              ? NetworkImage(l.prestatirePhoto!)
+                          backgroundImage: _prestatirePhotoAffiche != null
+                              ? NetworkImage(_prestatirePhotoAffiche!)
                               : null,
-                          child: l.prestatirePhoto == null
+                          child: _prestatirePhotoAffiche == null
                               ? Text(
-                            l.prestatireNom.isNotEmpty
-                                ? l.prestatireNom[0].toUpperCase()
+                            _prestataireNomAffiche.isNotEmpty
+                                ? _prestataireNomAffiche[0].toUpperCase()
                                 : '?',
                             style: const TextStyle(
                               color: AppColors.primary,
@@ -727,10 +735,15 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                         Expanded(
                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                             Row(children: [
-                              Text(
-                                l.prestatireNom,
-                                style: AppTextStyles.bodyLarge.copyWith(
-                                    fontWeight: FontWeight.w600),
+                              Flexible(
+                                child: Text(
+                                  _prestataireNomAffiche.isNotEmpty
+                                      ? _prestataireNomAffiche
+                                      : _loc.t('detail_provider'),
+                                  style: AppTextStyles.bodyLarge.copyWith(
+                                      fontWeight: FontWeight.w600),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                               if (l.estVerifie) ...[
                                 const SizedBox(width: 4),
@@ -739,15 +752,16 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                             ]),
                             Text(
                               (_aUrgence || _estProprietaire)
-                                  ? (l.prestatirePhone.isNotEmpty
-                                      ? l.prestatirePhone
+                                  ? (_prestatirePhoneAffiche.isNotEmpty
+                                      ? _prestatirePhoneAffiche
                                       : _loc.t('detail_phone_missing'))
                                   : _loc.t('detail_phone_masked'),
                               style: AppTextStyles.bodyMedium,
                             ),
                           ]),
                         ),
-                        if (_aUrgence || _estProprietaire)
+                        if ((_aUrgence || _estProprietaire) &&
+                            _prestatirePhoneAffiche.isNotEmpty)
                           IconButton(
                             onPressed: _appelerPrestataire,
                             icon: const Icon(Icons.phone, color: AppColors.primary),
@@ -1028,18 +1042,68 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
   }
 
   void _appelerPrestataire() async {
-    final uri = Uri(scheme: 'tel', path: l.prestatirePhone.replaceAll(' ', ''));
+    final tel = _prestatirePhoneAffiche;
+    if (tel.isEmpty) return;
+    final uri = Uri(scheme: 'tel', path: tel.replaceAll(' ', ''));
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${_loc.t('detail_cannot_call')} ${l.prestatirePhone}'),
+          content: Text('${_loc.t('detail_cannot_call')} $tel'),
           backgroundColor: AppColors.error,
           behavior: SnackBarBehavior.floating,
         ));
       }
     }
+  }
+
+  // ── Fallback : va chercher nom/tel/photo dans /users si absents du logement ─
+  Future<void> _chargerInfosPrestataireExtra() async {
+    // Rien à charger si tout est déjà présent dans le logement
+    if (l.prestatireNom.isNotEmpty &&
+        l.prestatirePhone.isNotEmpty &&
+        (l.prestatirePhoto?.isNotEmpty ?? false)) {
+      return;
+    }
+    if (l.prestatireId.isEmpty) return;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(l.prestatireId)
+          .get();
+      final data = snap.data();
+      if (data == null || !mounted) return;
+      final prenom = (data['prenom'] as String?)?.trim() ?? '';
+      final nom = (data['nom'] as String?)?.trim() ?? '';
+      final nomComplet = ('$prenom $nom').trim();
+      setState(() {
+        if (l.prestatireNom.isEmpty && nomComplet.isNotEmpty) {
+          _extraNom = nomComplet;
+        }
+        if (l.prestatirePhone.isEmpty) {
+          _extraPhone = (data['telephone'] as String?)?.trim();
+        }
+        if ((l.prestatirePhoto?.isEmpty ?? true)) {
+          _extraPhoto = (data['photoUrl'] as String?)?.trim();
+        }
+      });
+    } catch (_) {
+      // silencieux — les champs par défaut du logement seront utilisés
+    }
+  }
+
+  // Getters unifiés : préfèrent la valeur du logement, sinon celle du user.
+  String get _prestataireNomAffiche =>
+      l.prestatireNom.isNotEmpty ? l.prestatireNom : (_extraNom ?? '');
+  String get _prestatirePhoneAffiche =>
+      l.prestatirePhone.isNotEmpty ? l.prestatirePhone : (_extraPhone ?? '');
+  String? get _prestatirePhotoAffiche {
+    if (l.prestatirePhoto != null && l.prestatirePhoto!.isNotEmpty) {
+      return l.prestatirePhoto;
+    }
+    if (_extraPhoto != null && _extraPhoto!.isNotEmpty) return _extraPhoto;
+    return null;
   }
 
   // ── Accès prioritaire (urgence 48 H) ──────────────────────────────────────
