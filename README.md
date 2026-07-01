@@ -51,8 +51,11 @@ SGK HOME connecte visiteurs et prestataires immobiliers au Cameroun. Les prestat
 
 Paiement Mobile Money Cameroun via GeniusPay + PawaPay :
 - **Opérateurs :** Orange Money Cameroun · MTN Mobile Money Cameroun
-- **Flux :** USSD push (l'utilisateur reste dans l'app, pas de redirect)
-- **Polling :** vérification automatique toutes les 5 s jusqu'à confirmation
+- **Devise API :** XOF (GeniusPay ivoirien) → PawaPay convertit en XAF pour le Cameroun (taux 1:1)
+- **Flux 100% silencieux :** un WebView invisible (1×1 px, opacity 0) charge la page GeniusPay et déclenche l'USSD PawaPay sur le téléphone sans que l'utilisateur ne quitte l'app
+- **Polling :** vérification automatique toutes les 5 s (`watchStatut` Firestore + `verifierPaiementServeur`) jusqu'à confirmation
+- **Fallback :** si le WebView invisible n'a pas déclenché l'USSD dans les 15 s, ouverture du navigateur externe en filet de sécurité
+- **Widget :** [`lib/widgets/silent_payment_webview.dart`](lib/widgets/silent_payment_webview.dart) · **Dépendance :** `webview_flutter ^4.10.0`
 
 ---
 
