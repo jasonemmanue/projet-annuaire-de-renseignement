@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 
 /// Active les logs de diagnostic paiement.
 /// false = production, true = debug.
-const bool kDebugPaiement = true;
+const bool kDebugPaiement = false;
 
 enum PayLogLevel { info, success, warning, error }
 
