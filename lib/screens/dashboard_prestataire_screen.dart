@@ -2399,9 +2399,19 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
   @override
   Widget build(BuildContext context) {
     final u = _user;
+    final cardColor = Theme.of(context).cardColor.withValues(alpha: 0.88);
     return ListView(
+      padding: const EdgeInsets.all(16),
       children: [
-        const SizedBox(height: 16),
+        Container(
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
         _SectionProfil(title: _loc.t('prest_section_info'), children: [
           if (u != null) ...[
             _InfoRowProfil(icon: Icons.person_outline, label: _loc.t('prest_info_name'),
@@ -2518,7 +2528,10 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
         Text(_loc.t('prest_version'),
             style: const TextStyle(color: AppColors.textHint, fontSize: 12),
             textAlign: TextAlign.center),
-        const SizedBox(height: 32),
+        const SizedBox(height: 16),
+            ],
+          ),
+        ),
       ],
     );
   }
