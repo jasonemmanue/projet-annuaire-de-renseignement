@@ -36,6 +36,8 @@ class _UrgenceScreenState extends State<UrgenceScreen> {
   bool _loading = false;
   String? _erreurForm;
   String? _reference;
+  String? _checkoutUrl;
+  bool _fallbackLance = false;
 
   String? _operateur;
   String? _telephoneComplet;
@@ -100,16 +102,11 @@ class _UrgenceScreenState extends State<UrgenceScreen> {
       return;
     }
     _reference = result.reference;
-    // Ouvrir la page GeniusPay déclenche l'USSD push PawaPay sur le téléphone.
-    // Sans ce launch, l'USSD n'est pas envoyé. Le polling détecte ensuite la
-    // confirmation via Firestore.
-    if (result.checkoutUrl != null && result.checkoutUrl!.isNotEmpty) {
-      try {
-        await launchUrl(
-          Uri.parse(result.checkoutUrl!),
-          mode: LaunchMode.externalApplication,
-        );
-      } catch (_) {}
+    _checkoutUrl = result.checkoutUrl;
+    // Tentative silencieuse : GET sur checkoutUrl. Fallback launchUrl 8s
+    // plus tard si le paiement est toujours en attente (voir _demarrerAttente).
+    if (_checkoutUrl != null && _checkoutUrl!.isNotEmpty) {
+      unawaited(_service.declencherUssdSilencieux(_checkoutUrl!));
     }
     setState(() {
       _loading = false;
@@ -120,6 +117,7 @@ class _UrgenceScreenState extends State<UrgenceScreen> {
 
   void _demarrerAttente() {
     _restant = _kTimeoutSecondes;
+    _fallbackLance = false;
     HapticFeedback.lightImpact();
     _sub = _service.watchStatut(_reference!).listen((s) {
       if (!mounted) return;
@@ -132,6 +130,20 @@ class _UrgenceScreenState extends State<UrgenceScreen> {
       if (!mounted) return;
       if (s == PaiementStatut.reussi) _terminer(_Etape.succes);
       else if (s == PaiementStatut.echoue) _terminer(_Etape.echec);
+    });
+    // Fallback : ouvre le navigateur si le GET silencieux n'a pas suffi.
+    Timer(const Duration(seconds: 8), () async {
+      if (!mounted || _etape != _Etape.attente || _fallbackLance) return;
+      _fallbackLance = true;
+      final s = await _service.verifierPaiementServeur(_reference!);
+      if (!mounted || _etape != _Etape.attente) return;
+      if (s == PaiementStatut.enAttente &&
+          _checkoutUrl != null && _checkoutUrl!.isNotEmpty) {
+        try {
+          await launchUrl(Uri.parse(_checkoutUrl!),
+              mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      }
     });
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) return;

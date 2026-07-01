@@ -559,6 +559,44 @@ class PaiementService {
   // ═══════════════════════════════════════════════════════════════════════════
   // SUIVI DU STATUT
   // ═══════════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DÉCLENCHEUR USSD SILENCIEUX
+  //
+  // Sur PawaPay CM, l'USSD push n'est pas envoyé à la simple création du
+  // paiement — il faut qu'un client HTTP visite la page checkoutUrl pour
+  // que GeniusPay pousse l'ordre à PawaPay.
+  //
+  // On fait ce GET depuis Flutter avec un User-Agent de navigateur mobile.
+  // Si le serveur GeniusPay déclenche l'USSD dès la première requête HTML,
+  // l'utilisateur ne voit RIEN — le menu PIN s'ouvre directement sur son
+  // téléphone pendant qu'il reste sur l'écran d'attente de l'app.
+  //
+  // Retourne true si le GET a répondu 2xx (ne garantit pas que l'USSD est
+  // parti — voir _demarrerAttente + fallback launchUrl).
+  // ═══════════════════════════════════════════════════════════════════════════
+  Future<bool> declencherUssdSilencieux(String checkoutUrl) async {
+    if (checkoutUrl.isEmpty) return false;
+    final log = PaiementDebugLog.instance;
+    try {
+      log.info('Déclenchement USSD silencieux : GET $checkoutUrl');
+      final res = await http.get(
+        Uri.parse(checkoutUrl),
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 '
+                  '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+        },
+      ).timeout(const Duration(seconds: 10));
+      log.info('USSD trigger → HTTP ${res.statusCode}');
+      return res.statusCode >= 200 && res.statusCode < 400;
+    } catch (e) {
+      log.warn('USSD trigger exception : $e');
+      return false;
+    }
+  }
+
   Stream<PaiementStatut> watchStatut(String reference) {
     if (_simulation || reference.startsWith('SIMU')) {
       return _statutSimule();

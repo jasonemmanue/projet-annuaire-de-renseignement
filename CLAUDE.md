@@ -184,27 +184,43 @@ const DEVISE = "XOF";  // ← obligatoire pour l'API GeniusPay, pas XAF
 'mtn'    → 'mtn_momo_cm'       // MTN Mobile Money Cameroun
 ```
 
-### Mécanisme USSD push — la page `checkoutUrl` EST le déclencheur
+### Mécanisme USSD push — déclenchement SILENCIEUX + fallback
 
-**Réalité technique vérifiée en production :** la création d'un paiement côté Cloud Function ne déclenche PAS l'USSD push toute seule. C'est l'ouverture de la page `paymentUrl` (= `checkoutUrl`) renvoyée par GeniusPay qui déclenche réellement l'envoi de l'USSD à PawaPay → opérateur → téléphone du client.
+**Réalité technique vérifiée en production :** la création d'un paiement côté Cloud Function ne déclenche PAS l'USSD push toute seule. Une visite HTTP de la page `paymentUrl` (= `checkoutUrl`) est nécessaire pour que GeniusPay pousse l'ordre à PawaPay.
+
+**Stratégie utilisée dans l'app (invisible pour l'utilisateur) :**
 
 ```
 1. App Flutter → Cloud Function → GeniusPay createPayment()
-   ↳ GeniusPay réserve une transaction, renvoie { reference, paymentUrl }
-   ↳ aucun USSD envoyé à ce stade.
+   ↳ GeniusPay réserve la transaction, renvoie { reference, paymentUrl }.
 
-2. App Flutter → launchUrl(paymentUrl) (navigateur externe)
-   ↳ la page GeniusPay détecte PawaPay CM → envoie l'ordre à PawaPay.
-   ↳ PawaPay envoie l'USSD push au téléphone (menu PIN).
+2. App Flutter → GET silencieux sur paymentUrl (via package `http`)
+   ↳ User-Agent Chrome mobile pour être traité comme un vrai navigateur.
+   ↳ Si GeniusPay pousse l'USSD dès la première requête HTML :
+     PawaPay envoie le menu PIN directement sur le téléphone.
+   ↳ L'utilisateur ne quitte JAMAIS l'app Flutter — invisible.
 
-3. Client tape son PIN → PawaPay → GeniusPay → webhook Firebase.
-4. Webhook met à jour Firestore → l'app détecte via watchStatut() → écran succès.
+3. Écran d'attente Flutter s'affiche pendant que le client tape son PIN.
+
+4. Fallback : si après 8 secondes le statut est toujours en attente
+   (le GET n'a pas suffi à déclencher l'USSD), l'app ouvre alors la page
+   GeniusPay dans le navigateur externe (comportement classique).
 ```
 
-> ⚠️ **`launchUrl(checkoutUrl)` est OBLIGATOIRE après l'initiation.**  
-> Sans ce `launchUrl`, l'USSD n'est jamais envoyé, le paiement reste indéfiniment en `pending`, l'écran d'attente tourne dans le vide jusqu'au timeout.
+**Helper Flutter :** `PaiementService.declencherUssdSilencieux(url)` — fait le GET avec User-Agent Chrome, timeout 10 s, retourne true si HTTP 2xx.
 
-**L'utilisateur sort temporairement de l'app**, mais l'écran d'attente continue de tourner derrière. Quand le webhook met à jour Firestore, l'app affiche automatiquement l'écran de succès dès le retour. Si l'utilisateur valide l'USSD avant même de revenir dans l'app, l'état est déjà à `succès` quand il revient.
+**Flags de l'écran de paiement :**
+- `_checkoutUrl` : mémorisé après initiation
+- `_fallbackLance` : garde-fou pour ne pas ouvrir le navigateur deux fois
+
+**Fichiers concernés (4 écrans) :**
+- `paiement_publication_screen.dart` (sponsoring + pub + visibilité)
+- `urgence_screen.dart`
+- `sponsorisation_screen.dart`
+- `paiement_premium_screen.dart`
+
+> ⚠️ **Ne jamais supprimer le fallback `launchUrl` après 8 s.**  
+> C'est le filet de sécurité si le GET silencieux ne suffit pas à déclencher l'USSD (peut dépendre de la config PawaPay/GeniusPay du moment).
 
 ### Flux de paiement étape par étape
 
@@ -256,21 +272,21 @@ Flutter                     Cloud Function              GeniusPay/PawaPay
 ### Règles de code anti-régression
 
 ```dart
-// ✅ CORRECT — après initiation : launch puis attente + polling
+// ✅ CORRECT — après initiation : GET silencieux + polling + fallback à 8s
 _reference = result.reference;
-if (result.checkoutUrl != null && result.checkoutUrl!.isNotEmpty) {
-  try {
-    await launchUrl(
-      Uri.parse(result.checkoutUrl!),
-      mode: LaunchMode.externalApplication,
-    );
-  } catch (_) {}
-}
-setState(() { _etape = _Etape.attente; });
-_demarrerAttente(); // watchStatut Firestore + verifierPaiementServeur toutes les 5s
+_checkoutUrl = result.checkoutUrl;
 
-// ❌ INTERDIT — supprimer le launchUrl sous prétexte que "c'est plus propre"
-// L'USSD ne part pas, l'écran d'attente tourne 2 minutes pour rien.
+// Tentative silencieuse (invisible pour l'utilisateur)
+if (_checkoutUrl != null && _checkoutUrl!.isNotEmpty) {
+  unawaited(_service.declencherUssdSilencieux(_checkoutUrl!));
+}
+
+setState(() { _etape = _Etape.attente; });
+_demarrerAttente(); // inclut le fallback launchUrl à T+8s si toujours pending
+
+// ❌ INTERDIT :
+// - Supprimer declencherUssdSilencieux → USSD ne part pas.
+// - Supprimer le fallback launchUrl → si le GET ne suffit pas, blocage total.
 ```
 
 ### Mode simulation (tests sans vrai paiement)

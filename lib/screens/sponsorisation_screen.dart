@@ -57,6 +57,8 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
   bool _loading = false;
   String? _erreurForm;
   String? _reference;
+  String? _checkoutUrl;
+  bool _fallbackLance = false;
   String? _operateur;
   String? _telephoneComplet;
   String? _telephoneInitial;
@@ -120,15 +122,11 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
       return;
     }
     _reference = result.reference;
-    // Ouvrir la page GeniusPay déclenche l'USSD push PawaPay sur le téléphone.
-    // Sans ce launch, l'USSD n'est pas envoyé.
-    if (result.checkoutUrl != null && result.checkoutUrl!.isNotEmpty) {
-      try {
-        await launchUrl(
-          Uri.parse(result.checkoutUrl!),
-          mode: LaunchMode.externalApplication,
-        );
-      } catch (_) {}
+    _checkoutUrl = result.checkoutUrl;
+    // Tentative silencieuse : GET sur checkoutUrl. Fallback launchUrl 8s
+    // plus tard si le paiement est toujours en attente.
+    if (_checkoutUrl != null && _checkoutUrl!.isNotEmpty) {
+      unawaited(_service.declencherUssdSilencieux(_checkoutUrl!));
     }
 
     setState(() {
@@ -140,6 +138,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
 
   void _demarrerAttente() {
     _restant = _kTimeoutSecondes;
+    _fallbackLance = false;
     HapticFeedback.lightImpact();
     _sub = _service.watchStatut(_reference!).listen((statut) {
       if (!mounted) return;
@@ -158,6 +157,20 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
           if (!mounted) return;
           _terminer(s == PaiementStatut.reussi ? _Etape.succes : _Etape.timeout);
         });
+      }
+    });
+    // Fallback : ouvre le navigateur si le GET silencieux n'a pas suffi.
+    Timer(const Duration(seconds: 8), () async {
+      if (!mounted || _etape != _Etape.attente || _fallbackLance) return;
+      _fallbackLance = true;
+      final s = await _service.verifierStatut(_reference!);
+      if (!mounted || _etape != _Etape.attente) return;
+      if (s == PaiementStatut.enAttente &&
+          _checkoutUrl != null && _checkoutUrl!.isNotEmpty) {
+        try {
+          await launchUrl(Uri.parse(_checkoutUrl!),
+              mode: LaunchMode.externalApplication);
+        } catch (_) {}
       }
     });
   }

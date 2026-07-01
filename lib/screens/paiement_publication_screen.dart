@@ -68,6 +68,8 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
   bool _loading = false;
   String? _erreurForm;
   String? _reference;
+  String? _checkoutUrl;
+  bool _fallbackLance = false;
 
   String? _operateur;
   String? _telephoneComplet;
@@ -142,22 +144,14 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
     }
 
     _reference = result.reference;
+    _checkoutUrl = result.checkoutUrl;
 
-    // GeniusPay/PawaPay : le déclenchement de l'USSD push se fait quand
-    // l'utilisateur ouvre la page de checkout. Sans ce launch, l'USSD n'est
-    // jamais envoyé au téléphone → le paiement reste bloqué en pending.
-    // Après validation par l'utilisateur, le webhook met à jour Firestore et
-    // l'écran d'attente détecte automatiquement la confirmation via le polling.
-    if (result.checkoutUrl != null && result.checkoutUrl!.isNotEmpty) {
-      try {
-        await launchUrl(
-          Uri.parse(result.checkoutUrl!),
-          mode: LaunchMode.externalApplication,
-        );
-      } catch (_) {
-        // Continue même si l'ouverture échoue — l'utilisateur peut composer
-        // manuellement le code USSD si PawaPay l'a déjà envoyé.
-      }
+    // Tentative silencieuse : GET sur checkoutUrl depuis Flutter.
+    // Si GeniusPay déclenche l'USSD dès la première requête HTML, le menu
+    // PIN s'ouvre directement sur le téléphone du client sans qu'il quitte
+    // l'app. Sinon, fallback launchUrl 8s plus tard (voir _demarrerAttente).
+    if (_checkoutUrl != null && _checkoutUrl!.isNotEmpty) {
+      unawaited(_service.declencherUssdSilencieux(_checkoutUrl!));
     }
 
     setState(() {
@@ -169,6 +163,7 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
 
   void _demarrerAttente() {
     _restant = _kTimeoutSecondes;
+    _fallbackLance = false;
     HapticFeedback.lightImpact();
 
     _sub = _service.watchStatut(_reference!).listen((statut) {
@@ -188,6 +183,26 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
         _terminer(_Etape.succes);
       } else if (s == PaiementStatut.echoue) {
         _terminer(_Etape.echec);
+      }
+    });
+
+    // Fallback : si le GET silencieux n'a pas suffi à déclencher l'USSD,
+    // ouvrir la page GeniusPay dans le navigateur externe après 8s pour
+    // que l'utilisateur puisse finaliser.
+    Timer(const Duration(seconds: 8), () async {
+      if (!mounted || _etape != _Etape.attente || _fallbackLance) return;
+      _fallbackLance = true;
+      final s = await _service.verifierPaiementServeur(_reference!);
+      if (!mounted || _etape != _Etape.attente) return;
+      if (s == PaiementStatut.enAttente &&
+          _checkoutUrl != null &&
+          _checkoutUrl!.isNotEmpty) {
+        try {
+          await launchUrl(
+            Uri.parse(_checkoutUrl!),
+            mode: LaunchMode.externalApplication,
+          );
+        } catch (_) {}
       }
     });
 
