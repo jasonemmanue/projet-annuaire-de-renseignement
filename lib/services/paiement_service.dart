@@ -35,6 +35,8 @@ class PaiementService {
       'https://initierpaiementpremium-$_suffix';
   static const String _initierSponsorisationUrl =
       'https://initiersponsorisation-$_suffix';
+  static const String _initierPublicationUrl =
+      'https://initierpublication-$_suffix';
   static const String _verifierPaiementUrl =
       'https://verifierpaiement-$_suffix';
   static const String _initierUrgenceUrl =
@@ -167,8 +169,6 @@ class PaiementService {
             'isSponsored': true,
             'sponsoredUntil': Timestamp.fromDate(until),
             'sponsoredAt': FieldValue.serverTimestamp(),
-            'disponible': true,
-            'paymentPending': FieldValue.delete(),
           },
           SetOptions(merge: true),
         );
@@ -210,6 +210,106 @@ class PaiementService {
       final res = await http
           .post(
             Uri.parse(_initierSponsorisationUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: body,
+          )
+          .timeout(const Duration(seconds: 30));
+
+      log.info('HTTP ${res.statusCode}');
+      final rawBody = res.body.length > 400
+          ? '${res.body.substring(0, 400)}…'
+          : res.body;
+      log.info('Réponse: $rawBody');
+
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode == 200 && data['success'] == true) {
+        log.ok('Référence: ${data["reference"]}');
+        return PaiementInitResult(
+          success: true,
+          reference: data['reference'] as String?,
+          checkoutUrl: data['checkoutUrl'] as String?,
+          message: data['message'] as String? ?? 'Paiement initié.',
+        );
+      }
+      final errMsg = data['error'] as String? ?? 'Échec de l\'initiation du paiement.';
+      log.err('API error: $errMsg');
+      return PaiementInitResult(success: false, message: errMsg);
+    } catch (e) {
+      log.err('Exception ${e.runtimeType}: $e');
+      return PaiementInitResult(
+          success: false,
+          message: 'Erreur réseau (${e.runtimeType}). Vérifiez votre connexion.');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PUBLICATION IMMOBILIER (commission % → visible 1 mois)
+  // ═══════════════════════════════════════════════════════════════════════════
+  Future<PaiementInitResult> initierPublication({
+    required String logementId,
+    required String telephone,
+    required int montant,
+    String? channel,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const PaiementInitResult(
+        success: false,
+        message: 'Vous devez être connecté en tant que prestataire.',
+      );
+    }
+
+    if (_simulation) {
+      try {
+        final expiry = DateTime.now().add(const Duration(days: 30));
+        await _db.collection('logements').doc(logementId).set(
+          {
+            'disponible': true,
+            'paymentPending': FieldValue.delete(),
+            'publicationExpiry': Timestamp.fromDate(expiry),
+          },
+          SetOptions(merge: true),
+        );
+        return PaiementInitResult(
+          success: true,
+          reference: 'SIMU-pub-${DateTime.now().millisecondsSinceEpoch}',
+          message: 'Paiement simulé (mode test).',
+        );
+      } catch (_) {
+        return const PaiementInitResult(
+          success: false,
+          message: 'Erreur lors de la simulation.',
+        );
+      }
+    }
+
+    final log = PaiementDebugLog.instance;
+    log.info('initierPublication → mode réel');
+    log.info('URL: $_initierPublicationUrl');
+    log.info('Params: logementId=$logementId tel=$telephone montant=$montant canal=${_toChannel(channel) ?? "auto"}');
+    try {
+      final token = await user.getIdToken();
+      if (token == null) {
+        log.err('Token Firebase NULL — session expirée');
+        return const PaiementInitResult(
+            success: false, message: 'Session expirée. Reconnectez-vous.');
+      }
+      log.ok('Token Firebase obtenu (${token.substring(0, 15)}...)');
+
+      final body = jsonEncode({
+        'logementId': logementId,
+        'telephone': telephone,
+        'montant': montant,
+        if (_toChannel(channel) != null) 'operateur': _toChannel(channel),
+      });
+      log.info('Body: $body');
+
+      final res = await http
+          .post(
+            Uri.parse(_initierPublicationUrl),
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $token',

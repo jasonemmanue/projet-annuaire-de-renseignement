@@ -814,6 +814,110 @@ exports.initierSponsorisation = onRequest(
 );
 
 // ================================================================
+// CLOUD FUNCTION : initierPublication (HTTP)
+// Prestataire : paie la commission % pour rendre visible 1 mois.
+// Body : { logementId, telephone, montant, operateur? }
+// ================================================================
+const PUBLICATION_DUREE_JOURS = 30;
+
+exports.initierPublication = onRequest(
+  {
+    cors: true,
+    secrets: ["GENIUSPAY_API_KEY", "GENIUSPAY_SECRET_KEY", "GENIUSPAY_WEBHOOK_SECRET"],
+  },
+  async (req, res) => {
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    if (req.method !== "POST") {
+      res.status(405).json({ success: false, error: "Méthode non autorisée" });
+      return;
+    }
+    try {
+      const authHeader = req.headers.authorization || "";
+      const idToken = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null;
+      if (!idToken) {
+        res.status(401).json({ success: false, error: "Authentification requise" });
+        return;
+      }
+      const decoded = await admin.auth().verifyIdToken(idToken);
+      const uid = decoded.uid;
+
+      const { logementId, telephone, operateur, montant } = req.body || {};
+      if (!logementId || !telephone || !montant) {
+        res.status(400).json({ success: false, error: "Paramètres manquants" });
+        return;
+      }
+
+      const logSnap = await admin.firestore().collection("logements").doc(logementId).get();
+      if (!logSnap.exists) {
+        res.status(404).json({ success: false, error: "Annonce introuvable" });
+        return;
+      }
+      const log = logSnap.data();
+      const owner = log.uid_prestataire || log.prestatireId;
+      if (owner !== uid) {
+        res.status(403).json({ success: false, error: "Cette annonce ne vous appartient pas" });
+        return;
+      }
+
+      const montantFinal = Math.max(montant, MIN_PAIEMENT);
+
+      const userSnap = await admin.firestore().collection("users").doc(uid).get();
+      const u = userSnap.exists ? userSnap.data() : {};
+
+      const internalRef = `pub_${logementId}_${Date.now()}`;
+
+      const paiement = await geniuspay.createPayment({
+        reference: internalRef,
+        amount: montantFinal,
+        currency: DEVISE,
+        paymentMethod: "pawapay",
+        mmoProvider: mmoProviderCM(operateur),
+        customerCountry: "CM",
+        description: `Publication SGK HOME — ${log.titre || "annonce"}`,
+        customerEmail: u.email || "",
+        customerPhone: telephone,
+        metadata: { uid, type: "publication", logementId },
+        callbackUrl: GENIUSPAY_WEBHOOK_URL,
+        returnUrl: PAIEMENT_SUCCESS_URL,
+        errorUrl: PAIEMENT_ERROR_URL,
+      });
+
+      const reference = paiement.reference;
+
+      await admin
+        .firestore()
+        .collection("transactions")
+        .doc(reference)
+        .set({
+          uid,
+          type: "publication",
+          logementId,
+          montant: montantFinal,
+          devise: DEVISE,
+          statut: "en_attente",
+          reference,
+          internalRef,
+          telephone,
+          checkoutUrl: paiement.paymentUrl,
+          geniuspayTransactionId: paiement.transactionId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+      res.status(200).json({
+        success: true,
+        reference,
+        montant: montantFinal,
+        checkoutUrl: paiement.paymentUrl,
+        message: "Paiement initié. Finalisez sur la page Mobile Money.",
+      });
+    } catch (error) {
+      console.error("initierPublication :", error.message, error.stack);
+      res.status(500).json({ success: false, error: "Erreur lors de l'initiation du paiement.", geniuspayError: error.message });
+    }
+  }
+);
+
+// ================================================================
 // CLOUD FUNCTION : initierUrgence (HTTP)
 // Visiteur : paie un accès prioritaire 48 H sur une annonce.
 // Montant = grille URGENCES (selon grade + type), planché à 200.
@@ -1363,21 +1467,48 @@ async function appliquerTransactionReussie(tx) {
       "Vos avantages Premium sont activés.",
       { type: "transaction", reference: tx.reference }
     );
+  } else if (tx.type === "publication") {
+    // Publication immobilier : visible pendant 1 mois (commission %)
+    const until = new Date(Date.now() + PUBLICATION_DUREE_JOURS * 24 * 60 * 60 * 1000);
+    const untilTs = admin.firestore.Timestamp.fromDate(until);
+
+    let logData = {};
+    try {
+      const logSnap = await db.collection("logements").doc(tx.logementId).get();
+      if (logSnap.exists) logData = logSnap.data();
+    } catch (_) {}
+
+    await db.collection("logements").doc(tx.logementId).set(
+      {
+        disponible: true,
+        paymentPending: admin.firestore.FieldValue.delete(),
+        publicationExpiry: untilTs,
+      },
+      { merge: true }
+    );
+
+    // Email + notification admin pour nouvelle publication
+    await sendAdminEmail({ logement: logData, logementId: tx.logementId });
+    await saveAdminNotification({ logement: logData, logementId: tx.logementId, type: "nouvelle_publication" });
+
+    const titre = logData.titre || "votre annonce";
+    const dateFr = until.toLocaleDateString("fr-FR");
+    await notifierPrestataire(
+      tx.uid,
+      "✅ Annonce publiée !",
+      `Votre annonce « ${titre} » est visible pendant 1 mois (jusqu'au ${dateFr}).`,
+      { type: "logement_update", logementId: tx.logementId, reference: tx.reference }
+    );
   } else if (tx.type === "sponsorisation") {
-    // Durée selon le choix de l'utilisateur (1s=7j, 2s=14j, 1m=30j)
+    // Sponsorisation = boost optionnel (annonce déjà publiée)
     const jours = SPONSOR_DUREES[tx.duree] || SPONSOR_DUREE_JOURS;
     const until = new Date(Date.now() + jours * 24 * 60 * 60 * 1000);
     const untilTs = admin.firestore.Timestamp.fromDate(until);
 
-    // Lit le logement pour détecter une publication initiale et pour l'email admin.
     let logData = {};
-    let isNouvellePublication = false;
     try {
       const logSnap = await db.collection("logements").doc(tx.logementId).get();
-      if (logSnap.exists) {
-        logData = logSnap.data();
-        isNouvellePublication = logData.paymentPending === true;
-      }
+      if (logSnap.exists) logData = logSnap.data();
     } catch (_) {}
 
     await db.collection("logements").doc(tx.logementId).set(
@@ -1385,25 +1516,17 @@ async function appliquerTransactionReussie(tx) {
         isSponsored: true,
         sponsoredUntil: untilTs,
         sponsoredAt: admin.firestore.FieldValue.serverTimestamp(),
-        disponible: true,
-        paymentPending: admin.firestore.FieldValue.delete(),
       },
       { merge: true }
     );
-
-    if (isNouvellePublication) {
-      // Email + notification admin uniquement à la première publication
-      await sendAdminEmail({ logement: logData, logementId: tx.logementId });
-      await saveAdminNotification({ logement: logData, logementId: tx.logementId, type: "nouvelle_publication" });
-    }
 
     const titre = logData.titre || "votre annonce";
     const dateFr = until.toLocaleDateString("fr-FR");
     const labelDuree = { "1s": "1 semaine", "2s": "2 semaines", "1m": "1 mois" }[tx.duree] || `${jours} jours`;
     await notifierPrestataire(
       tx.uid,
-      "🚀 Annonce publiée et mise en avant !",
-      `Votre annonce « ${titre} » est publiée et mise en avant pendant ${labelDuree} (jusqu'au ${dateFr}).`,
+      "🚀 Annonce mise en avant !",
+      `Votre annonce « ${titre} » est mise en avant pendant ${labelDuree} (jusqu'au ${dateFr}).`,
       { type: "logement_update", logementId: tx.logementId, reference: tx.reference }
     );
   } else if (tx.type === "publicite") {

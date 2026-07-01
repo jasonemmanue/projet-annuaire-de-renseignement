@@ -37,9 +37,15 @@ class Logement {
   final String? heureFermeture;   // Format 'HH:MM'
   final List<String> joursGarde;  // Jours de garde/ouverture ex: ['Lun','Mer','Ven']
   final DateTime? visibiliteExpiry; // Fin de la visibilité annuelle (entreprise/restaurant/école)
+  final DateTime? publicationExpiry; // Fin de la visibilité 1 mois après publication (immobilier)
 
-  /// Annonce visible côté visiteur : disponible et paiement validé.
-  bool get estVisiblePourVisiteur => disponible && !paymentPending;
+  /// Annonce visible côté visiteur : disponible, paiement validé, et non expirée.
+  bool get estVisiblePourVisiteur {
+    if (!disponible || paymentPending) return false;
+    if (typeBien == 'Pharmacie') return true;
+    if (publicationExpiry != null && publicationExpiry!.isBefore(DateTime.now())) return false;
+    return true;
+  }
 
   const Logement({
     required this.id,
@@ -73,6 +79,7 @@ class Logement {
     this.heureFermeture,
     this.joursGarde = const [],
     this.visibiliteExpiry,
+    this.publicationExpiry,
   });
 
   bool get estOuvertMaintenant {
@@ -147,6 +154,9 @@ class Logement {
     visibiliteExpiry: map['visibiliteExpiry'] is Timestamp
         ? (map['visibiliteExpiry'] as Timestamp).toDate()
         : null,
+    publicationExpiry: map['publicationExpiry'] is Timestamp
+        ? (map['publicationExpiry'] as Timestamp).toDate()
+        : null,
   );
 
   factory Logement.fromJson(Map<String, dynamic> json) => Logement(
@@ -184,6 +194,9 @@ class Logement {
     visibiliteExpiry: json['visibiliteExpiry'] != null
         ? DateTime.tryParse(json['visibiliteExpiry'])
         : null,
+    publicationExpiry: json['publicationExpiry'] != null
+        ? DateTime.tryParse(json['publicationExpiry'])
+        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -217,6 +230,7 @@ class Logement {
     'heureFermeture': heureFermeture,
     'joursGarde': joursGarde,
     'visibiliteExpiry': visibiliteExpiry?.toIso8601String(),
+    'publicationExpiry': publicationExpiry?.toIso8601String(),
   };
 }
 

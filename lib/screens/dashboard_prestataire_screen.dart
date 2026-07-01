@@ -279,7 +279,9 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         'photos': photoUrls,
         'uid_prestataire': uid,
         'prestatireId': uid,
-        'prestatireNom': prestataire?.nom ?? prestataire?.displayName ?? '',
+        'prestatireNom': prestataire != null
+            ? '${prestataire.prenom} ${prestataire.nom}'.trim()
+            : '',
         'prestatirePhone': prestataire?.telephone ?? '',
         'isSponsored': false,
         if (_heureOuvCtrl.text.trim().isNotEmpty)
@@ -345,31 +347,22 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
               channel: operateur,
             );
       } else {
-        // Immobilier → sélection durée de sponsoring (tarif fixe)
-        if (!mounted) return;
-        final optionChoisie = await showModalBottomSheet<
-            ({String code, String label, int prix, int jours})>(
-          context: context,
-          shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-          builder: (_) => const _DureeSponsoringSheet(),
+        // Immobilier → commission % du prix du bien, visible 1 mois
+        final prixBien = double.tryParse(_prixCtrl.text) ?? 0;
+        final gradeEnum = GradeBienLabel.fromCode(_gradeEffectif);
+        montant = TarificationService.instance.montantSponsorisation(
+          grade: gradeEnum,
+          typeBien: _typeBienFirestore,
+          prixBien: prixBien,
         );
-        if (!mounted) return;
-        if (optionChoisie == null) {
-          // Annulé → supprimer le brouillon
-          await LogementService.deleteLogement(brouillonId);
-          setState(() => _isSubmitting = false);
-          return;
-        }
-        montant = optionChoisie.prix;
         titreEcran = 'Frais de publication';
-        dureeLabel = 'Votre annonce sera mise en avant pendant ${optionChoisie.label}.';
+        dureeLabel = 'Votre annonce sera visible pendant 1 mois sur SGK HOME.';
         initierCb = ({required String telephone, required String operateur}) =>
-            PaiementService.instance.initierSponsorisation(
+            PaiementService.instance.initierPublication(
               logementId: brouillonId,
               telephone: telephone,
               channel: operateur,
-              duree: optionChoisie.code,
+              montant: montant,
             );
       }
 
@@ -389,7 +382,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                 : 'Payer et publier l\'annonce',
             succesMessage: _isVisibiliteType
                 ? 'Votre fiche est maintenant visible pendant 1 an sur SGK HOME.'
-                : 'Votre annonce est maintenant publiée et mise en avant.',
+                : 'Votre annonce est publiée et visible pendant 1 mois sur SGK HOME.',
           ),
         ),
       );
@@ -854,81 +847,6 @@ class _ChoixCard extends StatelessWidget {
 }
 
 // ============================================================
-// Sélecteur de durée de sponsoring (bottom sheet)
-// ============================================================
-class _DureeSponsoringSheet extends StatelessWidget {
-  const _DureeSponsoringSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 40, height: 4,
-            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
-        const SizedBox(height: 16),
-        const Text('Durée de diffusion', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-        const SizedBox(height: 6),
-        const Text('Votre annonce sera mise en avant sur SGK HOME.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-        const SizedBox(height: 20),
-        ...TarificationService.optionsSponsoring.map((opt) {
-          final Color couleur = opt.code == '1m' ? AppColors.primary : AppColors.textPrimary;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: InkWell(
-              onTap: () => Navigator.pop(context, opt),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-                decoration: BoxDecoration(
-                  color: opt.code == '1m'
-                      ? AppColors.primary.withValues(alpha: 0.06)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: opt.code == '1m' ? AppColors.primary : Colors.grey.shade300,
-                    width: opt.code == '1m' ? 2 : 1,
-                  ),
-                ),
-                child: Row(children: [
-                  Icon(
-                    opt.code == '1s' ? Icons.looks_one_outlined
-                        : opt.code == '2s' ? Icons.looks_two_outlined
-                        : Icons.star_rounded,
-                    color: couleur,
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(opt.label,
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: couleur)),
-                    Text('${opt.jours} jours de mise en avant',
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                  ])),
-                  Text('${opt.prix} F',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w900, fontSize: 18, color: couleur)),
-                  if (opt.code == '1m') ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                          color: AppColors.primary, borderRadius: BorderRadius.circular(6)),
-                      child: const Text('TOP', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
-                    ),
-                  ],
-                ]),
-              ),
-            ),
-          );
-        }),
-      ]),
-    );
-  }
-}
-
-// ============================================================
 // DASHBOARD PRESTATAIRE — Écran principal
 // ============================================================
 class DashboardPrestataireScreen extends StatefulWidget {
@@ -1361,8 +1279,10 @@ class _AnnonceCard extends StatelessWidget {
   });
 
   // Zone sponsorisation : badge si actif, sinon bouton "Sponsoriser".
+  // Masquée pour les pharmacies (publication gratuite, pas de sponsoring).
   Widget _buildSponsorZone(BuildContext context) {
     final l = logement;
+    if (l.typeBien == 'Pharmacie') return const SizedBox.shrink();
     final loc = AppLocalizations.of(context);
     if (l.estSponsorie) {
       final until = l.sponsoredUntil;

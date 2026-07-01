@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -58,6 +59,7 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
   final PageController _pageController = PageController();
   int _currentPhoto = 0;
   bool _contactLoading = false;
+  Timer? _autoScrollTimer;
 
   // ── État signalement ────────────────────────────────────────
   bool _dejaSignale = false;
@@ -127,6 +129,29 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     // Chargement de l'état favori
     _loadFavoriState();
 
+    // Auto-défilement des photos (démarre après 2s, toutes les 4s)
+    if (l.photos.length > 1) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) _startAutoScroll();
+      });
+    }
+  }
+
+  void _startAutoScroll() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!mounted || !_pageController.hasClients) return;
+      final next = (_currentPhoto + 1) % l.photos.length;
+      _pageController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeInOut,
+      );
+    });
+  }
+
+  void _resetAutoScroll() {
+    if (l.photos.length > 1) _startAutoScroll();
   }
 
   Future<void> _quitterAvecPub() async {
@@ -162,8 +187,9 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
 
   @override
   void dispose() {
+    _autoScrollTimer?.cancel();
     _pageController.dispose();
-    _heartController.dispose(); // ÉTAPE 3 — dispose animation
+    _heartController.dispose();
     super.dispose();
   }
 
@@ -385,7 +411,10 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                   PageView.builder(
                     controller: _pageController,
                     itemCount: l.photos.isEmpty ? 1 : l.photos.length,
-                    onPageChanged: (i) => setState(() => _currentPhoto = i),
+                    onPageChanged: (i) {
+                      setState(() => _currentPhoto = i);
+                      _resetAutoScroll();
+                    },
                     itemBuilder: (_, i) => l.photos.isEmpty
                         ? Container(
                       color: primaryLight,
@@ -604,6 +633,60 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                             ],
                           )),
                         ]),
+                      ),
+                    ),
+
+                  // ── Jours de garde (pharmacies) ───────────
+                  if (l.typeBien == 'Pharmacie' && l.joursGarde.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.blue.shade200),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.calendar_today, color: Colors.blue.shade700, size: 20),
+                            const SizedBox(width: 10),
+                            Expanded(child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _loc.t('detail_guard_days'),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                    color: Colors.blue.shade800,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  children: l.joursGarde.map((jour) => Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade100,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Text(
+                                      jour,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blue.shade800,
+                                      ),
+                                    ),
+                                  )).toList(),
+                                ),
+                              ],
+                            )),
+                          ],
+                        ),
                       ),
                     ),
 

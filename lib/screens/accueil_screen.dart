@@ -414,84 +414,140 @@ class _AccueilScreenState extends State<AccueilScreen> {
       child: CustomScrollView(
         slivers: [
 
-          // ─── APP BAR gradient + barre de recherche ────────────
+          // ─── APP BAR gradient + skyline + barre de recherche ────
           SliverAppBar(
-            expandedHeight: 180,
+            expandedHeight: 200,
             pinned: true,
             backgroundColor: AppColors.primary,
             actions: [_buildMessagesBtn(), const _LanguageSelector()],
             flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.primaryDark, AppColors.primary],
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // ① Gradient de fond riche
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFF002A5C), // bleu nuit profond
+                          Color(0xFF003580), // AppColors.primaryDark
+                          AppColors.primary,
+                          Color(0xFF0088E0), // bleu clair lumineux
+                        ],
+                        stops: [0.0, 0.3, 0.7, 1.0],
+                      ),
+                    ),
                   ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 60),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              // Logo
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.asset(
-                                  'assets/images/logo.png',
-                                  width: 40, height: 40, fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
-                                    width: 40, height: 40,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white24,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(Icons.home,
-                                        color: Colors.white, size: 24),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              const Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Horem+',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Cameroun',
-                                    style: TextStyle(
-                                        color: Colors.white70, fontSize: 12),
+                  // ② Cercles décoratifs en arrière-plan (effet lumière)
+                  Positioned(
+                    top: -40, right: -30,
+                    child: Container(
+                      width: 160, height: 160,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.06),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 30, right: 60,
+                    child: Container(
+                      width: 80, height: 80,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.04),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 60, left: -20,
+                    child: Container(
+                      width: 120, height: 120,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.05),
+                      ),
+                    ),
+                  ),
+                  // ③ Silhouette de ville (skyline) en bas du header
+                  Positioned.fill(
+                    child: CustomPaint(painter: _SkylinePainter()),
+                  ),
+                  // ④ Contenu textuel
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 60),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            // Logo
+                            Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.3),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3),
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _l.t('accueil_tagline'),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Image.asset(
+                                  'assets/images/logo.png',
+                                  width: 44, height: 44, fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 44, height: 44,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(Icons.home,
+                                        color: Colors.white, size: 26),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'SGK HOME',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                Text(
+                                  'Cameroun',
+                                  style: TextStyle(
+                                      color: Colors.white70, fontSize: 12,
+                                      letterSpacing: 0.3),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 10),
+                        Text(
+                          _l.t('accueil_tagline'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
             bottom: PreferredSize(
@@ -1258,4 +1314,100 @@ class _BandeauOffline extends StatelessWidget {
           : const SizedBox.shrink(),
     );
   }
+}
+
+// ─── Peintre de la silhouette de ville (skyline) ───────────────
+class _SkylinePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.07)
+      ..style = PaintingStyle.fill;
+
+    final w = size.width;
+    final h = size.height;
+
+    // Définit les bâtiments comme liste de (x, largeur, hauteur depuis le bas)
+    final buildings = [
+      _Bat(x: 0,       w: 30, h: 55),
+      _Bat(x: 28,      w: 22, h: 70),
+      _Bat(x: 48,      w: 28, h: 45),
+      _Bat(x: 74,      w: 18, h: 80),  // tour
+      _Bat(x: 90,      w: 35, h: 50),
+      _Bat(x: 123,     w: 25, h: 65),
+      _Bat(x: 146,     w: 20, h: 90),  // tour haute
+      _Bat(x: 164,     w: 30, h: 55),
+      _Bat(x: 192,     w: 40, h: 42),
+      _Bat(x: 230,     w: 22, h: 75),
+      _Bat(x: 250,     w: 28, h: 60),
+      _Bat(x: 276,     w: 18, h: 85),
+      _Bat(x: 292,     w: 35, h: 48),
+      _Bat(x: 325,     w: 25, h: 70),
+      _Bat(x: 348,     w: 30, h: 55),
+      _Bat(x: w - 60,  w: 35, h: 65),
+      _Bat(x: w - 28,  w: 30, h: 48),
+    ];
+
+    for (final b in buildings) {
+      final top = h - b.h;
+      final rect = Rect.fromLTWH(b.x, top, b.w, b.h);
+      canvas.drawRect(rect, paint);
+
+      // Petites fenêtres (rectangles plus clairs)
+      final winPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.10)
+        ..style = PaintingStyle.fill;
+      const winW = 4.0;
+      const winH = 5.0;
+      const gap = 7.0;
+      int cols = ((b.w - 4) / gap).floor();
+      int rows = ((b.h - 10) / gap).floor().clamp(0, 5);
+      for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+          canvas.drawRect(
+            Rect.fromLTWH(
+              b.x + 4 + c * gap,
+              top + 6 + r * gap,
+              winW,
+              winH,
+            ),
+            winPaint,
+          );
+        }
+      }
+    }
+
+    // Maison avec toit triangulaire (icône principale du fond)
+    final housePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.08)
+      ..style = PaintingStyle.fill;
+
+    // Corps de la maison — positionné à droite
+    final houseX = w - 130.0;
+    final houseY = h - 80.0;
+    canvas.drawRect(
+      Rect.fromLTWH(houseX, houseY, 60, 50),
+      housePaint,
+    );
+    // Toit triangulaire
+    final roofPath = Path()
+      ..moveTo(houseX - 8, houseY)
+      ..lineTo(houseX + 30, houseY - 32)
+      ..lineTo(houseX + 68, houseY)
+      ..close();
+    canvas.drawPath(roofPath, housePaint);
+    // Porte
+    canvas.drawRect(
+      Rect.fromLTWH(houseX + 22, houseY + 28, 16, 22),
+      Paint()..color = Colors.white.withValues(alpha: 0.12),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _Bat {
+  final double x, w, h;
+  const _Bat({required this.x, required this.w, required this.h});
 }

@@ -251,6 +251,7 @@ const Map<String, String> enStrings = {
   'detail_status_label': 'Status',
   'detail_open_now': 'Open now',
   'detail_closed': 'Closed',
+  'detail_guard_days': 'On-duty days',
   'detail_equipment': 'Amenities',
   'detail_copy_gps': 'Copy GPS',
   'detail_provider': 'Provider',

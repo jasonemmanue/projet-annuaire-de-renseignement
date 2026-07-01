@@ -186,6 +186,7 @@ const Map<String, String> frStrings = {
   'detail_status_label': 'Statut',
   'detail_open_now': 'Ouvert maintenant',
   'detail_closed': 'Fermé',
+  'detail_guard_days': 'Jours de garde',
   'detail_equipment': 'Équipements',
   'detail_copy_gps': 'Copier GPS',
   'detail_provider': 'Prestataire',
