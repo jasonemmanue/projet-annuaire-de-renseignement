@@ -1,4 +1,4 @@
-# SGK HOME — Horem+
+# Horem+ — Horem+
 
 Application mobile immobilière et de services au Cameroun.
 
@@ -8,7 +8,7 @@ Application mobile immobilière et de services au Cameroun.
 
 ## Présentation
 
-SGK HOME connecte visiteurs et prestataires immobiliers au Cameroun. Les prestataires publient des annonces (logements, services, commerces) et les visiteurs les consultent, les sauvegardent en favoris et contactent directement les propriétaires via la messagerie intégrée.
+Horem+ connecte visiteurs et prestataires immobiliers au Cameroun. Les prestataires publient des annonces (logements, services, commerces) et les visiteurs les consultent, les sauvegardent en favoris et contactent directement les propriétaires via la messagerie intégrée.
 
 ---
 

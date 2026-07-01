@@ -339,7 +339,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         // Visibilité annuelle Entreprise / Restaurant / École
         montant = TarificationService.montantVisibilite(_typeBienFirestore);
         titreEcran = 'Visibilité annuelle';
-        dureeLabel = 'Votre fiche sera visible pendant 1 an sur SGK HOME.';
+        dureeLabel = 'Votre fiche sera visible pendant 1 an sur Horem+.';
         initierCb = ({required String telephone, required String operateur}) =>
             PaiementService.instance.initierVisibilite(
               logementId: brouillonId,
@@ -356,7 +356,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
           prixBien: prixBien,
         );
         titreEcran = 'Frais de publication';
-        dureeLabel = 'Votre annonce sera visible pendant 1 mois sur SGK HOME.';
+        dureeLabel = 'Votre annonce sera visible pendant 1 mois sur Horem+.';
         initierCb = ({required String telephone, required String operateur}) =>
             PaiementService.instance.initierPublication(
               logementId: brouillonId,
@@ -381,8 +381,8 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                 ? 'Payer et activer la visibilité'
                 : 'Payer et publier l\'annonce',
             succesMessage: _isVisibiliteType
-                ? 'Votre fiche est maintenant visible pendant 1 an sur SGK HOME.'
-                : 'Votre annonce est publiée et visible pendant 1 mois sur SGK HOME.',
+                ? 'Votre fiche est maintenant visible pendant 1 an sur Horem+.'
+                : 'Votre annonce est publiée et visible pendant 1 mois sur Horem+.',
           ),
         ),
       );
@@ -931,7 +931,8 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_loc.t('dashboard_my_space')),
+        title: Text(_loc.t('dashboard_my_space'), maxLines: 2, style: const TextStyle(height: 1.2)),
+        toolbarHeight: 64,
         actions: [
           IconButton(
             tooltip: isDark ? _loc.t('dashboard_tooltip_light') : _loc.t('dashboard_tooltip_dark'),

@@ -92,7 +92,7 @@ class _HoremPlusAppState extends State<HoremPlusApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SGK HOME',
+      title: 'Horem+',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,

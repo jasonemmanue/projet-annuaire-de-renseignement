@@ -35,7 +35,7 @@
         <!-- Canal de notification Firebase FCM -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="sgk_home_channel"/>
+            android:value="horem_plus_channel"/>
 
         <!-- Icône de notification FCM -->
         <meta-data

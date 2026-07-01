@@ -1,4 +1,4 @@
-# CLAUDE.md — Horem+ / SGK HOME
+# CLAUDE.md — Horem+ / Horem+
 
 > Fichier de référence pour Claude Code. Lis-le à chaque session avant toute modification.
 
@@ -6,7 +6,7 @@
 
 ## Identité du projet
 
-**App :** horem_plus (titre affiché « SGK HOME »)  
+**App :** horem_plus (titre affiché « Horem+ »)  
 **Domaine :** Petites annonces immobilières + services au Cameroun  
 **Stack :** Flutter + Firebase (Auth, Firestore, Storage, Messaging, Analytics) + Google Maps + Provider  
 **Package ID Android :** `com.example.horemplus`
@@ -570,7 +570,7 @@ Pour les annonces multi-photos, les images défilent automatiquement.
 
 - Dégradé 4 couleurs + 3 cercles décoratifs
 - `_SkylinePainter` : CustomPainter dessinant une silhouette de ville (bâtiments + fenêtres + maison)
-- Hauteur : 200px, branding « SGK HOME » avec ombre portée
+- Hauteur : 200px, branding « Horem+ » avec ombre portée
 
 ---
 

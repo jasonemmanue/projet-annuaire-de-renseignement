@@ -160,7 +160,7 @@ const Map<String, String> enStrings = {
   'aide_q5': 'How does sponsorship work?',
   'aide_a5': 'Sponsorship highlights your listing on the home screen. You pay via Orange Money or MTN Mobile Money. Duration and price are shown before confirmation.',
   'aide_q6': 'I am not receiving notifications, why?',
-  'aide_a6': 'Check in Profile > Notifications that the desired categories are enabled. Also check your phone notification settings for SGK HOME.',
+  'aide_a6': 'Check in Profile > Notifications that the desired categories are enabled. Also check your phone notification settings for Horem+.',
   'aide_q7': 'Can I use the app without an account?',
   'aide_a7': 'Yes, in visitor mode you can browse listings and contact providers. To publish listings, a provider account is required.',
 
@@ -174,7 +174,7 @@ const Map<String, String> enStrings = {
   'consentement_politique_link': 'Read the Privacy Policy',
 
   // ── Rating ─────────────────────────────────────────────────
-  'rating_title': 'Do you like SGK HOME?',
+  'rating_title': 'Do you like Horem+?',
   'rating_body': 'Your review helps us improve the app.',
   'rating_yes': 'Yes, rate the app',
   'rating_later': 'Later',
@@ -527,7 +527,7 @@ const Map<String, String> enStrings = {
   'sponsor_best_value': 'Best value',
 
   // ── Dashboard Prestataire ──────────────────────────────────
-  'dashboard_my_space': 'My space',
+  'dashboard_my_space': 'My\nSpace',
   'dashboard_tab_listings': 'Listings',
   'dashboard_tab_msgs': 'Msgs',
   'dashboard_tab_stats': 'Stats',

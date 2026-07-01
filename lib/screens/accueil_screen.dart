@@ -617,7 +617,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'SGK HOME',
+                                  'Horem+',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 22,

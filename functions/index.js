@@ -766,7 +766,7 @@ exports.initierSponsorisation = onRequest(
         paymentMethod: "pawapay",
         mmoProvider: mmoProviderCM(operateur),
         customerCountry: "CM",
-        description: `Publication SGK HOME — ${log.titre || "annonce"}`,
+        description: `Publication Horem+ — ${log.titre || "annonce"}`,
         customerEmail: u.email || "",
         customerPhone: telephone,
         metadata: { uid, type: "sponsorisation", logementId, duree: codeduree },
@@ -873,7 +873,7 @@ exports.initierPublication = onRequest(
         paymentMethod: "pawapay",
         mmoProvider: mmoProviderCM(operateur),
         customerCountry: "CM",
-        description: `Publication SGK HOME — ${log.titre || "annonce"}`,
+        description: `Publication Horem+ — ${log.titre || "annonce"}`,
         customerEmail: u.email || "",
         customerPhone: telephone,
         metadata: { uid, type: "publication", logementId },
@@ -1389,7 +1389,7 @@ async function sendAdminEmail({ logement, prestataire, logementId }) {
     : "Non renseigné";
 
   const html = `
-    <h2>🏠 Nouvelle publication sur SGK HOME</h2>
+    <h2>🏠 Nouvelle publication sur Horem+</h2>
     <table style="border-collapse:collapse;width:100%;font-family:sans-serif;">
       <tr><td style="padding:8px;border:1px solid #ddd;background:#f5f5f5;font-weight:bold;">Annonce</td>
           <td style="padding:8px;border:1px solid #ddd;">${logement.titre || "–"}</td></tr>
@@ -1412,15 +1412,15 @@ async function sendAdminEmail({ logement, prestataire, logementId }) {
           <td style="padding:8px;border:1px solid #ddd;">${logementId}</td></tr>
     </table>
     <p style="margin-top:16px;color:#666;font-size:12px;">
-      SGK HOME — Notification automatique. Ne pas répondre à ce mail.
+      Horem+ — Notification automatique. Ne pas répondre à ce mail.
     </p>
   `;
 
   try {
     await transporter.sendMail({
-      from: `"SGK HOME" <${senderEmail}>`,
+      from: `"Horem+" <${senderEmail}>`,
       to: ADMIN_EMAIL,
-      subject: `[SGK HOME] Nouvelle annonce : ${logement.titre || logement.typeBien || "sans titre"}`,
+      subject: `[Horem+] Nouvelle annonce : ${logement.titre || logement.typeBien || "sans titre"}`,
       html,
     });
     console.log("Email admin envoyé à", ADMIN_EMAIL);

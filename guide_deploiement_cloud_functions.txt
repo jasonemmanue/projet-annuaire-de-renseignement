@@ -1,5 +1,5 @@
 ================================================================
-  GUIDE DE DÉPLOIEMENT DES CLOUD FUNCTIONS — SGK HOME
+  GUIDE DE DÉPLOIEMENT DES CLOUD FUNCTIONS — Horem+
   Projet Firebase : sgk-home
   Date : Mai 2026
 ================================================================

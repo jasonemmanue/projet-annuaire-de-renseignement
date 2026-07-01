@@ -218,7 +218,7 @@ Tout en FR + EN. flutter analyze à la fin.
    - méthode Future<void> maybeAskForReview(BuildContext context).
 
 2) Dans maybeAskForReview, affiche d'abord un bottom sheet maison
-   « Vous aimez SGK HOME ? » avec :
+   « Vous aimez Horem+ ? » avec :
    • « Oui, noter l'app » → InAppReview.instance.requestReview() ;
    • « Plus tard » → ferme, ne marque pas comme refusé ;
    • « Non merci » → ferme, marque rating_declined.

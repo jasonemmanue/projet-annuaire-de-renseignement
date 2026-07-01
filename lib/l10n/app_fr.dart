@@ -284,7 +284,7 @@ const Map<String, String> frStrings = {
   'login_otp_expired': 'Code expiré. Demandez un nouveau code.',
   'login_sms_error': 'Impossible d\'envoyer le SMS. Vérifiez le numéro.',
   'login_phone_invalid': 'Numéro invalide. Format : +237 XXXXXXXXX (9 chiffres)',
-  'login_register_complete': 'Compte créé ! Bienvenue sur SGK HOME.',
+  'login_register_complete': 'Compte créé ! Bienvenue sur Horem+.',
   'login_register_otp_info': 'Un SMS de vérification sera envoyé à ce numéro',
   'login_locked_prefix': 'Trop de tentatives. Votre compte est temporairement verrouillé.',
 
@@ -507,7 +507,7 @@ const Map<String, String> frStrings = {
   'aide_q5': 'Comment fonctionne la sponsorisation ?',
   'aide_a5': 'La sponsorisation met votre annonce en avant sur l\'accueil. Vous payez via Orange Money ou MTN Mobile Money. La durée et le tarif sont affichés avant la confirmation.',
   'aide_q6': 'Je ne reçois pas de notifications, pourquoi ?',
-  'aide_a6': 'Vérifiez dans Profil > Notifications que les catégories souhaitées sont activées. Vérifiez aussi les paramètres de notifications de votre téléphone pour SGK HOME.',
+  'aide_a6': 'Vérifiez dans Profil > Notifications que les catégories souhaitées sont activées. Vérifiez aussi les paramètres de notifications de votre téléphone pour Horem+.',
   'aide_q7': 'Peut-on utiliser l\'app sans créer de compte ?',
   'aide_a7': 'Oui, en mode visiteur vous pouvez parcourir les annonces et contacter les prestataires. Pour publier des annonces, la création d\'un compte prestataire est nécessaire.',
 
@@ -521,14 +521,14 @@ const Map<String, String> frStrings = {
   'consentement_politique_link': 'Lire la Politique de Confidentialité',
 
   // ── Notation ───────────────────────────────────────────────
-  'rating_title': 'Vous aimez SGK HOME ?',
+  'rating_title': 'Vous aimez Horem+ ?',
   'rating_body': 'Votre avis nous aide à améliorer l\'application.',
   'rating_yes': 'Oui, noter l\'app',
   'rating_later': 'Plus tard',
   'rating_no': 'Non merci',
 
   // ── Dashboard Prestataire ──────────────────────────────────
-  'dashboard_my_space': 'Mon espace',
+  'dashboard_my_space': 'Mon\nEspace',
   'dashboard_tab_listings': 'Annonces',
   'dashboard_tab_msgs': 'Msgs',
   'dashboard_tab_stats': 'Stats',
