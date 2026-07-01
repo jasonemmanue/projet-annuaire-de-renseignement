@@ -61,7 +61,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
   String _filtreTypeActif = 'Tous';
   String _texteRecherche  = '';
   FiltreRecherche _filtresAvances = const FiltreRecherche();
-  List<String> _suggestions = [];
+  List<_Suggestion> _suggestions = [];
   final TextEditingController _searchController = TextEditingController();
 
   // 'value' = valeur interne (correspond à typeBien/typeLocation Firestore, en FR)
@@ -325,33 +325,60 @@ class _AccueilScreenState extends State<AccueilScreen> {
       final texte = parsed.texte;
       final q = _n(query);
 
-      final Set<String> suggs = {};
+      final Map<String, _Suggestion> suggs = {};
       for (final l in _logements) {
-        if (_n(l.titre).contains(q))    suggs.add(l.titre);
-        if (_n(l.quartier).contains(q)) suggs.add(l.quartier);
-        if (_n(l.ville).contains(q))    suggs.add(l.ville);
-        if (_n(l.typeBien).contains(q)) suggs.add(l.typeBien);
+        if (_n(l.titre).contains(q)) {
+          suggs.putIfAbsent(l.titre, () => _Suggestion(
+            label: l.titre,
+            prix: l.prixFormate,
+            searchText: l.titre,
+          ));
+        }
+        if (_n(l.quartier).contains(q)) {
+          suggs.putIfAbsent('q_${l.quartier}', () => _Suggestion(
+            label: l.quartier,
+            prix: null,
+            searchText: l.quartier,
+          ));
+        }
+        if (_n(l.ville).contains(q)) {
+          suggs.putIfAbsent('v_${l.ville}', () => _Suggestion(
+            label: l.ville,
+            prix: null,
+            searchText: l.ville,
+          ));
+        }
+        if (_n(l.typeBien).contains(q)) {
+          suggs.putIfAbsent('t_${l.typeBien}', () => _Suggestion(
+            label: l.typeBien,
+            prix: null,
+            searchText: l.typeBien,
+          ));
+        }
 
-        // Suggestions par budget : "Chambre · 10 000 XAF"
         if (budget != null) {
           final min = budget * 0.9;
           final max = budget * 1.1;
           if (l.prix >= min && l.prix <= max) {
             if (texte.isEmpty || _n(l.titre).contains(_n(texte)) ||
                 _n(l.typeBien).contains(_n(texte))) {
-              suggs.add('${l.typeBien} · ${l.prixFormate}');
+              suggs.putIfAbsent('b_${l.id}', () => _Suggestion(
+                label: l.titre,
+                prix: l.prixFormate,
+                searchText: l.titre,
+              ));
             }
           }
         }
       }
-      _suggestions = suggs.take(8).toList();
+      _suggestions = suggs.values.take(8).toList();
     });
   }
 
-  void _appliquerSuggestion(String sugg) {
-    _searchController.text = sugg;
+  void _appliquerSuggestion(_Suggestion sugg) {
+    _searchController.text = sugg.searchText;
     setState(() {
-      _texteRecherche = sugg;
+      _texteRecherche = sugg.searchText;
       _suggestions    = [];
     });
   }
@@ -701,11 +728,28 @@ class _AccueilScreenState extends State<AccueilScreen> {
                             size: 16, color: AppColors.textHint),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Text(s,
+                          child: Text(s.label,
                               style: TextStyle(
                                   color: context.appTextPrimary,
                                   fontSize: 14)),
                         ),
+                        if (s.prix != null) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(s.prix!,
+                                style: const TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                        const SizedBox(width: 8),
                         const Icon(Icons.north_west,
                             size: 14, color: AppColors.textHint),
                       ]),
@@ -1483,4 +1527,11 @@ class _SkylinePainter extends CustomPainter {
 class _Bat {
   final double x, w, h;
   const _Bat({required this.x, required this.w, required this.h});
+}
+
+class _Suggestion {
+  final String label;
+  final String? prix;
+  final String searchText;
+  const _Suggestion({required this.label, this.prix, required this.searchText});
 }
