@@ -432,7 +432,8 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(_loc.t('form_photos'), style: AppTextStyles.h3),
+              Text(_loc.t('form_photos'),
+                  style: AppTextStyles.h3.copyWith(color: Colors.white)),
               const SizedBox(height: 8),
               if (totalPhotos > 0)
                 SizedBox(
@@ -455,17 +456,41 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
               if (totalPhotos < 6)
                 Row(children: [
                   Expanded(child: OutlinedButton.icon(onPressed: _choisirPhotos,
-                      icon: const Icon(Icons.photo_library), label: Text(_loc.t('form_gallery')))),
+                      icon: const Icon(Icons.photo_library, color: Colors.white),
+                      label: Text(_loc.t('form_gallery')),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white70),
+                      ))),
                   const SizedBox(width: 8),
                   Expanded(child: OutlinedButton.icon(onPressed: _prendrePhoto,
-                      icon: const Icon(Icons.camera_alt), label: Text(_loc.t('form_camera')))),
+                      icon: const Icon(Icons.camera_alt, color: Colors.white),
+                      label: Text(_loc.t('form_camera')),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white70),
+                      ))),
                 ]),
-              Text('$totalPhotos/6 photos', style: const TextStyle(color: AppColors.textHint, fontSize: 12)),
+              Text('$totalPhotos/6 photos',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12)),
               const SizedBox(height: 20),
-              Text(_loc.t('form_title_field'), style: AppTextStyles.h3),
+              Text(_loc.t('form_title_field'),
+                  style: AppTextStyles.h3.copyWith(color: Colors.white)),
               const SizedBox(height: 8),
               TextFormField(controller: _titreCtrl,
-                  decoration: InputDecoration(hintText: _loc.t('form_title_hint')),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: _loc.t('form_title_hint'),
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Colors.white38),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Colors.white),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
                   validator: (v) => v!.isEmpty ? _loc.t('form_required') : null),
               const SizedBox(height: 16),
               // ── Type de bien ──────────────────────────────────
