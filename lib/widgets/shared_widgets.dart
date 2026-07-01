@@ -613,12 +613,10 @@ class SectionTitle extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Flexible(
+          Expanded(
             child: Text(
               title,
               style: AppTextStyles.h3.copyWith(color: Colors.white),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ),
           if (onVoirTout != null)

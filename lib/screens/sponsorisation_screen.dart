@@ -26,9 +26,9 @@ class _Offre {
 }
 
 const List<_Offre> _offres = [
-  _Offre('1s', '1 semaine', 7500, 'Recommandé'),
-  _Offre('2s', '2 semaines', 12000),
-  _Offre('1m', '1 mois', 20000, 'Meilleure valeur'),
+  _Offre('1s', '1 semaine', 500, 'Recommandé'),
+  _Offre('2s', '2 semaines', 1000),
+  _Offre('1m', '1 mois', 2000, 'Meilleure valeur'),
 ];
 
 enum _Etape { formulaire, attente, succes, echec, timeout }
