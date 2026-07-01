@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import '../services/paiement_service.dart';
 import '../widgets/operateur_selector.dart';
+import '../widgets/silent_payment_webview.dart';
 import '../l10n/app_localizations.dart';
 
 // ============================================================
@@ -107,11 +108,8 @@ class _PaiementPremiumScreenState extends State<PaiementPremiumScreen> {
 
     _reference = result.reference;
     _checkoutUrl = result.checkoutUrl;
-    // Tentative silencieuse : GET sur checkoutUrl. Fallback launchUrl 8s
-    // plus tard si le paiement est toujours en attente.
-    if (_checkoutUrl != null && _checkoutUrl!.isNotEmpty) {
-      unawaited(_service.declencherUssdSilencieux(_checkoutUrl!));
-    }
+    // Le WebView invisible (dans le body Stack) va déclencher l'USSD PawaPay
+    // silencieusement. Fallback launchUrl à T+15s (voir _demarrerAttente).
 
     setState(() {
       _loading = false;
@@ -125,9 +123,9 @@ class _PaiementPremiumScreenState extends State<PaiementPremiumScreen> {
     _fallbackLance = false;
     HapticFeedback.lightImpact();
 
-    // (0) Fallback : ouvre le navigateur si le GET silencieux n'a pas suffi
-    //     à déclencher l'USSD dans les 8 premières secondes.
-    Timer(const Duration(seconds: 8), () async {
+    // (0) Fallback : ouvre le navigateur si le WebView invisible n'a pas
+    //     suffi à déclencher l'USSD dans les 15 premières secondes.
+    Timer(const Duration(seconds: 15), () async {
       if (!mounted || _etape != _Etape.attente || _fallbackLance) return;
       _fallbackLance = true;
       final s = await _service.verifierPaiementServeur(_reference!);
@@ -214,19 +212,31 @@ class _PaiementPremiumScreenState extends State<PaiementPremiumScreen> {
         foregroundColor: Colors.white,
       ),
       body: SafeArea(
-        child: switch (_etape) {
-          _Etape.formulaire => _buildFormulaire(),
-          _Etape.attente    => _buildAttente(),
-          _Etape.succes     => _buildSucces(),
-          _Etape.echec      => _buildResultatEchec(
-              titre: _loc.t('urgence_payment_failed'),
-              message: _loc.t('premium_payment_failed_wave'),
-            ),
-          _Etape.timeout    => _buildResultatEchec(
-              titre: _loc.t('urgence_timeout'),
-              message: _loc.t('premium_timeout_desc'),
-            ),
-        },
+        child: Stack(
+          children: [
+            if (_checkoutUrl != null &&
+                _checkoutUrl!.isNotEmpty &&
+                _etape == _Etape.attente)
+              Positioned(
+                top: 0,
+                left: 0,
+                child: SilentPaymentWebView(url: _checkoutUrl!),
+              ),
+            switch (_etape) {
+              _Etape.formulaire => _buildFormulaire(),
+              _Etape.attente    => _buildAttente(),
+              _Etape.succes     => _buildSucces(),
+              _Etape.echec      => _buildResultatEchec(
+                  titre: _loc.t('urgence_payment_failed'),
+                  message: _loc.t('premium_payment_failed_wave'),
+                ),
+              _Etape.timeout    => _buildResultatEchec(
+                  titre: _loc.t('urgence_timeout'),
+                  message: _loc.t('premium_timeout_desc'),
+                ),
+            },
+          ],
+        ),
       ),
     );
   }

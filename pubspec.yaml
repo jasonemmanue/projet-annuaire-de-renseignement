@@ -82,6 +82,9 @@ dependencies:
   uuid: ^4.5.1
   timeago: ^3.7.0
 
+  # WebView invisible pour déclencher l'USSD PawaPay silencieusement
+  webview_flutter: ^4.10.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

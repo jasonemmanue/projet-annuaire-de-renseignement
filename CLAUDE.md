@@ -184,9 +184,9 @@ const DEVISE = "XOF";  // ← obligatoire pour l'API GeniusPay, pas XAF
 'mtn'    → 'mtn_momo_cm'       // MTN Mobile Money Cameroun
 ```
 
-### Mécanisme USSD push — déclenchement SILENCIEUX + fallback
+### Mécanisme USSD push — WebView INVISIBLE (100% silencieux)
 
-**Réalité technique vérifiée en production :** la création d'un paiement côté Cloud Function ne déclenche PAS l'USSD push toute seule. Une visite HTTP de la page `paymentUrl` (= `checkoutUrl`) est nécessaire pour que GeniusPay pousse l'ordre à PawaPay.
+**Réalité technique vérifiée en production :** la création d'un paiement côté Cloud Function ne déclenche PAS l'USSD push toute seule. Une visite HTTP avec exécution du JavaScript de la page `paymentUrl` (= `checkoutUrl`) est nécessaire pour que GeniusPay pousse l'ordre à PawaPay.
 
 **Stratégie utilisée dans l'app (invisible pour l'utilisateur) :**
 
@@ -194,23 +194,35 @@ const DEVISE = "XOF";  // ← obligatoire pour l'API GeniusPay, pas XAF
 1. App Flutter → Cloud Function → GeniusPay createPayment()
    ↳ GeniusPay réserve la transaction, renvoie { reference, paymentUrl }.
 
-2. App Flutter → GET silencieux sur paymentUrl (via package `http`)
-   ↳ User-Agent Chrome mobile pour être traité comme un vrai navigateur.
-   ↳ Si GeniusPay pousse l'USSD dès la première requête HTML :
-     PawaPay envoie le menu PIN directement sur le téléphone.
-   ↳ L'utilisateur ne quitte JAMAIS l'app Flutter — invisible.
+2. Un WebView invisible (SilentPaymentWebView) est monté dans le Stack
+   du body dès que _etape passe à attente.
+   ↳ Position : Positioned(top: 0, left: 0), 1×1 px, opacity 0.
+   ↳ Le WebView charge paymentUrl et exécute le JavaScript comme
+     un vrai navigateur Chrome mobile.
+   ↳ Le JS de la page GeniusPay contacte PawaPay → USSD envoyé.
+   ↳ Menu PIN Mobile Money s'ouvre sur le téléphone du client.
+   ↳ L'utilisateur ne voit RIEN — il reste sur l'écran d'attente Flutter.
 
 3. Écran d'attente Flutter s'affiche pendant que le client tape son PIN.
 
-4. Fallback : si après 8 secondes le statut est toujours en attente
-   (le GET n'a pas suffi à déclencher l'USSD), l'app ouvre alors la page
-   GeniusPay dans le navigateur externe (comportement classique).
+4. Client tape son PIN → PawaPay → GeniusPay → webhook Firebase.
+   Firestore mis à jour → watchStatut() détecte → écran de succès ✅
+
+5. Fallback : si après 15 secondes le statut est toujours en attente
+   (le WebView n'a pas suffi — cas rarissime), l'app ouvre alors la page
+   GeniusPay dans le navigateur externe (comportement classique visible).
 ```
 
-**Helper Flutter :** `PaiementService.declencherUssdSilencieux(url)` — fait le GET avec User-Agent Chrome, timeout 10 s, retourne true si HTTP 2xx.
+**Widget :** `lib/widgets/silent_payment_webview.dart` — WebView monté mais invisible :
+- `webview_flutter: ^4.10.0` (dépendance ajoutée dans pubspec)
+- `JavaScriptMode.unrestricted` (obligatoire pour que la page GeniusPay tourne)
+- User-Agent Chrome Android mobile
+- Rendu : `IgnorePointer` + `Opacity(0)` + `SizedBox(1×1)` → invisible mais monté (le JS s'exécute)
+
+**Pourquoi pas `Offstage(offstage: true)` ?** Flutter peut alors arrêter d'exécuter les frames du WebView, ce qui bloque l'exécution du JavaScript. Il faut que le WebView soit dans l'arbre visible mais transparent.
 
 **Flags de l'écran de paiement :**
-- `_checkoutUrl` : mémorisé après initiation
+- `_checkoutUrl` : mémorisé après initiation, déclenche le montage du WebView
 - `_fallbackLance` : garde-fou pour ne pas ouvrir le navigateur deux fois
 
 **Fichiers concernés (4 écrans) :**
@@ -219,8 +231,8 @@ const DEVISE = "XOF";  // ← obligatoire pour l'API GeniusPay, pas XAF
 - `sponsorisation_screen.dart`
 - `paiement_premium_screen.dart`
 
-> ⚠️ **Ne jamais supprimer le fallback `launchUrl` après 8 s.**  
-> C'est le filet de sécurité si le GET silencieux ne suffit pas à déclencher l'USSD (peut dépendre de la config PawaPay/GeniusPay du moment).
+> ⚠️ **Ne jamais supprimer le WebView invisible ni le fallback `launchUrl` à T+15s.**  
+> Le WebView est ce qui rend le paiement 100% silencieux. Le fallback est le filet de sécurité si jamais le WebView ne peut pas se charger (pas de connexion Chrome WebView installé, etc.).
 
 ### Flux de paiement étape par étape
 
@@ -272,21 +284,27 @@ Flutter                     Cloud Function              GeniusPay/PawaPay
 ### Règles de code anti-régression
 
 ```dart
-// ✅ CORRECT — après initiation : GET silencieux + polling + fallback à 8s
+// ✅ CORRECT — après initiation : juste mémoriser checkoutUrl, le WebView
+// invisible du body Stack s'occupe du reste automatiquement.
 _reference = result.reference;
 _checkoutUrl = result.checkoutUrl;
-
-// Tentative silencieuse (invisible pour l'utilisateur)
-if (_checkoutUrl != null && _checkoutUrl!.isNotEmpty) {
-  unawaited(_service.declencherUssdSilencieux(_checkoutUrl!));
-}
-
 setState(() { _etape = _Etape.attente; });
-_demarrerAttente(); // inclut le fallback launchUrl à T+8s si toujours pending
+_demarrerAttente(); // watchStatut + poll 5s + fallback launchUrl à T+15s
+
+// Dans build() du body — WebView invisible qui déclenche l'USSD :
+Stack(children: [
+  if (_checkoutUrl != null && _etape == _Etape.attente)
+    Positioned(
+      top: 0, left: 0,
+      child: SilentPaymentWebView(url: _checkoutUrl!),
+    ),
+  // ... contenu normal
+])
 
 // ❌ INTERDIT :
-// - Supprimer declencherUssdSilencieux → USSD ne part pas.
-// - Supprimer le fallback launchUrl → si le GET ne suffit pas, blocage total.
+// - Supprimer SilentPaymentWebView du Stack → USSD ne part pas.
+// - Supprimer le fallback launchUrl → blocage total si WebView échoue.
+// - Utiliser Offstage(offstage: true) → arrête l'exécution du JS.
 ```
 
 ### Mode simulation (tests sans vrai paiement)

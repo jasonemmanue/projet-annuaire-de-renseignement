@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../services/paiement_service.dart';
 import '../services/paiement_debug_log.dart';
 import '../widgets/operateur_selector.dart';
+import '../widgets/silent_payment_webview.dart';
 import '../l10n/app_localizations.dart';
 
 // ============================================================
@@ -146,13 +147,11 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
     _reference = result.reference;
     _checkoutUrl = result.checkoutUrl;
 
-    // Tentative silencieuse : GET sur checkoutUrl depuis Flutter.
-    // Si GeniusPay déclenche l'USSD dès la première requête HTML, le menu
-    // PIN s'ouvre directement sur le téléphone du client sans qu'il quitte
-    // l'app. Sinon, fallback launchUrl 8s plus tard (voir _demarrerAttente).
-    if (_checkoutUrl != null && _checkoutUrl!.isNotEmpty) {
-      unawaited(_service.declencherUssdSilencieux(_checkoutUrl!));
-    }
+    // Le WebView invisible (monté dans le Stack du body dès que _etape passe
+    // à attente) va charger checkoutUrl et exécuter son JavaScript, ce qui
+    // déclenche l'USSD PawaPay sur le téléphone du client.
+    // Aucun navigateur externe n'est ouvert → totalement invisible.
+    // Fallback launchUrl à T+15s si le WebView n'a pas suffi (voir _demarrerAttente).
 
     setState(() {
       _loading = false;
@@ -186,10 +185,11 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
       }
     });
 
-    // Fallback : si le GET silencieux n'a pas suffi à déclencher l'USSD,
-    // ouvrir la page GeniusPay dans le navigateur externe après 8s pour
-    // que l'utilisateur puisse finaliser.
-    Timer(const Duration(seconds: 8), () async {
+    // Fallback : si le WebView invisible n'a pas suffi à déclencher l'USSD
+    // dans les 15 secondes, on ouvre la page GeniusPay dans le navigateur
+    // externe. Ce cas ne devrait quasiment jamais arriver car le WebView
+    // exécute le JS comme un vrai navigateur.
+    Timer(const Duration(seconds: 15), () async {
       if (!mounted || _etape != _Etape.attente || _fallbackLance) return;
       _fallbackLance = true;
       final s = await _service.verifierPaiementServeur(_reference!);
@@ -253,19 +253,33 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
           automaticallyImplyLeading: _etape != _Etape.attente,
         ),
         body: SafeArea(
-          child: Column(
+          child: Stack(
             children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: _buildEtape(),
+              // WebView invisible qui déclenche l'USSD PawaPay silencieusement.
+              // Ne prend qu'un pixel, opacity 0 → l'utilisateur ne le voit pas.
+              if (_checkoutUrl != null &&
+                  _checkoutUrl!.isNotEmpty &&
+                  _etape == _Etape.attente)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  child: SilentPaymentWebView(url: _checkoutUrl!),
                 ),
+              Column(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: _buildEtape(),
+                    ),
+                  ),
+                  if (kDebugPaiement)
+                    const SizedBox(
+                      height: 225,
+                      child: _DebugLogPanel(),
+                    ),
+                ],
               ),
-              if (kDebugPaiement)
-                SizedBox(
-                  height: 225,
-                  child: const _DebugLogPanel(),
-                ),
             ],
           ),
         ),
