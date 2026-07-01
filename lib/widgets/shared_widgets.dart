@@ -1038,3 +1038,158 @@ class _PubPhotoPlaceholder extends StatelessWidget {
             const Icon(Icons.campaign_outlined, color: AppColors.primary, size: 36),
       );
 }
+
+// ============================================================
+// FOND SKYLINE — arrière-plan décoratif réutilisable
+// ============================================================
+
+class SkylineBackground extends StatelessWidget {
+  final Widget child;
+  final double height;
+  const SkylineBackground({super.key, required this.child, this.height = 220});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned(
+          top: 0, left: 0, right: 0,
+          height: height,
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF002A5C),
+                  Color(0xFF003580),
+                  AppColors.primary,
+                  Color(0xFF0088E0),
+                ],
+                stops: [0.0, 0.3, 0.7, 1.0],
+              ),
+            ),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: -40, right: -30,
+                  child: Container(
+                    width: 160, height: 160,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.06),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 30, right: 60,
+                  child: Container(
+                    width: 80, height: 80,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.04),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 20, left: -20,
+                  child: Container(
+                    width: 120, height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.05),
+                    ),
+                  ),
+                ),
+                Positioned.fill(
+                  child: CustomPaint(painter: SkylinePainter()),
+                ),
+              ],
+            ),
+          ),
+        ),
+        child,
+      ],
+    );
+  }
+}
+
+class SkylinePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.07)
+      ..style = PaintingStyle.fill;
+
+    final w = size.width;
+    final h = size.height;
+
+    final buildings = [
+      _SkyBat(x: 0,       w: 30, h: 55),
+      _SkyBat(x: 28,      w: 22, h: 70),
+      _SkyBat(x: 48,      w: 28, h: 45),
+      _SkyBat(x: 74,      w: 18, h: 80),
+      _SkyBat(x: 90,      w: 35, h: 50),
+      _SkyBat(x: 123,     w: 25, h: 65),
+      _SkyBat(x: 146,     w: 20, h: 90),
+      _SkyBat(x: 164,     w: 30, h: 55),
+      _SkyBat(x: 192,     w: 40, h: 42),
+      _SkyBat(x: 230,     w: 22, h: 75),
+      _SkyBat(x: 250,     w: 28, h: 60),
+      _SkyBat(x: 276,     w: 18, h: 85),
+      _SkyBat(x: 292,     w: 35, h: 48),
+      _SkyBat(x: 325,     w: 25, h: 70),
+      _SkyBat(x: 348,     w: 30, h: 55),
+      _SkyBat(x: w - 60,  w: 35, h: 65),
+      _SkyBat(x: w - 28,  w: 30, h: 48),
+    ];
+
+    for (final b in buildings) {
+      final top = h - b.h;
+      final rect = Rect.fromLTWH(b.x, top, b.w, b.h);
+      canvas.drawRect(rect, paint);
+
+      final winPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.10)
+        ..style = PaintingStyle.fill;
+      const winW = 4.0;
+      const winH = 5.0;
+      const gap = 7.0;
+      int cols = ((b.w - 4) / gap).floor();
+      int rows = ((b.h - 10) / gap).floor().clamp(0, 5);
+      for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+          canvas.drawRect(
+            Rect.fromLTWH(b.x + 4 + c * gap, top + 6 + r * gap, winW, winH),
+            winPaint,
+          );
+        }
+      }
+    }
+
+    final housePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.08)
+      ..style = PaintingStyle.fill;
+    final houseX = w - 130.0;
+    final houseY = h - 80.0;
+    canvas.drawRect(Rect.fromLTWH(houseX, houseY, 60, 50), housePaint);
+    final roofPath = Path()
+      ..moveTo(houseX - 8, houseY)
+      ..lineTo(houseX + 30, houseY - 32)
+      ..lineTo(houseX + 68, houseY)
+      ..close();
+    canvas.drawPath(roofPath, housePaint);
+    canvas.drawRect(
+      Rect.fromLTWH(houseX + 22, houseY + 28, 16, 22),
+      Paint()..color = Colors.white.withValues(alpha: 0.12),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _SkyBat {
+  final double x, w, h;
+  const _SkyBat({required this.x, required this.w, required this.h});
+}

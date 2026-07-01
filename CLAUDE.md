@@ -566,11 +566,18 @@ Pour les annonces multi-photos, les images défilent automatiquement.
 
 ---
 
-## En-tête skyline (accueil visiteur)
+## Fond skyline (arrière-plan partagé)
 
-- Dégradé 4 couleurs + 3 cercles décoratifs
-- `_SkylinePainter` : CustomPainter dessinant une silhouette de ville (bâtiments + fenêtres + maison)
-- Hauteur : 200px, branding « Horem+ » avec ombre portée
+Widget `SkylineBackground` dans `lib/widgets/shared_widgets.dart` — réutilisable sur tous les écrans.
+- Dégradé 4 couleurs (bleu nuit → bleu clair) + 3 cercles décoratifs + silhouette de ville (`SkylinePainter`)
+- Bâtiments avec fenêtres + maison avec toit triangulaire en blanc semi-transparent
+
+| Écran | Hauteur | Notes |
+|-------|---------|-------|
+| Accueil visiteur | 200px | En-tête avec branding « Horem+ » |
+| Dashboard prestataire | 180px | Derrière le profil et les onglets |
+| Formulaire nouvelle annonce | 160px | Fond décoratif derrière le formulaire |
+| Détail annonce visiteur | 200px | Derrière le contenu sous le carrousel photos |
 
 ---
 

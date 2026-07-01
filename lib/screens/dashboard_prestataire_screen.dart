@@ -32,6 +32,7 @@ import 'sponsorisation_screen.dart';
 import 'publier_publicite_screen.dart';
 import 'aide_faq_screen.dart';
 import '../services/publicite_service.dart';
+import '../widgets/shared_widgets.dart' as sw;
 import '../services/notification_service.dart';
 
 // ============================================================
@@ -422,10 +423,12 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
     final totalPhotos = _photosExistantes.length + _photosSelectionnees.length;
     return Scaffold(
       appBar: AppBar(title: Text(widget.logement == null ? _loc.t('dashboard_new_listing') : _loc.t('dashboard_edit_listing'))),
-      body: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+      body: sw.SkylineBackground(
+        height: 160,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -790,6 +793,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
           ),
         ),
       ),
+      ),
     );
   }
 }
@@ -1039,22 +1043,25 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
           ),
         ),
       ),
-      body: Column(
-        children: [
-          _ProfilPrestataireHeader(user: user),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _MesAnnoncesTab(uid: uid),
-                MessagerieScreen(forceUid: uid),
-                _StatistiquesTab(uid: uid),
-                ProfilPrestataireScreen(user: user),
-                _MesPublicitesTab(uid: uid),
-              ],
+      body: sw.SkylineBackground(
+        height: 180,
+        child: Column(
+          children: [
+            _ProfilPrestataireHeader(user: user),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _MesAnnoncesTab(uid: uid),
+                  MessagerieScreen(forceUid: uid),
+                  _StatistiquesTab(uid: uid),
+                  ProfilPrestataireScreen(user: user),
+                  _MesPublicitesTab(uid: uid),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

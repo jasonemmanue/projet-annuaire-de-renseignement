@@ -16,6 +16,7 @@ import '../services/paiement_service.dart';
 import '../l10n/app_localizations.dart';
 import 'messagerie_screen.dart';
 import 'urgence_screen.dart';
+import '../widgets/shared_widgets.dart' as sw;
 
 // ============================================================
 // FICHIER : lib/screens/detail_logement_screen.dart
@@ -296,12 +297,14 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
   Widget build(BuildContext context) {
     final primaryLight = context.appPrimaryLight;
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 300,
-            pinned: true,
-            backgroundColor: AppColors.primary,
+      body: sw.SkylineBackground(
+        height: 200,
+        child: CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              expandedHeight: 300,
+              pinned: true,
+              backgroundColor: AppColors.primary,
             leading: GestureDetector(
               onTap: _quitterAvecPub,
               child: Container(
@@ -984,6 +987,7 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
             ),
           ),
         ],
+      ),
       ),
 
       bottomNavigationBar: Container(

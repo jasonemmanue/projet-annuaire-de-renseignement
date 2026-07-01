@@ -573,7 +573,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
                   ),
                   // ③ Silhouette de ville (skyline) en bas du header
                   Positioned.fill(
-                    child: CustomPaint(painter: _SkylinePainter()),
+                    child: CustomPaint(painter: sw.SkylinePainter()),
                   ),
                   // ④ Contenu textuel
                   Padding(
@@ -1431,102 +1431,6 @@ class _BandeauOffline extends StatelessWidget {
           : const SizedBox.shrink(),
     );
   }
-}
-
-// ─── Peintre de la silhouette de ville (skyline) ───────────────
-class _SkylinePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.07)
-      ..style = PaintingStyle.fill;
-
-    final w = size.width;
-    final h = size.height;
-
-    // Définit les bâtiments comme liste de (x, largeur, hauteur depuis le bas)
-    final buildings = [
-      _Bat(x: 0,       w: 30, h: 55),
-      _Bat(x: 28,      w: 22, h: 70),
-      _Bat(x: 48,      w: 28, h: 45),
-      _Bat(x: 74,      w: 18, h: 80),  // tour
-      _Bat(x: 90,      w: 35, h: 50),
-      _Bat(x: 123,     w: 25, h: 65),
-      _Bat(x: 146,     w: 20, h: 90),  // tour haute
-      _Bat(x: 164,     w: 30, h: 55),
-      _Bat(x: 192,     w: 40, h: 42),
-      _Bat(x: 230,     w: 22, h: 75),
-      _Bat(x: 250,     w: 28, h: 60),
-      _Bat(x: 276,     w: 18, h: 85),
-      _Bat(x: 292,     w: 35, h: 48),
-      _Bat(x: 325,     w: 25, h: 70),
-      _Bat(x: 348,     w: 30, h: 55),
-      _Bat(x: w - 60,  w: 35, h: 65),
-      _Bat(x: w - 28,  w: 30, h: 48),
-    ];
-
-    for (final b in buildings) {
-      final top = h - b.h;
-      final rect = Rect.fromLTWH(b.x, top, b.w, b.h);
-      canvas.drawRect(rect, paint);
-
-      // Petites fenêtres (rectangles plus clairs)
-      final winPaint = Paint()
-        ..color = Colors.white.withValues(alpha: 0.10)
-        ..style = PaintingStyle.fill;
-      const winW = 4.0;
-      const winH = 5.0;
-      const gap = 7.0;
-      int cols = ((b.w - 4) / gap).floor();
-      int rows = ((b.h - 10) / gap).floor().clamp(0, 5);
-      for (int r = 0; r < rows; r++) {
-        for (int c = 0; c < cols; c++) {
-          canvas.drawRect(
-            Rect.fromLTWH(
-              b.x + 4 + c * gap,
-              top + 6 + r * gap,
-              winW,
-              winH,
-            ),
-            winPaint,
-          );
-        }
-      }
-    }
-
-    // Maison avec toit triangulaire (icône principale du fond)
-    final housePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.08)
-      ..style = PaintingStyle.fill;
-
-    // Corps de la maison — positionné à droite
-    final houseX = w - 130.0;
-    final houseY = h - 80.0;
-    canvas.drawRect(
-      Rect.fromLTWH(houseX, houseY, 60, 50),
-      housePaint,
-    );
-    // Toit triangulaire
-    final roofPath = Path()
-      ..moveTo(houseX - 8, houseY)
-      ..lineTo(houseX + 30, houseY - 32)
-      ..lineTo(houseX + 68, houseY)
-      ..close();
-    canvas.drawPath(roofPath, housePaint);
-    // Porte
-    canvas.drawRect(
-      Rect.fromLTWH(houseX + 22, houseY + 28, 16, 22),
-      Paint()..color = Colors.white.withValues(alpha: 0.12),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _Bat {
-  final double x, w, h;
-  const _Bat({required this.x, required this.w, required this.h});
 }
 
 class _Suggestion {
