@@ -621,9 +621,13 @@ class _FicheResume extends StatelessWidget {
                           style: AppTextStyles.bodyMedium),
                       const SizedBox(height: 4),
                       Row(children: [
-                        Text(logement.prixLabel,
-                            style:
-                                AppTextStyles.price.copyWith(fontSize: 16)),
+                        Flexible(
+                          child: Text(logement.prixLabel,
+                              style:
+                                  AppTextStyles.price.copyWith(fontSize: 16),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
                         const SizedBox(width: 8),
                         if (logement.estVerifie)
                           const Icon(Icons.verified,
