@@ -63,6 +63,7 @@ prestatireId, prestatireNom, prestatirePhone,   ← contact prestataire (rempli 
 joursGarde: List<String>,                        ← pour pharmacies / services
 heureOuverture, heureFermeture,                  ← pour pharmacies / services
 visibiliteExpiry: Timestamp,                     ← date expiration visibilité annuelle
+publicationExpiry: Timestamp,                    ← date expiration publication standard (30 jours)
 uid_prestataire                                  ← id Firebase Auth du prestataire
 ```
 
@@ -493,6 +494,92 @@ flutter build apk --release
 cd C:\Users\hp\StudioProjects\Immoconnect_admin
 git add -A && git commit -m "..." && git push
 ```
+
+---
+
+## Publication standard & dégradation de priorité
+
+### Cycle de vie d'une annonce
+
+```
+Publication (paiement commission %)
+    │
+    ▼
+  Visible 30 jours (priorité haute = 1)
+    │  pharmacies = toujours actives, pas de paiement
+    │
+    ├── Si sponsorisée → priorité maximale (0) tant que sponsoring actif
+    │
+    ▼ après 30 jours
+  Publication expirée → priorité basse (2)
+  L'annonce reste visible mais descend dans les résultats
+```
+
+### Getters du modèle `Logement` (`models.dart`)
+
+| Getter | Description |
+|--------|-------------|
+| `estPublicationActive` | `true` si pharmacie, ou si `publicationExpiry` est dans le futur (ou null) |
+| `estPublicationExpiree` | `true` si `publicationExpiry` est dans le passé |
+| `prioriteAffichage` | `0` = sponsorisé, `1` = publication active, `2` = expiré |
+| `estVisiblePourVisiteur` | `disponible && !paymentPending` (ne masque plus les expirés) |
+
+### Cloud Function `initierPublication`
+- URL : `https://initierpublication-qhxw7o6nha-uc.a.run.app`
+- Paramètres : `telephone`, `operateur`, `logementId`, `montant`
+- Webhook type `'publication'` → fixe `disponible: true`, `publicationExpiry: now + 30j`, supprime `paymentPending`
+
+### Sponsorisation (séparée de la publication)
+Le sponsoring ne contrôle plus `disponible` ni `paymentPending`. Il fixe uniquement :
+- `isSponsored: true`, `sponsoredAt`, `sponsoredUntil` (selon durée 1s/2s/1m)
+
+---
+
+## Recherche par budget (accueil visiteur)
+
+Le visiteur peut rechercher par prix en tapant un montant dans la barre de recherche.
+- Exemples : « chambre 10000 », « 25k », « studio 50 000 »
+- Parsing : `_extraireBudget()` dans `accueil_screen.dart`
+- Formats supportés : `10000`, `10 000`, `25k`, `25K`
+- Tolérance : ±10 % du montant extrait
+- Combinable avec le texte (filtre type + budget simultanément)
+
+---
+
+## Carte — marqueurs colorés avec noms
+
+Les marqueurs sur la carte affichent le nom de l'annonce dans une bulle colorée.
+- Couleurs par type : Chambre=bleu, Studio=violet, Appartement=orange, Villa=vert foncé, etc.
+- Rendu via `ui.PictureRecorder` + `Canvas` → `BitmapDescriptor`
+- Cache des icônes (`_iconCache`) pour éviter la re-génération
+- Construction asynchrone (`_buildMarkersAsync`)
+
+---
+
+## Défilement automatique des photos (détail annonce)
+
+Pour les annonces multi-photos, les images défilent automatiquement.
+- Timer : démarre 2s après ouverture, cycle toutes les 4s
+- Animation : 600ms `easeInOut`
+- Reset : le timer redémarre si l'utilisateur swipe manuellement
+- Fichier : `detail_logement_screen.dart`
+
+---
+
+## En-tête skyline (accueil visiteur)
+
+- Dégradé 4 couleurs + 3 cercles décoratifs
+- `_SkylinePainter` : CustomPainter dessinant une silhouette de ville (bâtiments + fenêtres + maison)
+- Hauteur : 200px, branding « SGK HOME » avec ombre portée
+
+---
+
+## Jours de garde pharmacies (détail annonce)
+
+Les jours de garde saisis lors de la publication s'affichent sous le bandeau horaires.
+- Badges bleus avec icône calendrier
+- Visible uniquement si `joursGarde` non vide
+- Clé i18n : `detail_guard_days`
 
 ---
 

@@ -59,11 +59,13 @@ class LogementService {
     }
 
     final snap = await q.get();
-    return snap.docs
+    final list = snap.docs
         .map((d) => Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
-        // Côté visiteur : exclut brouillons en attente de paiement et annonces masquées.
         .where((l) => l.estVisiblePourVisiteur)
         .toList();
+    // Tri par priorité : sponsorisé → publication active → expiré
+    list.sort((a, b) => a.prioriteAffichage.compareTo(b.prioriteAffichage));
+    return list;
   }
 
   // Logements d'un prestataire

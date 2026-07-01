@@ -12,8 +12,8 @@ class UserModel {
   final bool isPremium;
   final String? photoUrl;
   final String? fcmToken;
-  final bool isVerifie;    // ✅ Badge vérifié admin
-  final bool phoneVerified; // ✅ Téléphone validé par OTP au moins une fois
+  final bool isVerifie;
+  final bool phoneVerified;
   final DateTime? premiumExpiry;
   final DateTime? phoneVerifiedAt;
 

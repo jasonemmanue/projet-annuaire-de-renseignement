@@ -1429,12 +1429,76 @@ class _AnnonceCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 10),
+                _buildPublicationZone(context),
+                const SizedBox(height: 8),
                 _buildSponsorZone(context),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPublicationZone(BuildContext context) {
+    final l = logement;
+    if (l.typeBien == 'Pharmacie') return const SizedBox.shrink();
+    if (l.paymentPending) return const SizedBox.shrink();
+
+    final expiry = l.publicationExpiry;
+    if (expiry == null) return const SizedBox.shrink();
+
+    final expiree = l.estPublicationExpiree;
+    final dateStr = '${expiry.day.toString().padLeft(2, '0')}/${expiry.month.toString().padLeft(2, '0')}/${expiry.year}';
+
+    if (expiree) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.warning.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+        ),
+        child: Row(children: [
+          const Icon(Icons.schedule, size: 16, color: AppColors.warning),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Publication expirée le $dateStr — priorité réduite',
+              style: const TextStyle(
+                color: AppColors.warning,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ]),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.success.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.check_circle_outline, size: 16, color: AppColors.success),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            'Active jusqu\'au $dateStr',
+            style: const TextStyle(
+              color: AppColors.success,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ]),
     );
   }
 }

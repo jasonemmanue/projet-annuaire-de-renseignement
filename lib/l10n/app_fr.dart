@@ -547,6 +547,9 @@ const Map<String, String> frStrings = {
   'dashboard_sponsored_until': 'Sponsorisé jusqu\'au',
   'dashboard_sponsored': 'Sponsorisé',
   'dashboard_sponsor_btn': 'Sponsoriser',
+  'dashboard_pub_active_until': 'Active jusqu\'au',
+  'dashboard_pub_expired': 'Publication expirée — priorité réduite',
+  'dashboard_pub_renew': 'Renouveler (1 mois)',
 
   // ── Formulaire Annonce ─────────────────────────────────────
   'form_photos': 'Photos du bien',

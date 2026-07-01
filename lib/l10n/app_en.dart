@@ -546,6 +546,9 @@ const Map<String, String> enStrings = {
   'dashboard_sponsored_until': 'Sponsored until',
   'dashboard_sponsored': 'Sponsored',
   'dashboard_sponsor_btn': 'Sponsor',
+  'dashboard_pub_active_until': 'Active until',
+  'dashboard_pub_expired': 'Publication expired',
+  'dashboard_pub_renew': 'Renew',
 
   // ── Formulaire Annonce ─────────────────────────────────────
   'form_photos': 'Property photos',

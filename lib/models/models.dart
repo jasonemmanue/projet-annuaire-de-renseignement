@@ -39,12 +39,26 @@ class Logement {
   final DateTime? visibiliteExpiry; // Fin de la visibilité annuelle (entreprise/restaurant/école)
   final DateTime? publicationExpiry; // Fin de la visibilité 1 mois après publication (immobilier)
 
-  /// Annonce visible côté visiteur : disponible, paiement validé, et non expirée.
-  bool get estVisiblePourVisiteur {
-    if (!disponible || paymentPending) return false;
+  /// Annonce visible côté visiteur : disponible et paiement validé.
+  /// Les annonces expirées restent visibles mais avec une priorité réduite.
+  bool get estVisiblePourVisiteur => disponible && !paymentPending;
+
+  /// Publication standard encore dans sa période d'1 mois.
+  bool get estPublicationActive {
     if (typeBien == 'Pharmacie') return true;
-    if (publicationExpiry != null && publicationExpiry!.isBefore(DateTime.now())) return false;
-    return true;
+    if (publicationExpiry == null) return true;
+    return publicationExpiry!.isAfter(DateTime.now());
+  }
+
+  /// Publication dont le mois est écoulé (priorité réduite).
+  bool get estPublicationExpiree =>
+      publicationExpiry != null && publicationExpiry!.isBefore(DateTime.now());
+
+  /// Priorité d'affichage : 0 = sponsorisé (top), 1 = actif, 2 = expiré (bas).
+  int get prioriteAffichage {
+    if (estSponsorie) return 0;
+    if (estPublicationActive) return 1;
+    return 2;
   }
 
   const Logement({

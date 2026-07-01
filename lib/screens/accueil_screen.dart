@@ -298,6 +298,8 @@ class _AccueilScreenState extends State<AccueilScreen> {
       result = result.where((l) => l.estVerifie).toList();
     }
 
+    // Tri par priorité : sponsorisé → publication active → expiré
+    result.sort((a, b) => a.prioriteAffichage.compareTo(b.prioriteAffichage));
     return result;
   }
 
