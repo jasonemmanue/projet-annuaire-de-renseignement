@@ -613,11 +613,10 @@ class SectionTitle extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // ✅ CORRIGE ligne 393 : Flexible pour eviter overflow sur titre long
           Flexible(
             child: Text(
               title,
-              style: AppTextStyles.h3,
+              style: AppTextStyles.h3.copyWith(color: Colors.white),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -630,7 +629,7 @@ class SectionTitle extends StatelessWidget {
                 child: Text(
                   AppLocalizations.of(context).t('accueil_see_all'),
                   style: const TextStyle(
-                    color: AppColors.primary,
+                    color: Colors.white70,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1040,74 +1039,82 @@ class _PubPhotoPlaceholder extends StatelessWidget {
 }
 
 // ============================================================
-// FOND SKYLINE — arrière-plan décoratif réutilisable
+// FOND SKYLINE — arrière-plan décoratif pleine page
 // ============================================================
 
 class SkylineBackground extends StatelessWidget {
   final Widget child;
-  final double height;
-  const SkylineBackground({super.key, required this.child, this.height = 220});
+  const SkylineBackground({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Stack(
       children: [
-        Positioned(
-          top: 0, left: 0, right: 0,
-          height: height,
+        // ① Gradient pleine page
+        Positioned.fill(
           child: Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFF002A5C),
-                  Color(0xFF003580),
-                  AppColors.primary,
-                  Color(0xFF0088E0),
-                ],
-                stops: [0.0, 0.3, 0.7, 1.0],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: isDark
+                    ? [
+                        const Color(0xFF001B3A),
+                        const Color(0xFF002A5C),
+                        const Color(0xFF001530),
+                      ]
+                    : [
+                        const Color(0xFF002A5C),
+                        const Color(0xFF003580),
+                        AppColors.primary,
+                        const Color(0xFF0088E0),
+                      ],
+                stops: isDark
+                    ? [0.0, 0.4, 1.0]
+                    : [0.0, 0.25, 0.6, 1.0],
               ),
-            ),
-            child: Stack(
-              children: [
-                Positioned(
-                  top: -40, right: -30,
-                  child: Container(
-                    width: 160, height: 160,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.06),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 30, right: 60,
-                  child: Container(
-                    width: 80, height: 80,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.04),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 20, left: -20,
-                  child: Container(
-                    width: 120, height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.05),
-                    ),
-                  ),
-                ),
-                Positioned.fill(
-                  child: CustomPaint(painter: SkylinePainter()),
-                ),
-              ],
             ),
           ),
         ),
+        // ② Cercles décoratifs
+        Positioned(
+          top: -40, right: -30,
+          child: Container(
+            width: 160, height: 160,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.06),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 200, left: -40,
+          child: Container(
+            width: 180, height: 180,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.03),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: 100, right: -20,
+          child: Container(
+            width: 140, height: 140,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.04),
+            ),
+          ),
+        ),
+        // ③ Skyline en filigrane en bas
+        Positioned(
+          left: 0, right: 0, bottom: 0,
+          height: 120,
+          child: CustomPaint(painter: SkylinePainter()),
+        ),
+        // ④ Contenu
         child,
       ],
     );
@@ -1146,15 +1153,12 @@ class SkylinePainter extends CustomPainter {
 
     for (final b in buildings) {
       final top = h - b.h;
-      final rect = Rect.fromLTWH(b.x, top, b.w, b.h);
-      canvas.drawRect(rect, paint);
+      canvas.drawRect(Rect.fromLTWH(b.x, top, b.w, b.h), paint);
 
       final winPaint = Paint()
         ..color = Colors.white.withValues(alpha: 0.10)
         ..style = PaintingStyle.fill;
-      const winW = 4.0;
-      const winH = 5.0;
-      const gap = 7.0;
+      const winW = 4.0, winH = 5.0, gap = 7.0;
       int cols = ((b.w - 4) / gap).floor();
       int rows = ((b.h - 10) / gap).floor().clamp(0, 5);
       for (int r = 0; r < rows; r++) {

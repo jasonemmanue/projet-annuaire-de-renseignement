@@ -426,9 +426,9 @@ class _AccueilScreenState extends State<AccueilScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: SafeArea(
-        child: Column(
+      body: sw.SkylineBackground(
+        child: SafeArea(
+          child: Column(
           children: [
             // ① Bandeau offline – toujours visible au-dessus du scroll
             _BandeauOffline(
@@ -446,6 +446,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
                   : _buildCorps(),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -518,65 +519,10 @@ class _AccueilScreenState extends State<AccueilScreen> {
           SliverAppBar(
             expandedHeight: 200,
             pinned: true,
-            backgroundColor: AppColors.primary,
+            backgroundColor: Colors.transparent,
             actions: [_buildMessagesBtn(), const _LanguageSelector()],
             flexibleSpace: FlexibleSpaceBar(
-              background: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // ① Gradient de fond riche
-                  Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color(0xFF002A5C), // bleu nuit profond
-                          Color(0xFF003580), // AppColors.primaryDark
-                          AppColors.primary,
-                          Color(0xFF0088E0), // bleu clair lumineux
-                        ],
-                        stops: [0.0, 0.3, 0.7, 1.0],
-                      ),
-                    ),
-                  ),
-                  // ② Cercles décoratifs en arrière-plan (effet lumière)
-                  Positioned(
-                    top: -40, right: -30,
-                    child: Container(
-                      width: 160, height: 160,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.06),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 30, right: 60,
-                    child: Container(
-                      width: 80, height: 80,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.04),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 60, left: -20,
-                    child: Container(
-                      width: 120, height: 120,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.05),
-                      ),
-                    ),
-                  ),
-                  // ③ Silhouette de ville (skyline) en bas du header
-                  Positioned.fill(
-                    child: CustomPaint(painter: sw.SkylinePainter()),
-                  ),
-                  // ④ Contenu textuel
-                  Padding(
+              background: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 60),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -647,8 +593,6 @@ class _AccueilScreenState extends State<AccueilScreen> {
                       ],
                     ),
                   ),
-                ],
-              ),
             ),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(56),

@@ -566,18 +566,22 @@ Pour les annonces multi-photos, les images défilent automatiquement.
 
 ---
 
-## Fond skyline (arrière-plan partagé)
+## Fond skyline (arrière-plan pleine page)
 
-Widget `SkylineBackground` dans `lib/widgets/shared_widgets.dart` — réutilisable sur tous les écrans.
-- Dégradé 4 couleurs (bleu nuit → bleu clair) + 3 cercles décoratifs + silhouette de ville (`SkylinePainter`)
-- Bâtiments avec fenêtres + maison avec toit triangulaire en blanc semi-transparent
+Widget `SkylineBackground` dans `lib/widgets/shared_widgets.dart` — fond décoratif pleine page.
+- Gradient vertical pleine page (bleu nuit → bleu clair) couvrant tout l'écran
+- 3 cercles décoratifs en filigrane (haut-droite, milieu-gauche, bas-droite)
+- Silhouette de ville (`SkylinePainter`) en bas de page en filigrane
+- Support mode clair (bleu 4 couleurs) et mode sombre (bleu nuit 3 couleurs)
 
-| Écran | Hauteur | Notes |
-|-------|---------|-------|
-| Accueil visiteur | 200px | En-tête avec branding « Horem+ » |
-| Dashboard prestataire | 180px | Derrière le profil et les onglets |
-| Formulaire nouvelle annonce | 160px | Fond décoratif derrière le formulaire |
-| Détail annonce visiteur | 200px | Derrière le contenu sous le carrousel photos |
+| Écran | Contenu | Adaptation |
+|-------|---------|------------|
+| Accueil visiteur | SliverAppBar transparent, chips et cards par-dessus | Titres de section en blanc |
+| Dashboard prestataire | Profil + onglets + cards annonces | Cards opaques, "aucune annonce" en blanc |
+| Formulaire nouvelle annonce | Card semi-transparente (88% opacité) | Labels/champs lisibles sur fond blanc |
+| Détail annonce visiteur | Carrousel photos + contenu arrondi 85% opacité | Coin arrondi en haut du contenu |
+
+> **Règle** : les cards de contenu (`cardColor`) restent opaques pour la lisibilité. Le skyline est visible dans les marges et en haut/bas de page.
 
 ---
 

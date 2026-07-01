@@ -424,16 +424,21 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
     return Scaffold(
       appBar: AppBar(title: Text(widget.logement == null ? _loc.t('dashboard_new_listing') : _loc.t('dashboard_edit_listing'))),
       body: sw.SkylineBackground(
-        height: 160,
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+          child: Container(
             padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(_loc.t('form_photos'),
-                  style: AppTextStyles.h3.copyWith(color: Colors.white)),
+            decoration: BoxDecoration(
+              color: (Theme.of(context).brightness == Brightness.dark
+                  ? Colors.black : Colors.white).withValues(alpha: 0.88),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_loc.t('form_photos'), style: AppTextStyles.h3),
               const SizedBox(height: 8),
               if (totalPhotos > 0)
                 SizedBox(
@@ -456,41 +461,17 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
               if (totalPhotos < 6)
                 Row(children: [
                   Expanded(child: OutlinedButton.icon(onPressed: _choisirPhotos,
-                      icon: const Icon(Icons.photo_library, color: Colors.white),
-                      label: Text(_loc.t('form_gallery')),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white70),
-                      ))),
+                      icon: const Icon(Icons.photo_library), label: Text(_loc.t('form_gallery')))),
                   const SizedBox(width: 8),
                   Expanded(child: OutlinedButton.icon(onPressed: _prendrePhoto,
-                      icon: const Icon(Icons.camera_alt, color: Colors.white),
-                      label: Text(_loc.t('form_camera')),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white70),
-                      ))),
+                      icon: const Icon(Icons.camera_alt), label: Text(_loc.t('form_camera')))),
                 ]),
-              Text('$totalPhotos/6 photos',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              Text('$totalPhotos/6 photos', style: const TextStyle(color: AppColors.textHint, fontSize: 12)),
               const SizedBox(height: 20),
-              Text(_loc.t('form_title_field'),
-                  style: AppTextStyles.h3.copyWith(color: Colors.white)),
+              Text(_loc.t('form_title_field'), style: AppTextStyles.h3),
               const SizedBox(height: 8),
               TextFormField(controller: _titreCtrl,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: _loc.t('form_title_hint'),
-                    hintStyle: const TextStyle(color: Colors.white54),
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: Colors.white38),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderSide: const BorderSide(color: Colors.white),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
+                  decoration: InputDecoration(hintText: _loc.t('form_title_hint')),
                   validator: (v) => v!.isEmpty ? _loc.t('form_required') : null),
               const SizedBox(height: 16),
               // ── Type de bien ──────────────────────────────────
@@ -816,6 +797,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
               const SizedBox(height: 40),
             ],
           ),
+          ),
         ),
       ),
       ),
@@ -1069,7 +1051,6 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
         ),
       ),
       body: sw.SkylineBackground(
-        height: 180,
         child: Column(
           children: [
             _ProfilPrestataireHeader(user: user),
@@ -1206,13 +1187,13 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.home_work_outlined, size: 64, color: AppColors.textHint),
+                Icon(Icons.home_work_outlined, size: 64, color: Colors.white.withValues(alpha: 0.5)),
                 const SizedBox(height: 16),
                 Text(_loc.t('dashboard_no_listings'),
-                    style: const TextStyle(fontSize: 16)),
+                    style: const TextStyle(fontSize: 16, color: Colors.white)),
                 const SizedBox(height: 8),
                 Text(_loc.t('dashboard_no_listings_hint'),
-                    style: const TextStyle(fontSize: 13)),
+                    style: const TextStyle(fontSize: 13, color: Colors.white70)),
               ],
             ),
           );

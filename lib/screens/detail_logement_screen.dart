@@ -298,7 +298,6 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     final primaryLight = context.appPrimaryLight;
     return Scaffold(
       body: sw.SkylineBackground(
-        height: 200,
         child: CustomScrollView(
           slivers: [
             SliverAppBar(
@@ -493,7 +492,11 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
 
           SliverToBoxAdapter(
             child: Container(
-              color: Theme.of(context).scaffoldBackgroundColor,
+              decoration: BoxDecoration(
+                color: (Theme.of(context).brightness == Brightness.dark
+                    ? Colors.black : Colors.white).withValues(alpha: 0.85),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
