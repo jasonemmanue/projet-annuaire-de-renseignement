@@ -147,24 +147,30 @@ class _FavorisScreenState extends State<FavorisScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text(l.t('favoris_title')),
+        title: Text(l.t('favoris_title'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         actions: [
           if (_stream == null && !_chargement)
             IconButton(
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh, color: Colors.white),
               tooltip: l.t('common_refresh'),
               onPressed: () => _charger(forceRefresh: true),
             ),
         ],
       ),
-      body: Column(
-        children: [
-          _BandeauHorsConnexion(visible: _horsConnexion),
-          if (_erreur != null)
-            _BandeauErreur(message: _erreur!, onRetry: _charger),
-          Expanded(child: _buildCorps()),
-        ],
+      body: sw.SkylineBackground(
+        child: Column(
+          children: [
+            SizedBox(height: MediaQuery.of(context).padding.top + kToolbarHeight),
+            _BandeauHorsConnexion(visible: _horsConnexion),
+            if (_erreur != null)
+              _BandeauErreur(message: _erreur!, onRetry: _charger),
+            Expanded(child: _buildCorps()),
+          ],
+        ),
       ),
     );
   }

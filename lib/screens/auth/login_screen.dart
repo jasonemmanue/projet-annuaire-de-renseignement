@@ -47,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen>
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
@@ -305,13 +305,13 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 16),
-            Text(l.t('login_phone_enter'), style: AppTextStyles.h3),
+            Text(l.t('login_phone_enter'), style: AppTextStyles.h3.copyWith(color: context.appTextPrimary)),
             const SizedBox(height: 12),
             // Bandeau info prestataire
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: AppColors.primaryLight,
+                color: AppColors.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(children: [
@@ -355,7 +355,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
               onPressed: (_isLoading || _isLocked) ? null : _envoyerCode,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
-                disabledBackgroundColor: Colors.grey.shade300,
+                disabledBackgroundColor: Theme.of(context).disabledColor.withValues(alpha: 0.2),
               ),
               child: _isLoading
                   ? const _Spinner()
@@ -378,12 +378,12 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 16),
-            Text(l.t('login_otp_title'), style: AppTextStyles.h3),
+            Text(l.t('login_otp_title'), style: AppTextStyles.h3.copyWith(color: context.appTextPrimary)),
             const SizedBox(height: 8),
             RichText(
               text: TextSpan(
                 style: AppTextStyles.bodyMedium
-                    .copyWith(color: AppColors.textSecondary),
+                    .copyWith(color: context.appTextSecondary),
                 children: [
                   TextSpan(text: l.t('login_otp_sent_to')),
                   TextSpan(
@@ -397,7 +397,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
             ),
             const SizedBox(height: 4),
             Text(l.t('login_otp_enter'),
-                style: AppTextStyles.caption),
+                style: AppTextStyles.caption.copyWith(color: context.appTextSecondary)),
             const SizedBox(height: 20),
             _OtpField(controller: _otpCtrl),
             if (_errorMessage != null) ...[
@@ -414,7 +414,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
               onPressed: (_isLoading || _isLocked) ? null : _verifierCode,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
-                disabledBackgroundColor: Colors.grey.shade300,
+                disabledBackgroundColor: Theme.of(context).disabledColor.withValues(alpha: 0.2),
               ),
               child: _isLoading
                   ? const _Spinner()
@@ -427,7 +427,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
                   ? Text(
                       '${l.t('login_otp_resend_in')} ${_resendSeconds}s',
                       style: AppTextStyles.bodyMedium
-                          .copyWith(color: AppColors.textSecondary),
+                          .copyWith(color: context.appTextSecondary),
                     )
                   : TextButton(
                       onPressed: _isLoading ? null : _envoyerCode,
@@ -445,7 +445,7 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
                 }),
                 child: Text(
                   l.t('login_otp_change_number'),
-                  style: const TextStyle(color: AppColors.textSecondary),
+                  style: TextStyle(color: context.appTextSecondary),
                 ),
               ),
             ),
@@ -692,7 +692,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: AppColors.primaryLight,
+                color: AppColors.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(children: [
@@ -741,7 +741,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
                   ),
                 ]),
                 Text(l.t('login_profile_photo'),
-                    style: AppTextStyles.caption),
+                    style: AppTextStyles.caption.copyWith(color: context.appTextSecondary)),
               ]),
             ),
             const SizedBox(height: 16),
@@ -792,7 +792,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
             ),
             const SizedBox(height: 6),
             Text(l.t('login_register_otp_info'),
-                style: AppTextStyles.caption),
+                style: AppTextStyles.caption.copyWith(color: context.appTextSecondary)),
 
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
@@ -822,8 +822,8 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
                         MaterialPageRoute(builder: (_) => const CguScreen())),
                     child: RichText(
                       text: TextSpan(
-                        style: const TextStyle(
-                            fontSize: 12, color: AppColors.textSecondary),
+                        style: TextStyle(
+                            fontSize: 12, color: context.appTextSecondary),
                         children: [
                           TextSpan(text: l.t('login_terms')),
                           TextSpan(
@@ -846,7 +846,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
               onPressed: (_isLoading || _isLocked) ? null : _envoyerCode,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
-                disabledBackgroundColor: Colors.grey.shade300,
+                disabledBackgroundColor: Theme.of(context).disabledColor.withValues(alpha: 0.2),
               ),
               child: _isLoading
                   ? const _Spinner()
@@ -870,7 +870,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 16),
-            Text(l.t('login_otp_title'), style: AppTextStyles.h3),
+            Text(l.t('login_otp_title'), style: AppTextStyles.h3.copyWith(color: context.appTextPrimary)),
             const SizedBox(height: 8),
             RichText(
               text: TextSpan(
@@ -905,7 +905,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
               onPressed: (_isLoading || _isLocked) ? null : _verifierCode,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
-                disabledBackgroundColor: Colors.grey.shade300,
+                disabledBackgroundColor: Theme.of(context).disabledColor.withValues(alpha: 0.2),
               ),
               child: _isLoading
                   ? const _Spinner()
@@ -918,7 +918,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
                   ? Text(
                       '${l.t('login_otp_resend_in')} ${_resendSeconds}s',
                       style: AppTextStyles.bodyMedium
-                          .copyWith(color: AppColors.textSecondary),
+                          .copyWith(color: context.appTextSecondary),
                     )
                   : TextButton(
                       onPressed: _isLoading ? null : _envoyerCode,
@@ -936,7 +936,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
                 }),
                 child: Text(
                   l.t('login_otp_change_number'),
-                  style: const TextStyle(color: AppColors.textSecondary),
+                  style: TextStyle(color: context.appTextSecondary),
                 ),
               ),
             ),
@@ -997,9 +997,7 @@ class _OtpFieldState extends State<_OtpField> {
                   width: 46,
                   height: 58,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? const Color(0xFF1E2D3D)
-                        : AppColors.background,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: active
@@ -1080,21 +1078,21 @@ class _ErrorBanner extends StatelessWidget {
       padding:
           const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        border: Border.all(color: Colors.red.shade200),
+        color: AppColors.error.withValues(alpha: 0.1),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(Icons.error_outline,
-              color: Colors.red.shade700, size: 18),
+              color: AppColors.error, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
               style: TextStyle(
-                  color: Colors.red.shade700,
+                  color: AppColors.error,
                   fontSize: 13,
                   height: 1.4),
             ),
@@ -1122,21 +1120,21 @@ class _LockBanner extends StatelessWidget {
       padding:
           const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        border: Border.all(color: Colors.red.shade200),
+        color: AppColors.error.withValues(alpha: 0.1),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(Icons.lock_clock,
-              color: Colors.red.shade700, size: 18),
+              color: AppColors.error, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               '${l.t('login_locked_prefix')}\n$retry',
               style: TextStyle(
-                  color: Colors.red.shade700,
+                  color: AppColors.error,
                   fontSize: 13,
                   height: 1.4),
             ),
@@ -1161,8 +1159,8 @@ class _DebugDiagBanner extends StatelessWidget {
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        border: Border.all(color: Colors.orange.shade300),
+        color: Colors.orange.withValues(alpha: 0.1),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(

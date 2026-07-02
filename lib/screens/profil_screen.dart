@@ -282,34 +282,31 @@ class _ProfilScreenState extends State<ProfilScreen> {
 
               if (!widget.isPrestataire && widget.onPrestataireAcces != null) ...[
                 const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 0),
-                  child: Column(
-                    children: [
-                      Text(
-                        l.t('profil_prestataire_question'),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                          fontStyle: FontStyle.italic,
-                        ),
+                Column(
+                  children: [
+                    Text(
+                      l.t('profil_prestataire_question'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontStyle: FontStyle.italic,
                       ),
-                      const SizedBox(height: 10),
-                      ElevatedButton.icon(
-                        onPressed: widget.onPrestataireAcces,
-                        icon: const Icon(Icons.business_center_outlined),
-                        label: Text(l.t('prestataire_access')),
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 50),
-                          backgroundColor: Colors.white,
-                          foregroundColor: AppColors.primary,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                        ),
+                    ),
+                    const SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      onPressed: widget.onPrestataireAcces,
+                      icon: const Icon(Icons.business_center_outlined),
+                      label: Text(l.t('prestataire_access')),
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        backgroundColor: Colors.white.withValues(alpha: 0.9),
+                        foregroundColor: AppColors.primary,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ],
 
