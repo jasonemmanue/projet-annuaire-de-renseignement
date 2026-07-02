@@ -2406,7 +2406,6 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
           if (u != null) ...[
             _InfoRowProfil(icon: Icons.person_outline, label: _loc.t('prest_info_name'),
                 value: '${u.prenom} ${u.nom}'.trim()),
-            _InfoRowProfil(icon: Icons.email_outlined, label: _loc.t('prest_info_email'), value: u.email ?? ''),
             if (u.telephone.isNotEmpty)
               _InfoRowProfil(icon: Icons.phone_outlined, label: _loc.t('prest_info_phone'), value: u.telephone),
           ],
