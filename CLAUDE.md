@@ -427,12 +427,13 @@ Accessible uniquement aux utilisateurs avec `role == 'admin'` dans Firestore.
 **Déploiement cible :** Railway (`railway.app`)
 
 Pages disponibles :
-- `/dashboard` — statistiques globales
+- `/dashboard` — statistiques globales (inclut compteur alertes urgence actives)
 - `/dashboard/annonces` — modération annonces (valider, rejeter, sponsoriser)
 - `/dashboard/notifications` — nouvelles publications prestataires (depuis `admin_notifications`)
 - `/dashboard/utilisateurs` — liste utilisateurs
-- `/dashboard/transactions` — historique paiements
+- `/dashboard/transactions` — historique paiements (inclut type `urgence`)
 - `/dashboard/conversations` — messagerie
+- `/dashboard/urgences` — alertes prioritaires visiteurs (statut, budget, type, expiration)
 - `/dashboard/signalements` — signalements
 - `/dashboard/spots` — publicités actives
 
@@ -577,7 +578,9 @@ Widget `SkylineBackground` dans `lib/widgets/shared_widgets.dart` — fond déco
 | Écran | Contenu | Adaptation |
 |-------|---------|------------|
 | Accueil visiteur | SliverAppBar transparent, chips et cards par-dessus | Titres de section en blanc |
-| Dashboard prestataire | Profil + onglets + cards annonces | Cards opaques, "aucune annonce" en blanc |
+| Dashboard prestataire | Onglets + cards annonces | Cards opaques, "aucune annonce" en blanc |
+| Profil prestataire | Sections arrondies indépendantes (88% opacité) | Titres section en blanc, pas de champ email |
+| Profil visiteur | Sections arrondies indépendantes (88% opacité) | En-tête carte arrondie, bouton prestataire blanc |
 | Formulaire nouvelle annonce | Card semi-transparente (88% opacité) | Labels/champs lisibles sur fond blanc |
 | Détail annonce visiteur | Carrousel photos + contenu arrondi 85% opacité | Coin arrondi en haut du contenu |
 
