@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/notification_service.dart';
+import '../widgets/shared_widgets.dart' as sw;
 import 'auth/login_screen.dart';
 import 'aide_faq_screen.dart';
 import 'legal/cgu_screen.dart';
@@ -73,240 +74,251 @@ class _ProfilScreenState extends State<ProfilScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(l.t('profil_title'))),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // ─── EN-TÊTE PROFIL ─────────────────────────────────
-            _EnteteProfil(
-              utilisateur: widget.utilisateur,
-              isPrestataire: widget.isPrestataire,
-            ),
-
-            const SizedBox(height: 16),
-
-            // ─── BLOC CONNEXION (si non prestataire) ────────────
-            if (!widget.isPrestataire)
-              _Section(
-                title: l.t('profil_prestataire_account'),
-                children: [
-                  _OptionTile(
-                    icon: Icons.home_work_outlined,
-                    label: l.t('profil_publish'),
-                    sublabel: l.t('profil_publish_sub'),
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen(isInscription: true))),
-                  ),
-                  _OptionTile(
-                    icon: Icons.login,
-                    label: l.t('profil_login'),
-                    sublabel: l.t('profil_login_sub'),
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen())),
-                  ),
-                ],
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        title: Text(l.t('profil_title'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: sw.SkylineBackground(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + kToolbarHeight + 8, left: 16, right: 16, bottom: 40),
+          child: Column(
+            children: [
+              _EnteteProfil(
+                utilisateur: widget.utilisateur,
+                isPrestataire: widget.isPrestataire,
               ),
 
-            // ─── INFORMATIONS PERSONNELLES (prestataires) ───────
-            if (widget.isPrestataire && widget.utilisateur != null)
-              _Section(
-                title: l.t('profil_my_info'),
-                children: [
-                  _InfoTile(label: 'Nom', value: widget.utilisateur!.nomComplet),
-                  _InfoTile(label: 'Email', value: widget.utilisateur?.email ?? ''),
-                  _InfoTile(label: 'Téléphone', value: widget.utilisateur!.telephone),
-                  _OptionTile(
-                    icon: Icons.edit_outlined,
-                    label: l.t('profil_edit'),
-                    onTap: () => _modifierProfil(context),
-                  ),
-                ],
-              ),
+              const SizedBox(height: 12),
 
-            // ─── LANGUE (§4.1.7 FR/EN) ──────────────────────────
-            _Section(
-              title: l.t('profil_language_section'),
-              children: [
-                ListTile(
-                  leading: Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
-                    child: const Icon(Icons.language, color: AppColors.primary, size: 20),
-                  ),
-                  title: Text(l.t('profil_language'), style: AppTextStyles.bodyLarge),
-                  subtitle: Text(_langue, style: AppTextStyles.bodyMedium),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-                  onTap: () => _choisirLangue(context),
-                ),
-              ],
-            ),
-
-            // ─── APPARENCE ───────────────────────────────────────
-            _Section(
-              title: l.t('profil_appearance'),
-              children: [
-                SwitchListTile(
-                  secondary: Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
-                    child: Icon(_modeSombre ? Icons.dark_mode : Icons.light_mode, color: AppColors.primary, size: 20),
-                  ),
-                  title: Text(l.t('profil_dark_mode'), style: AppTextStyles.bodyLarge),
-                  subtitle: Text(
-                    _modeSombre ? l.t('profil_enabled') : l.t('profil_disabled'),
-                    style: AppTextStyles.bodyMedium,
-                  ),
-                  value: _modeSombre,
-                  activeThumbColor: AppColors.primary,
-                  onChanged: (v) {
-                    setState(() => _modeSombre = v);
-                    AppController.instance.toggleTheme();
-                  },
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-              ],
-            ),
-
-            // ─── NOTIFICATIONS (§4.1.7 - par catégorie) ─────────
-            _Section(
-              title: l.t('profil_notifs'),
-              children: [
-                SwitchListTile(
-                  secondary: const _NotifIcon(icon: Icons.home_outlined),
-                  title: Text(l.t('profil_new_listings'), style: AppTextStyles.bodyLarge),
-                  subtitle: Text(l.t('profil_new_listings_sub'), style: const TextStyle(fontSize: 12)),
-                  value: _notifNouvellesAnnonces,
-                  activeThumbColor: AppColors.primary,
-                  onChanged: (v) async {
-                    setState(() => _notifNouvellesAnnonces = v);
-                    await NotificationService.setCategory(
-                        NotificationService.kNotifAnnonces, v);
-                  },
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-                const Divider(indent: 68, height: 1),
-                SwitchListTile(
-                  secondary: const _NotifIcon(icon: Icons.chat_bubble_outline),
-                  title: Text(l.t('profil_messages_notif'), style: AppTextStyles.bodyLarge),
-                  subtitle: Text(l.t('profil_messages_notif_sub'), style: const TextStyle(fontSize: 12)),
-                  value: _notifMessages,
-                  activeThumbColor: AppColors.primary,
-                  onChanged: (v) async {
-                    setState(() => _notifMessages = v);
-                    await NotificationService.setCategory(
-                        NotificationService.kNotifMessages, v);
-                  },
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-                const Divider(indent: 68, height: 1),
-                SwitchListTile(
-                  secondary: const _NotifIcon(icon: Icons.trending_down),
-                  title: Text(l.t('profil_price_alerts'), style: AppTextStyles.bodyLarge),
-                  subtitle: Text(l.t('profil_price_alerts_sub'), style: const TextStyle(fontSize: 12)),
-                  value: _notifAlertesPrix,
-                  activeThumbColor: AppColors.primary,
-                  onChanged: (v) async {
-                    setState(() => _notifAlertesPrix = v);
-                    await NotificationService.setCategory(
-                        NotificationService.kNotifPrix, v);
-                  },
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-              ],
-            ),
-
-            // ─── À PROPOS ────────────────────────────────────────
-            _Section(
-              title: l.t('profil_info_section'),
-              children: [
-                _OptionTile(
-                  icon: Icons.help_outline,
-                  label: l.t('profil_help'),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AideFaqScreen())),
-                ),
-                _OptionTile(
-                  icon: Icons.privacy_tip_outlined,
-                  label: l.t('profil_privacy'),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PolitiqueScreen())),
-                ),
-                _OptionTile(
-                  icon: Icons.description_outlined,
-                  label: l.t('profil_terms'),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CguScreen())),
-                ),
-                _OptionTile(
-                  icon: Icons.star_outline,
-                  label: l.t('profil_rate'),
-                  onTap: () => _ouvrirStoreListing(context),
-                ),
-                ListTile(
-                  leading: Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
-                    child: const Icon(Icons.info_outline, color: AppColors.primary, size: 20),
-                  ),
-                  title: Text(l.t('profil_version_label'), style: AppTextStyles.bodyLarge),
-                  trailing: Text(_version.isEmpty ? '…' : _version, style: AppTextStyles.caption),
-                ),
-              ],
-            ),
-
-            // ─── ACTIONS COMPTE ──────────────────────────────────
-            if (widget.isPrestataire) ...[
-              _Section(
-                title: l.t('profil_account_section'),
-                children: [
-                  _OptionTile(
-                    icon: Icons.logout,
-                    label: l.t('profil_logout'),
-                    onTap: () => _confirmerDeconnexion(context),
-                    color: AppColors.error,
-                  ),
-                  _OptionTile(
-                    icon: Icons.delete_forever_outlined,
-                    label: l.t('profil_delete_account'),
-                    sublabel: l.t('profil_delete_sub'),
-                    onTap: () => _confirmerSuppression(context),
-                    color: AppColors.error,
-                  ),
-                ],
-              ),
-            ],
-
-            // ─── BOUTON PRESTATAIRE (visiteur uniquement) ────────
-            if (!widget.isPrestataire && widget.onPrestataireAcces != null) ...[
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
+              if (!widget.isPrestataire)
+                _Section(
+                  title: l.t('profil_prestataire_account'),
                   children: [
-                    Text(
-                      l.t('profil_prestataire_question'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 13,
-                        fontStyle: FontStyle.italic,
-                      ),
+                    _OptionTile(
+                      icon: Icons.home_work_outlined,
+                      label: l.t('profil_publish'),
+                      sublabel: l.t('profil_publish_sub'),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen(isInscription: true))),
                     ),
-                    const SizedBox(height: 10),
-                    ElevatedButton.icon(
-                      onPressed: widget.onPrestataireAcces,
-                      icon: const Icon(Icons.business_center_outlined),
-                      label: Text(l.t('prestataire_access')),
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 50),
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
+                    _OptionTile(
+                      icon: Icons.login,
+                      label: l.t('profil_login'),
+                      sublabel: l.t('profil_login_sub'),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen())),
                     ),
                   ],
                 ),
-              ),
-            ],
 
-            const SizedBox(height: 40),
-          ],
+              if (widget.isPrestataire && widget.utilisateur != null)
+                _Section(
+                  title: l.t('profil_my_info'),
+                  children: [
+                    _InfoTile(label: 'Nom', value: widget.utilisateur!.nomComplet),
+                    _InfoTile(label: 'Email', value: widget.utilisateur?.email ?? ''),
+                    _InfoTile(label: 'Téléphone', value: widget.utilisateur!.telephone),
+                    _OptionTile(
+                      icon: Icons.edit_outlined,
+                      label: l.t('profil_edit'),
+                      onTap: () => _modifierProfil(context),
+                    ),
+                  ],
+                ),
+
+              const SizedBox(height: 12),
+
+              _Section(
+                title: l.t('profil_language_section'),
+                children: [
+                  ListTile(
+                    leading: Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.language, color: AppColors.primary, size: 20),
+                    ),
+                    title: Text(l.t('profil_language'), style: AppTextStyles.bodyLarge),
+                    subtitle: Text(_langue, style: AppTextStyles.bodyMedium),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                    onTap: () => _choisirLangue(context),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              _Section(
+                title: l.t('profil_appearance'),
+                children: [
+                  SwitchListTile(
+                    secondary: Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
+                      child: Icon(_modeSombre ? Icons.dark_mode : Icons.light_mode, color: AppColors.primary, size: 20),
+                    ),
+                    title: Text(l.t('profil_dark_mode'), style: AppTextStyles.bodyLarge),
+                    subtitle: Text(
+                      _modeSombre ? l.t('profil_enabled') : l.t('profil_disabled'),
+                      style: AppTextStyles.bodyMedium,
+                    ),
+                    value: _modeSombre,
+                    activeThumbColor: AppColors.primary,
+                    onChanged: (v) {
+                      setState(() => _modeSombre = v);
+                      AppController.instance.toggleTheme();
+                    },
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              _Section(
+                title: l.t('profil_notifs'),
+                children: [
+                  SwitchListTile(
+                    secondary: const _NotifIcon(icon: Icons.home_outlined),
+                    title: Text(l.t('profil_new_listings'), style: AppTextStyles.bodyLarge),
+                    subtitle: Text(l.t('profil_new_listings_sub'), style: const TextStyle(fontSize: 12)),
+                    value: _notifNouvellesAnnonces,
+                    activeThumbColor: AppColors.primary,
+                    onChanged: (v) async {
+                      setState(() => _notifNouvellesAnnonces = v);
+                      await NotificationService.setCategory(
+                          NotificationService.kNotifAnnonces, v);
+                    },
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
+                  const Divider(indent: 68, height: 1),
+                  SwitchListTile(
+                    secondary: const _NotifIcon(icon: Icons.chat_bubble_outline),
+                    title: Text(l.t('profil_messages_notif'), style: AppTextStyles.bodyLarge),
+                    subtitle: Text(l.t('profil_messages_notif_sub'), style: const TextStyle(fontSize: 12)),
+                    value: _notifMessages,
+                    activeThumbColor: AppColors.primary,
+                    onChanged: (v) async {
+                      setState(() => _notifMessages = v);
+                      await NotificationService.setCategory(
+                          NotificationService.kNotifMessages, v);
+                    },
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
+                  const Divider(indent: 68, height: 1),
+                  SwitchListTile(
+                    secondary: const _NotifIcon(icon: Icons.trending_down),
+                    title: Text(l.t('profil_price_alerts'), style: AppTextStyles.bodyLarge),
+                    subtitle: Text(l.t('profil_price_alerts_sub'), style: const TextStyle(fontSize: 12)),
+                    value: _notifAlertesPrix,
+                    activeThumbColor: AppColors.primary,
+                    onChanged: (v) async {
+                      setState(() => _notifAlertesPrix = v);
+                      await NotificationService.setCategory(
+                          NotificationService.kNotifPrix, v);
+                    },
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              _Section(
+                title: l.t('profil_info_section'),
+                children: [
+                  _OptionTile(
+                    icon: Icons.help_outline,
+                    label: l.t('profil_help'),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AideFaqScreen())),
+                  ),
+                  _OptionTile(
+                    icon: Icons.privacy_tip_outlined,
+                    label: l.t('profil_privacy'),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PolitiqueScreen())),
+                  ),
+                  _OptionTile(
+                    icon: Icons.description_outlined,
+                    label: l.t('profil_terms'),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CguScreen())),
+                  ),
+                  _OptionTile(
+                    icon: Icons.star_outline,
+                    label: l.t('profil_rate'),
+                    onTap: () => _ouvrirStoreListing(context),
+                  ),
+                  ListTile(
+                    leading: Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
+                      child: const Icon(Icons.info_outline, color: AppColors.primary, size: 20),
+                    ),
+                    title: Text(l.t('profil_version_label'), style: AppTextStyles.bodyLarge),
+                    trailing: Text(_version.isEmpty ? '…' : _version, style: AppTextStyles.caption),
+                  ),
+                ],
+              ),
+
+              if (widget.isPrestataire) ...[
+                const SizedBox(height: 12),
+                _Section(
+                  title: l.t('profil_account_section'),
+                  children: [
+                    _OptionTile(
+                      icon: Icons.logout,
+                      label: l.t('profil_logout'),
+                      onTap: () => _confirmerDeconnexion(context),
+                      color: AppColors.error,
+                    ),
+                    _OptionTile(
+                      icon: Icons.delete_forever_outlined,
+                      label: l.t('profil_delete_account'),
+                      sublabel: l.t('profil_delete_sub'),
+                      onTap: () => _confirmerSuppression(context),
+                      color: AppColors.error,
+                    ),
+                  ],
+                ),
+              ],
+
+              if (!widget.isPrestataire && widget.onPrestataireAcces != null) ...[
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 0),
+                  child: Column(
+                    children: [
+                      Text(
+                        l.t('profil_prestataire_question'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ElevatedButton.icon(
+                        onPressed: widget.onPrestataireAcces,
+                        icon: const Icon(Icons.business_center_outlined),
+                        label: Text(l.t('prestataire_access')),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 50),
+                          backgroundColor: Colors.white,
+                          foregroundColor: AppColors.primary,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 16),
+              Text('Horem+ v${_version.isEmpty ? '…' : _version}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  textAlign: TextAlign.center),
+            ],
+          ),
         ),
       ),
     );
@@ -424,48 +436,47 @@ class _EnteteProfil extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardColor = Theme.of(context).cardColor.withValues(alpha: 0.88);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-          colors: [AppColors.primaryDark, AppColors.primary],
-        ),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         children: [
           CircleAvatar(
             radius: 40,
-            backgroundColor: Colors.white.withValues(alpha: 0.2),
+            backgroundColor: AppColors.primary.withValues(alpha: 0.15),
             child: utilisateur?.photoUrl != null
                 ? null
                 : Text(
               utilisateur?.prenom[0] ?? '?',
-              style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w700),
+              style: const TextStyle(color: AppColors.primary, fontSize: 32, fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(height: 12),
           Text(
             utilisateur != null ? utilisateur!.nomComplet : AppLocalizations.of(context).t('profil_visitor'),
-            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
+            style: TextStyle(color: context.appTextPrimary, fontSize: 20, fontWeight: FontWeight.w700),
           ),
           if (utilisateur != null)
-            Text(utilisateur?.email ?? '', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            Text(utilisateur?.email ?? '', style: TextStyle(color: context.appTextSecondary, fontSize: 13)),
           const SizedBox(height: 8),
           if (isPrestataire)
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (utilisateur?.estVerifie == true)
-                  const _Badge(label: '✓ Vérifié', bg: Colors.white, fg: AppColors.primary),
+                  const _Badge(label: '✓ Vérifié', bg: AppColors.success, fg: Colors.white),
                 const SizedBox(width: 8),
                 if (utilisateur?.estPremium == true)
-                  const _Badge(label: '★ Premium', bg: AppColors.accent, fg: Colors.black),
+                  _Badge(label: '★ Premium', bg: Colors.amber.shade600, fg: Colors.white),
               ],
             )
           else
-            _Badge(label: AppLocalizations.of(context).t('profil_visitor_badge'), bg: Colors.white24, fg: Colors.white),
+            _Badge(label: AppLocalizations.of(context).t('profil_visitor_badge'), bg: AppColors.primary, fg: Colors.white),
         ],
       ),
     );
@@ -497,18 +508,23 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardColor = Theme.of(context).cardColor.withValues(alpha: 0.88);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
           child: Text(
             title.toUpperCase(),
-            style: const TextStyle(color: AppColors.textHint, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8),
+            style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8),
           ),
         ),
         Container(
-          color: Theme.of(context).cardTheme.color,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Column(children: children),
         ),
       ],
