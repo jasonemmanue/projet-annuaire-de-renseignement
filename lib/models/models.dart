@@ -29,6 +29,7 @@ class Logement {
   final DateTime datePublication;
   final int nbVues;
   final bool disponible;
+  final bool visibleAdmin;
   /// True tant que les frais de publication ne sont pas confirmés.
   final bool paymentPending;
   final String? documentPdf; // URL PDF si présent
@@ -41,7 +42,7 @@ class Logement {
 
   /// Annonce visible côté visiteur : disponible et paiement validé.
   /// Les annonces expirées restent visibles mais avec une priorité réduite.
-  bool get estVisiblePourVisiteur => disponible && !paymentPending;
+  bool get estVisiblePourVisiteur => disponible && visibleAdmin && !paymentPending;
 
   /// Publication standard encore dans sa période d'1 mois.
   bool get estPublicationActive {
@@ -86,6 +87,7 @@ class Logement {
     required this.datePublication,
     required this.nbVues,
     required this.disponible,
+    this.visibleAdmin = true,
     this.paymentPending = false,
     this.documentPdf,
     this.sponsoredUntil,
@@ -157,6 +159,7 @@ class Logement {
         : DateTime.now(),
     nbVues: (map['vues'] as num?)?.toInt() ?? 0,
     disponible: map['disponible'] ?? true,
+    visibleAdmin: map['visibleAdmin'] ?? true,
     paymentPending: map['paymentPending'] ?? false,
     documentPdf: map['documentPdf'],
     sponsoredUntil: map['sponsoredUntil'] is Timestamp
@@ -198,6 +201,7 @@ class Logement {
     datePublication: DateTime.parse(json['datePublication']),
     nbVues: json['nbVues'],
     disponible: json['disponible'],
+    visibleAdmin: json['visibleAdmin'] ?? true,
     documentPdf: json['documentPdf'],
     sponsoredUntil: json['sponsoredUntil'] != null
         ? DateTime.tryParse(json['sponsoredUntil'])
@@ -238,6 +242,7 @@ class Logement {
     'datePublication': datePublication.toIso8601String(),
     'nbVues': nbVues,
     'disponible': disponible,
+    'visibleAdmin': visibleAdmin,
     'documentPdf': documentPdf,
     'sponsoredUntil': sponsoredUntil?.toIso8601String(),
     'heureOuverture': heureOuverture,

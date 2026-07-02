@@ -566,6 +566,8 @@ const Map<String, String> frStrings = {
   'dashboard_listing_unavailable': 'Indisponible',
   'dashboard_listing_active': 'Actif',
   'dashboard_listing_inactive': 'Inactif',
+  'admin_pending_approval': 'En attente admin',
+  'admin_visibility_required': 'L\'admin doit d\'abord approuver la visibilité de cette annonce.',
   'dashboard_sponsored_until': 'Sponsorisé jusqu\'au',
   'dashboard_sponsored': 'Sponsorisé',
   'dashboard_sponsor_btn': 'Sponsoriser',

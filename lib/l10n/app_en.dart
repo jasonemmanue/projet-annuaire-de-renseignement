@@ -565,6 +565,8 @@ const Map<String, String> enStrings = {
   'dashboard_listing_unavailable': 'Unavailable',
   'dashboard_listing_active': 'Active',
   'dashboard_listing_inactive': 'Inactive',
+  'admin_pending_approval': 'Pending admin',
+  'admin_visibility_required': 'Admin must first approve the visibility of this listing.',
   'dashboard_sponsored_until': 'Sponsored until',
   'dashboard_sponsored': 'Sponsored',
   'dashboard_sponsor_btn': 'Sponsor',

@@ -57,13 +57,14 @@
 ## Champs Logement clés (Firestore `logements`)
 
 ```
-estVerifie, estSponsorie, disponible, latitude, longitude,
+estVerifie, estSponsorie, disponible, visibleAdmin, latitude, longitude,
 typeBien, grade, photos, prix, ville, quartier, nbVues,
 prestatireId, prestatireNom, prestatirePhone,   ← contact prestataire (rempli à la publication)
 joursGarde: List<String>,                        ← pour pharmacies / services
 heureOuverture, heureFermeture,                  ← pour pharmacies / services
 visibiliteExpiry: Timestamp,                     ← date expiration visibilité annuelle
 publicationExpiry: Timestamp,                    ← date expiration publication standard (30 jours)
+visibleAdmin: bool,                               ← admin doit autoriser avant que prestataire puisse rendre visible
 uid_prestataire                                  ← id Firebase Auth du prestataire
 ```
 
@@ -537,6 +538,30 @@ Publication (paiement commission %)
 ### Sponsorisation (séparée de la publication)
 Le sponsoring ne contrôle plus `disponible` ni `paymentPending`. Il fixe uniquement :
 - `isSponsored: true`, `sponsoredAt`, `sponsoredUntil` (selon durée 1s/2s/1m)
+
+---
+
+## Visibilité admin (`visibleAdmin`)
+
+L'admin a la priorité sur la visibilité des annonces. Le prestataire ne peut activer `disponible` que si `visibleAdmin == true`.
+
+### Règles par type
+
+| Type | `visibleAdmin` à la création | Comportement |
+|------|------------------------------|--------------|
+| Pharmacie (gratuit) | `false` | L'admin doit approuver manuellement |
+| Immobilier / Entreprise / Restaurant / École (payant) | `true` | Visible par défaut, l'admin peut bloquer |
+
+### Getter visiteur
+`estVisiblePourVisiteur = disponible && visibleAdmin && !paymentPending`
+
+### Côté prestataire
+Si `visibleAdmin == false`, le toggle `disponible` est bloqué avec un message d'erreur.
+Badge orange « En attente admin » sur la carte annonce.
+
+### Côté admin (Next.js)
+Bouton shield violet dans la page annonces pour toggler `visibleAdmin`.
+Badge « ⛔ Bloqué admin » / « 🛡️ Admin OK » dans le détail.
 
 ---
 

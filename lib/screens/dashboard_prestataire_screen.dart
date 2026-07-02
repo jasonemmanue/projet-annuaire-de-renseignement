@@ -311,6 +311,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         await LogementService.addLogement({
           ...data,
           'disponible': true,
+          'visibleAdmin': false,
           'paymentPending': false,
         });
         if (mounted) {
@@ -328,6 +329,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
       final brouillonId = await LogementService.addLogement({
         ...data,
         'disponible': false,
+        'visibleAdmin': true,
         'paymentPending': true,
       });
 
@@ -1274,6 +1276,17 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
   }
 
   Future<void> _toggleDisponible(Logement l) async {
+    if (!l.visibleAdmin && !l.disponible) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(AppLocalizations.of(context).t('admin_visibility_required')),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ));
+      }
+      return;
+    }
     await LogementService.updateLogement(l.id, {'disponible': !l.disponible});
   }
 }
@@ -1377,10 +1390,11 @@ class _AnnonceCard extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: l.disponible ? AppColors.success : AppColors.textHint,
+                    color: !l.visibleAdmin ? AppColors.warning : l.disponible ? AppColors.success : AppColors.textHint,
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text(l.disponible ? loc.t('dashboard_listing_available') : loc.t('dashboard_listing_unavailable'),
+                  child: Text(!l.visibleAdmin ? loc.t('admin_pending_approval')
+                      : l.disponible ? loc.t('dashboard_listing_available') : loc.t('dashboard_listing_unavailable'),
                       style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
                 ),
               ),
