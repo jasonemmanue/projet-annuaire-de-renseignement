@@ -494,6 +494,10 @@ flutter build apk --release
 # Push admin vers GitHub
 cd C:\Users\hp\StudioProjects\Immoconnect_admin
 git add -A && git commit -m "..." && git push
+
+# Déployer admin sur Railway (depuis le dossier admin)
+cd C:\Users\hp\StudioProjects\Immoconnect_admin
+railway up
 ```
 
 ---
