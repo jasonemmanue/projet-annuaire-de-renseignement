@@ -1276,7 +1276,9 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
   }
 
   Future<void> _toggleDisponible(Logement l) async {
-    if (!l.visibleAdmin && !l.disponible) {
+    final doc = await FirebaseFirestore.instance.collection('logements').doc(l.id).get();
+    final visibleAdmin = doc.data()?['visibleAdmin'] ?? true;
+    if (!visibleAdmin && !l.disponible) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(AppLocalizations.of(context).t('admin_visibility_required')),
@@ -1435,23 +1437,32 @@ class _AnnonceCard extends StatelessWidget {
                     _StatChip(icon: Icons.people_outline, value: loc.t(_typeBienKeys[l.typeBien] ?? l.typeBien), label: ''),
                     const Spacer(),
                     GestureDetector(
-                      onTap: onToggleDisponible,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: l.disponible ? context.appPrimaryLight : context.appBackground,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: l.disponible ? AppColors.primary : context.appBorder),
+                      onTap: l.visibleAdmin ? onToggleDisponible : null,
+                      child: Opacity(
+                        opacity: l.visibleAdmin ? 1.0 : 0.5,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: !l.visibleAdmin ? AppColors.warning.withValues(alpha: 0.15)
+                                : l.disponible ? context.appPrimaryLight : context.appBackground,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: !l.visibleAdmin ? AppColors.warning
+                                : l.disponible ? AppColors.primary : context.appBorder),
+                          ),
+                          child: Row(children: [
+                            Icon(!l.visibleAdmin ? Icons.lock_outline
+                                : l.disponible ? Icons.toggle_on : Icons.toggle_off,
+                                size: 16, color: !l.visibleAdmin ? AppColors.warning
+                                    : l.disponible ? AppColors.primary : AppColors.textHint),
+                            const SizedBox(width: 4),
+                            Text(!l.visibleAdmin ? loc.t('admin_pending_approval')
+                                : l.disponible ? loc.t('dashboard_listing_active') : loc.t('dashboard_listing_inactive'),
+                                style: TextStyle(fontSize: 12,
+                                    color: !l.visibleAdmin ? AppColors.warning
+                                        : l.disponible ? AppColors.primary : AppColors.textHint,
+                                    fontWeight: FontWeight.w600)),
+                          ]),
                         ),
-                        child: Row(children: [
-                          Icon(l.disponible ? Icons.toggle_on : Icons.toggle_off,
-                              size: 16, color: l.disponible ? AppColors.primary : AppColors.textHint),
-                          const SizedBox(width: 4),
-                          Text(l.disponible ? loc.t('dashboard_listing_active') : loc.t('dashboard_listing_inactive'),
-                              style: TextStyle(fontSize: 12,
-                                  color: l.disponible ? AppColors.primary : AppColors.textHint,
-                                  fontWeight: FontWeight.w600)),
-                        ]),
                       ),
                     ),
                   ],
