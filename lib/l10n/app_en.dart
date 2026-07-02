@@ -447,6 +447,7 @@ const Map<String, String> enStrings = {
   'urgence_type_error': 'Please choose a listing type',
   'urgence_desc_error': 'Please describe the desired listing',
   'urgence_return': 'Back to alerts',
+  'urgence_type_autre_hint': 'Specify the type of listing sought',
 
   // Sponsoring
   'sponsor_title': 'Sponsor',

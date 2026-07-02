@@ -383,6 +383,7 @@ const Map<String, String> frStrings = {
   'urgence_type_error': 'Veuillez choisir un type de bien',
   'urgence_desc_error': 'Veuillez décrire le bien recherché',
   'urgence_return': 'Retour aux alertes',
+  'urgence_type_autre_hint': 'Précisez le type de bien recherché',
 
   // Sponsorisation
   'sponsor_title': 'Sponsoriser',

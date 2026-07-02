@@ -22,6 +22,8 @@ import '../l10n/app_localizations.dart';
 const int _kMontantAlerte = 200;
 const int _kTimeoutSecondes = 120;
 
+const _typeAutre = 'Autre';
+
 const _typeBienOptions = <String>[
   'Studio',
   'Appartement',
@@ -30,6 +32,7 @@ const _typeBienOptions = <String>[
   'Bureau',
   'Commerce',
   'Chambre',
+  _typeAutre,
 ];
 
 // ── Page principale : liste des alertes ─────────────────────────
@@ -424,9 +427,16 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
 
   // Champs formulaire
   String _typeBien = 'Studio';
+  final _typeBienAutreCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _prixMinCtrl = TextEditingController();
   final _prixMaxCtrl = TextEditingController();
+
+  bool get _isAutre => _typeBien == _typeAutre;
+  String get _typeBienEffectif =>
+      _isAutre && _typeBienAutreCtrl.text.trim().isNotEmpty
+          ? _typeBienAutreCtrl.text.trim()
+          : _typeBien;
 
   String? _alerteDocId;
 
@@ -434,7 +444,12 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
   void initState() {
     super.initState();
     if (widget.alerte != null) {
-      _typeBien = widget.alerte!.typeBien;
+      if (_typeBienOptions.contains(widget.alerte!.typeBien)) {
+        _typeBien = widget.alerte!.typeBien;
+      } else {
+        _typeBien = _typeAutre;
+        _typeBienAutreCtrl.text = widget.alerte!.typeBien;
+      }
       _descCtrl.text = widget.alerte!.description;
       _prixMinCtrl.text = widget.alerte!.prixMin.toStringAsFixed(0);
       _prixMaxCtrl.text = widget.alerte!.prixMax.toStringAsFixed(0);
@@ -453,6 +468,7 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
     _timer?.cancel();
     _pollTimer?.cancel();
     _sub?.cancel();
+    _typeBienAutreCtrl.dispose();
     _descCtrl.dispose();
     _prixMinCtrl.dispose();
     _prixMaxCtrl.dispose();
@@ -466,6 +482,10 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
           : 'Mobile Money';
 
   Future<void> _validerEtPayer() async {
+    if (_isAutre && _typeBienAutreCtrl.text.trim().isEmpty) {
+      setState(() => _erreurForm = _loc.t('urgence_type_error'));
+      return;
+    }
     if (_descCtrl.text.trim().isEmpty) {
       setState(() => _erreurForm = _loc.t('urgence_desc_error'));
       return;
@@ -506,7 +526,7 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
 
     await docRef.set({
       'uid': uid,
-      'typeBien': _typeBien,
+      'typeBien': _typeBienEffectif,
       'description': _descCtrl.text.trim(),
       'prixMin': pMin,
       'prixMax': pMax,
@@ -676,6 +696,20 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
                       borderSide: BorderSide.none),
                 ),
               ),
+              if (_isAutre) ...[
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _typeBienAutreCtrl,
+                  decoration: InputDecoration(
+                    hintText: _loc.t('urgence_type_autre_hint'),
+                    filled: true,
+                    fillColor: Theme.of(context).scaffoldBackgroundColor,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none),
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
               // Description
               Text(_loc.t('urgence_description'), style: AppTextStyles.h3),
