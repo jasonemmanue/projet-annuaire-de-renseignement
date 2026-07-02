@@ -2399,19 +2399,9 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
   @override
   Widget build(BuildContext context) {
     final u = _user;
-    final cardColor = Theme.of(context).cardColor.withValues(alpha: 0.88);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Container(
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
         _SectionProfil(title: _loc.t('prest_section_info'), children: [
           if (u != null) ...[
             _InfoRowProfil(icon: Icons.person_outline, label: _loc.t('prest_info_name'),
@@ -2421,7 +2411,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
               _InfoRowProfil(icon: Icons.phone_outlined, label: _loc.t('prest_info_phone'), value: u.telephone),
           ],
         ]),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         _SectionProfil(title: _loc.t('prest_section_badges'), children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -2432,7 +2422,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
             ]),
           ),
         ]),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         _SectionProfil(title: _loc.t('prest_section_my_profile'), children: [
           ListTile(
             leading: Container(
@@ -2451,8 +2441,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
             ),
           ),
         ]),
-        const SizedBox(height: 16),
-        // ── Notifications ─────────────────────────────────────
+        const SizedBox(height: 12),
         _SectionProfil(title: _loc.t('profil_notifs'), children: [
           SwitchListTile(
             secondary: Container(
@@ -2468,8 +2457,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
             onChanged: _toggleNotifMessages,
           ),
         ]),
-        const SizedBox(height: 16),
-        // ── Aide ──────────────────────────────────────────────
+        const SizedBox(height: 12),
         _SectionProfil(title: _loc.t('profil_info_section'), children: [
           ListTile(
             leading: Container(
@@ -2482,7 +2470,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AideFaqScreen())),
           ),
         ]),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         _SectionProfil(title: _loc.t('prest_section_support'), children: [
           _ContactOption(
             icon: Icons.support_agent_outlined,
@@ -2494,10 +2482,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
               if (await canLaunchUrl(uri)) await launchUrl(uri);
             },
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Divider(height: 1),
-          ),
+          const SizedBox(height: 8),
           _ContactOption(
             icon: Icons.mail_outline,
             label: _loc.t('prest_email_label'),
@@ -2509,7 +2494,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
             },
           ),
         ]),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         _SectionProfil(title: _loc.t('prest_section_account'), children: [
           ListTile(
             leading: Container(
@@ -2524,14 +2509,11 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
             onTap: _deconnecter,
           ),
         ]),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         Text(_loc.t('prest_version'),
-            style: const TextStyle(color: AppColors.textHint, fontSize: 12),
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
             textAlign: TextAlign.center),
         const SizedBox(height: 16),
-            ],
-          ),
-        ),
       ],
     );
   }
@@ -2545,6 +2527,7 @@ class _SectionProfil extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardColor = Theme.of(context).cardColor.withValues(alpha: 0.88);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2552,11 +2535,15 @@ class _SectionProfil extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
           child: Text(title,
               style: const TextStyle(
-                  color: AppColors.textHint, fontSize: 11,
+                  color: Colors.white70, fontSize: 11,
                   fontWeight: FontWeight.w700, letterSpacing: 0.8)),
         ),
         Container(
-          color: Theme.of(context).cardTheme.color,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Column(children: children),
         ),
       ],
