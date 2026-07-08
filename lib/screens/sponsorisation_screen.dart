@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -37,12 +38,14 @@ class SponsorisationScreen extends StatefulWidget {
   final String logementId;
   final String titre;
   final String? photo;
+  final bool compteGratuit;
 
   const SponsorisationScreen({
     super.key,
     required this.logementId,
     required this.titre,
     this.photo,
+    this.compteGratuit = false,
   });
 
   @override
@@ -93,6 +96,36 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
 
   String _labelOperateur(String? op) =>
       op == 'mtn' ? 'MTN MoMo' : op == 'orange' ? 'Orange Money' : 'Mobile Money';
+
+  Future<void> _activerGratuitement() async {
+    setState(() => _loading = true);
+    try {
+      const durees = {'1s': 7, '2s': 14, '1m': 30};
+      final jours = durees[_dureeCode] ?? 7;
+      final until = DateTime.now().add(Duration(days: jours));
+      await FirebaseFirestore.instance
+          .collection('logements')
+          .doc(widget.logementId)
+          .set({
+        'isSponsored': true,
+        'sponsoredUntil': Timestamp.fromDate(until),
+        'sponsoredAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _etape = _Etape.succes;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _erreurForm = 'Erreur : $e';
+        });
+      }
+    }
+  }
 
   Future<void> _payer() async {
     if (_operateur == null) {
@@ -226,7 +259,81 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
     );
   }
 
+  Widget _buildFormulaireGratuit() {
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: widget.photo != null && widget.photo!.isNotEmpty
+                  ? Image.network(widget.photo!,
+                      width: 60, height: 60, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _photoPlaceholder())
+                  : _photoPlaceholder(),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(widget.titre,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 15),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 20),
+        Text(_loc.t('sponsor_choose_duration'),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 10),
+        ..._offres.map(_buildOffreCard),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.success.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.success.withValues(alpha: 0.4)),
+          ),
+          child: const Row(children: [
+            Icon(Icons.card_giftcard, color: AppColors.success),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text('Compte offert — mise en avant gratuite.',
+                  style: TextStyle(
+                      color: AppColors.success, fontWeight: FontWeight.w600)),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 20),
+        ElevatedButton(
+          onPressed: _loading ? null : _activerGratuitement,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 52),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          child: _loading
+              ? const SizedBox(
+                  width: 22, height: 22,
+                  child: CircularProgressIndicator(
+                      color: Colors.white, strokeWidth: 2))
+              : const Text('Activer la mise en avant',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+        ),
+      ],
+    );
+  }
+
   Widget _buildFormulaire() {
+    if (widget.compteGratuit) return _buildFormulaireGratuit();
     final peutPayer = _operateur != null && _telephoneComplet != null && !_loading;
 
     return ListView(

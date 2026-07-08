@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
@@ -116,6 +117,25 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
       );
 
       if (!mounted) return;
+
+      // Compte gratuit → bypass paiement publicité
+      if (AuthService.instance.currentUser?.compteGratuit == true) {
+        final until = DateTime.now()
+            .add(const Duration(days: PubliciteService.dureeJours));
+        await FirebaseFirestore.instance
+            .collection('publicites')
+            .doc(pubId)
+            .update({
+          'actif': true,
+          'paymentPending': false,
+          'expiresAt': Timestamp.fromDate(until),
+        });
+        if (mounted) {
+          _showSnack(AppLocalizations.of(context).t('pub_success'));
+          Navigator.pop(context, true);
+        }
+        return;
+      }
 
       // Étape 2 : paiement 500 XAF / 4 jours via Mobile Money.
       final paye = await Navigator.push<bool>(

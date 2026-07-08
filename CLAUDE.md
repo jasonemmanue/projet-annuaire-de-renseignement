@@ -541,6 +541,43 @@ Le sponsoring ne contrôle plus `disponible` ni `paymentPending`. Il fixe unique
 
 ---
 
+## Comptes gratuits (`compteGratuit`)
+
+Un admin peut créer un compte prestataire qui utilise TOUT sans payer.
+
+### Champ Firestore (`users`)
+```
+compteGratuit: bool   ← true = accès gratuit total
+```
+
+### Bypass actifs
+Quand `compteGratuit == true`, tous les paiements sont bypassés :
+- **Nouvelle publication** : brouillon activé directement (`disponible: true`, `publicationExpiry: +30j` ou `visibiliteExpiry: +365j`)
+- **Réactivation** : `disponible: true`, `publicationExpiry: +30j` sans paiement
+- **Sponsoring** : `SponsorisationScreen` affiche un formulaire gratuit → `isSponsored: true`, `sponsoredUntil` selon durée choisie
+- **Publicité (nouvelle)** : brouillon activé directement (`actif: true`, `expiresAt: +4j`)
+- **Publicité (réactivation)** : même bypass
+
+### Côté admin Flutter (`admin_panel_screen.dart`)
+- Badge « 🆓 Compte offert » sur la carte utilisateur
+- Bouton "Accès gratuit" / "Révoquer gratuit" (toggle `compteGratuit`)
+- Bouton "Créer compte gratuit" → dialog (prénom, nom, tél) → Cloud Function `creerCompteGratuit`
+
+### Côté admin Next.js (`/dashboard/utilisateurs`)
+- Badge "🆓 Offert" dans le tableau et le panneau détail
+- Icône cadeau (toggle) dans les actions tableau
+- Bouton "Compte gratuit" en haut → dialog création
+- Filtre "🆓 Gratuit" dans les filtres
+
+### Cloud Function `creerCompteGratuit`
+- URL : `https://creercomptegratuit-qhxw7o6nha-uc.a.run.app`
+- Auth : Bearer token Firebase Auth (caller must have `role == 'admin'`)
+- Body : `{ telephone, nom, prenom }` (tel sans + → préfixe +237 ajouté automatiquement)
+- Crée l'Auth Firebase + doc Firestore avec `compteGratuit: true`, `role: 'prestataire'`
+- Si le numéro existe déjà, met à jour le doc existant
+
+---
+
 ## Visibilité admin (`visibleAdmin`)
 
 L'admin a la priorité sur la visibilité des annonces. Le prestataire ne peut activer `disponible` que si `visibleAdmin == true`.

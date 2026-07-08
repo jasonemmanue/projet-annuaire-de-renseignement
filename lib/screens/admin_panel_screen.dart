@@ -22,6 +22,8 @@ import '../l10n/app_localizations.dart';
 
 const String _kFunctionsBase =
     'https://us-central1-sgk-home.cloudfunctions.net';
+const String _kCreerCompteGratuitUrl =
+    'https://creercomptegratuit-qhxw7o6nha-uc.a.run.app';
 
 class AdminPanelScreen extends StatelessWidget {
   const AdminPanelScreen({super.key});
@@ -488,13 +490,99 @@ class _UtilisateursTabState extends State<_UtilisateursTab> {
     super.dispose();
   }
 
+  Future<void> _ouvrirCreerCompteGratuit() async {
+    final l = AppLocalizations.of(context);
+    final nomCtrl = TextEditingController();
+    final prenomCtrl = TextEditingController();
+    final telCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(l.t('admin_creer_gratuit_title')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: prenomCtrl,
+              decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_prenom')),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: nomCtrl,
+              decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_nom')),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: telCtrl,
+              decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_tel')),
+              keyboardType: TextInputType.phone,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l.t('common_cancel')),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+            child: Text(l.t('admin_creer_gratuit_btn')),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true || !mounted) return;
+
+    final nom = nomCtrl.text.trim();
+    final prenom = prenomCtrl.text.trim();
+    String tel = telCtrl.text.trim();
+    if (nom.isEmpty || prenom.isEmpty || tel.isEmpty) return;
+    if (!tel.startsWith('+')) tel = '+237$tel';
+
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
+      final resp = await http.post(
+        Uri.parse(_kCreerCompteGratuitUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'telephone': tel, 'nom': nom, 'prenom': prenom}),
+      );
+      if (!mounted) return;
+      if (resp.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(l.t('admin_creer_gratuit_ok')),
+          backgroundColor: AppColors.success,
+        ));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${l.t('admin_creer_gratuit_error')} (${resp.statusCode})'),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${l.t('admin_creer_gratuit_error')}: $e'),
+          backgroundColor: AppColors.error,
+        ));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
           child: TextField(
             controller: _searchCtrl,
             onChanged: (_) => setState(() {}),
@@ -504,6 +592,22 @@ class _UtilisateursTabState extends State<_UtilisateursTab> {
               isDense: true,
               border:
                   OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _ouvrirCreerCompteGratuit,
+              icon: const Icon(Icons.card_giftcard, size: 16),
+              label: Text(l.t('admin_creer_gratuit_btn')),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.success,
+                side: const BorderSide(color: AppColors.success),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
             ),
           ),
         ),
@@ -561,6 +665,7 @@ class _AdminUserCard extends StatelessWidget {
     final isPremium = data['isPremium'] == true;
     final isVerifie = data['isVerifie'] == true;
     final isSuspended = data['isSuspended'] == true;
+    final isGratuit = data['compteGratuit'] == true;
     final ref = doc.reference;
 
     return Container(
@@ -603,6 +708,7 @@ class _AdminUserCard extends StatelessWidget {
             if (isVerifie) _tag(l.t('admin_tag_verified'), AppColors.success),
             if (isPremium) _tag(l.t('admin_tag_premium'), Colors.amber.shade800),
             if (isSuspended) _tag(l.t('admin_tag_suspended_user'), AppColors.error),
+            if (isGratuit) _tag(l.t('admin_tag_compte_gratuit'), AppColors.success),
           ]),
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 4, children: [
@@ -618,6 +724,11 @@ class _AdminUserCard extends StatelessWidget {
                   'premiumExpiry': Timestamp.fromDate(expiry),
                 });
               }),
+            isGratuit
+                ? _miniBtn(l.t('admin_gratuit_off_btn'), Icons.card_giftcard,
+                    () => ref.update({'compteGratuit': false}))
+                : _miniBtn(l.t('admin_gratuit_on_btn'), Icons.card_giftcard,
+                    () => ref.update({'compteGratuit': true})),
             isSuspended
                 ? _miniBtn(l.t('admin_activate_btn'), Icons.lock_open,
                     () => ref.update({'isSuspended': false}))

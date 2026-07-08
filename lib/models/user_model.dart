@@ -14,6 +14,7 @@ class UserModel {
   final String? fcmToken;
   final bool isVerifie;
   final bool phoneVerified;
+  final bool compteGratuit;
   final DateTime? premiumExpiry;
   final DateTime? phoneVerifiedAt;
 
@@ -29,6 +30,7 @@ class UserModel {
     this.fcmToken,
     this.isVerifie = false,
     this.phoneVerified = false,
+    this.compteGratuit = false,
     this.premiumExpiry,
     this.phoneVerifiedAt,
   });
@@ -58,6 +60,7 @@ class UserModel {
       fcmToken: map['fcmToken'],
       isVerifie:     map['isVerifie']     ?? false,
       phoneVerified: map['phoneVerified'] ?? false,
+      compteGratuit: map['compteGratuit'] ?? false,
       premiumExpiry: map['premiumExpiry'] is Timestamp
           ? (map['premiumExpiry'] as Timestamp).toDate()
           : null,
@@ -84,6 +87,7 @@ class UserModel {
       'fcmToken': fcmToken,
       'isVerifie':     isVerifie,
       'phoneVerified': phoneVerified,
+      'compteGratuit': compteGratuit,
       if (premiumExpiry   != null)
         'premiumExpiry':   Timestamp.fromDate(premiumExpiry!),
       if (phoneVerifiedAt != null)

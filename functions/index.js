@@ -841,11 +841,17 @@ exports.initierPublication = onRequest(
       const decoded = await admin.auth().verifyIdToken(idToken);
       const uid = decoded.uid;
 
-      const { logementId, telephone, operateur, montant } = req.body || {};
+      const { logementId, telephone, operateur, montant, dureeJours } = req.body || {};
       if (!logementId || !telephone || !montant) {
         res.status(400).json({ success: false, error: "Paramètres manquants" });
         return;
       }
+      // Durée personnalisée (hébergement forfaitaire) — bornée à [7, 400] jours.
+      let dureeJoursFinal = Number(dureeJours);
+      if (!Number.isFinite(dureeJoursFinal) || dureeJoursFinal <= 0) {
+        dureeJoursFinal = PUBLICATION_DUREE_JOURS;
+      }
+      dureeJoursFinal = Math.min(400, Math.max(7, Math.round(dureeJoursFinal)));
 
       const logSnap = await admin.firestore().collection("logements").doc(logementId).get();
       if (!logSnap.exists) {
@@ -898,6 +904,7 @@ exports.initierPublication = onRequest(
           reference,
           internalRef,
           telephone,
+          dureeJours: dureeJoursFinal,
           checkoutUrl: paiement.paymentUrl,
           geniuspayTransactionId: paiement.transactionId,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1468,8 +1475,12 @@ async function appliquerTransactionReussie(tx) {
       { type: "transaction", reference: tx.reference }
     );
   } else if (tx.type === "publication") {
-    // Publication immobilier : visible pendant 1 mois (commission %)
-    const until = new Date(Date.now() + PUBLICATION_DUREE_JOURS * 24 * 60 * 60 * 1000);
+    // Publication immobilier : durée variable (30 j par défaut, jusqu'à 365 j
+    // pour les forfaits hébergement Meublé/Motel/Auberge/Hôtel).
+    const dureeJ = Number(tx.dureeJours) > 0
+        ? Number(tx.dureeJours)
+        : PUBLICATION_DUREE_JOURS;
+    const until = new Date(Date.now() + dureeJ * 24 * 60 * 60 * 1000);
     const untilTs = admin.firestore.Timestamp.fromDate(until);
 
     let logData = {};
@@ -1493,10 +1504,15 @@ async function appliquerTransactionReussie(tx) {
 
     const titre = logData.titre || "votre annonce";
     const dateFr = until.toLocaleDateString("fr-FR");
+    const dureeLbl =
+      dureeJ >= 360 ? "1 an" :
+      dureeJ >= 175 ? "6 mois" :
+      dureeJ >= 85  ? "3 mois" :
+      "1 mois";
     await notifierPrestataire(
       tx.uid,
       "✅ Annonce publiée !",
-      `Votre annonce « ${titre} » est visible pendant 1 mois (jusqu'au ${dateFr}).`,
+      `Votre annonce « ${titre} » est visible pendant ${dureeLbl} (jusqu'au ${dateFr}).`,
       { type: "logement_update", logementId: tx.logementId, reference: tx.reference }
     );
 
@@ -1912,3 +1928,92 @@ async function notifierAlertesUrgence(db, logData, logementId) {
     console.log(`Alertes urgence notifiées : ${promises.length} pour logement ${logementId}`);
   }
 }
+
+// ================================================================
+// FONCTION ADMIN : creerCompteGratuit
+// Crée (ou met à jour) un compte prestataire avec accès 100% gratuit.
+// Seul un utilisateur avec role == 'admin' peut appeler cette fonction.
+// ================================================================
+exports.creerCompteGratuit = onRequest({ cors: true }, async (req, res) => {
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    res.status(204).send("");
+    return;
+  }
+  if (req.method !== "POST") {
+    res.status(405).json({ success: false, error: "Méthode non autorisée" });
+    return;
+  }
+
+  // Vérification du token Firebase Auth
+  const authHeader = req.headers.authorization || "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null;
+  if (!idToken) {
+    res.status(401).json({ success: false, error: "Authentification requise" });
+    return;
+  }
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(idToken);
+  } catch (_) {
+    res.status(401).json({ success: false, error: "Session invalide" });
+    return;
+  }
+
+  // Vérification du rôle admin
+  const callerDoc = await admin.firestore()
+    .collection("users").doc(decoded.uid).get();
+  if (!callerDoc.exists || callerDoc.data().role !== "admin") {
+    res.status(403).json({ success: false, error: "Accès réservé aux administrateurs" });
+    return;
+  }
+
+  const { telephone, nom, prenom } = req.body || {};
+  if (!telephone || !nom || !prenom) {
+    res.status(400).json({ success: false, error: "Paramètres manquants (telephone, nom, prenom)" });
+    return;
+  }
+
+  // Normalisation du numéro de téléphone
+  const phone = telephone.startsWith("+") ? telephone : `+237${telephone}`;
+
+  try {
+    let uid;
+    try {
+      // Recherche d'un compte existant avec ce numéro
+      const existing = await admin.auth().getUserByPhoneNumber(phone);
+      uid = existing.uid;
+    } catch (_) {
+      // Aucun compte → création
+      const newUser = await admin.auth().createUser({
+        phoneNumber: phone,
+        displayName: `${prenom} ${nom}`.trim(),
+      });
+      uid = newUser.uid;
+    }
+
+    // Création / mise à jour du document Firestore
+    await admin.firestore().collection("users").doc(uid).set(
+      {
+        uid,
+        telephone: phone,
+        nom: nom.trim(),
+        prenom: prenom.trim(),
+        role: "prestataire",
+        compteGratuit: true,
+        isVerifie: true,
+        phoneVerified: true,
+        isPremium: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    console.log(`creerCompteGratuit: uid=${uid} phone=${phone} créé par admin=${decoded.uid}`);
+    res.json({ success: true, uid, telephone: phone });
+  } catch (e) {
+    console.error("creerCompteGratuit error:", e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});

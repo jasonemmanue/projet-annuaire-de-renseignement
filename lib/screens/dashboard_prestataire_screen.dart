@@ -7,6 +7,7 @@
 // ✅ Statistiques v2 : KPI cards, LineChart, BarChart (fl_chart)
 // ============================================================
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -45,6 +46,9 @@ const _typeBienKeys = <String, String>{
   'Terrain': 'type_terrain',
   'Bureau': 'type_bureau',
   'Commerce': 'type_commerce',
+  'Meublé / Motel': 'type_meuble_motel',
+  'Auberge': 'type_auberge',
+  'Hôtel': 'type_hotel',
   'Pharmacie': 'type_pharmacie',
   'Restaurant / Snack': 'type_restaurant',
   'Entreprise': 'type_entreprise',
@@ -112,6 +116,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
 
   // ── Immobilier vs. Service ────────────────────────────────────
   static const _typesImmo    = ['Studio', 'Appartement', 'Villa', 'Terrain', 'Bureau', 'Commerce'];
+  static const _typesHeberg  = ['Meublé / Motel', 'Auberge', 'Hôtel'];
   static const _typesService = ['Pharmacie', 'Restaurant / Snack', 'Entreprise', 'École'];
   static const _typeAutre    = 'Autre';
 
@@ -119,6 +124,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
 
   bool get _isServiceType    => _typesService.contains(_typeBien);
   bool get _isImmoType       => _typesImmo.contains(_typeBien);
+  bool get _isHebergementType => _typesHeberg.contains(_typeBien);
   bool get _isPharmacieType  => _typeBien == 'Pharmacie';
   bool get _isRestaurantType => _typeBien == 'Restaurant / Snack';
   bool get _isEntrepriseType => _typeBien == 'Entreprise';
@@ -197,6 +203,100 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
     super.dispose();
   }
 
+  Future<({int montant, int jours, String label})?>
+      _choisirDureeHebergement() async {
+    final options = TarificationService.optionsHebergement;
+    return showModalBottomSheet<({int montant, int jours, String label})>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  const Icon(Icons.hotel_rounded, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Text('Durée de publication — $_typeBien',
+                      style: AppTextStyles.h3),
+                ]),
+                const SizedBox(height: 4),
+                Text(
+                  'Forfait sans commission. Votre annonce reste visible pendant toute la durée choisie.',
+                  style: TextStyle(fontSize: 12, color: context.appTextSecondary),
+                ),
+                const SizedBox(height: 16),
+                ...options.map((o) {
+                  final montant =
+                      TarificationService.montantHebergement(_typeBien, o.code);
+                  if (montant == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: context.appBorder),
+                      ),
+                      leading: const Icon(Icons.event_available_rounded,
+                          color: AppColors.primary),
+                      title: Text(o.label,
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text('${o.jours} jours de visibilité'),
+                      trailing: Text('$montant XAF',
+                          style: const TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w800)),
+                      onTap: () => Navigator.pop(ctx, (
+                        montant: montant,
+                        jours: o.jours,
+                        label: o.label,
+                      )),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _choisirHeure(TextEditingController ctrl,
+      {required TimeOfDay defaut}) async {
+    // Valeur initiale : ce qui est déjà saisi, sinon le défaut.
+    TimeOfDay initial = defaut;
+    final txt = ctrl.text.trim();
+    if (txt.isNotEmpty) {
+      final parts = txt.split(':');
+      if (parts.length == 2) {
+        final h = int.tryParse(parts[0]);
+        final m = int.tryParse(parts[1]);
+        if (h != null && m != null && h >= 0 && h < 24 && m >= 0 && m < 60) {
+          initial = TimeOfDay(hour: h, minute: m);
+        }
+      }
+    }
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+      builder: (ctx, child) => MediaQuery(
+        data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
+        child: child ?? const SizedBox.shrink(),
+      ),
+    );
+    if (picked == null) return;
+    final hh = picked.hour.toString().padLeft(2, '0');
+    final mm = picked.minute.toString().padLeft(2, '0');
+    setState(() => ctrl.text = '$hh:$mm');
+  }
+
   Future<void> _choisirPhotos() async {
     final picker = ImagePicker();
     final images = await picker.pickMultiImage(imageQuality: 80, limit: 6);
@@ -266,7 +366,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
       final prestataire = AuthService.instance.currentUser;
       final data = {
         'titre': _titreCtrl.text.trim(),
-        'description': _descCtrl.text.trim(),
+        'description': _isPharmacieType ? '' : _descCtrl.text.trim(),
         'prix': prix,
         'surface': int.tryParse(_surfaceCtrl.text) ?? 0,
         'quartier': _quartierCtrl.text.trim(),
@@ -274,7 +374,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         'typeLocation': _isServiceType ? 'service' : _typeLocation,
         'typeBien': _typeBienFirestore,
         'grade': _gradeEffectif,
-        'equipements': _equipements,
+        'equipements': _isPharmacieType ? <String>[] : _equipements,
         'latitude': _positionSelectionnee!.latitude,
         'longitude': _positionSelectionnee!.longitude,
         'photos': photoUrls,
@@ -333,10 +433,35 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         'paymentPending': true,
       });
 
+      // ─── Compte gratuit → bypass paiement ─────────────────────────────────
+      if (AuthService.instance.currentUser?.compteGratuit == true) {
+        final expiry = _isVisibiliteType
+            ? DateTime.now().add(const Duration(days: 365))
+            : DateTime.now().add(const Duration(days: 30));
+        await FirebaseFirestore.instance.collection('logements').doc(brouillonId).update({
+          'disponible': true,
+          'paymentPending': false,
+          if (_isVisibiliteType)
+            'visibiliteExpiry': Timestamp.fromDate(expiry)
+          else
+            'publicationExpiry': Timestamp.fromDate(expiry),
+        });
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(_loc.t('form_published_ok')),
+              backgroundColor: AppColors.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))));
+        }
+        return;
+      }
+
       int montant;
       String titreEcran;
       String dureeLabel;
       InitierPaiementCb initierCb;
+      int? dureeJoursHeberg; // null pour tout sauf hébergement
 
       if (_isVisibiliteType) {
         // Visibilité annuelle Entreprise / Restaurant / École
@@ -349,15 +474,33 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
               telephone: telephone,
               channel: operateur,
             );
+      } else if (_isHebergementType) {
+        // Hébergement forfait : demander la durée au prestataire
+        final choix = await _choisirDureeHebergement();
+        if (choix == null) {
+          // Annulation → supprimer le brouillon et sortir
+          try {
+            await LogementService.deleteLogement(brouillonId);
+          } catch (_) {}
+          return;
+        }
+        montant = choix.montant;
+        dureeJoursHeberg = choix.jours;
+        titreEcran = 'Frais de publication (${choix.label})';
+        dureeLabel =
+            'Votre annonce sera visible pendant ${choix.label} sur Horem+.';
+        initierCb = ({required String telephone, required String operateur}) =>
+            PaiementService.instance.initierPublication(
+              logementId: brouillonId,
+              telephone: telephone,
+              channel: operateur,
+              montant: montant,
+              dureeJours: dureeJoursHeberg,
+            );
       } else {
-        // Immobilier → commission % du prix du bien, visible 1 mois
+        // Immobilier standard → commission FIXE 3 % du prix du bien, 1 mois
         final prixBien = double.tryParse(_prixCtrl.text) ?? 0;
-        final gradeEnum = GradeBienLabel.fromCode(_gradeEffectif);
-        montant = TarificationService.instance.montantSponsorisation(
-          grade: gradeEnum,
-          typeBien: _typeBienFirestore,
-          prixBien: prixBien,
-        );
+        montant = TarificationService.montantPublicationStandard(prixBien);
         titreEcran = 'Frais de publication';
         dureeLabel = 'Votre annonce sera visible pendant 1 mois sur Horem+.';
         initierCb = ({required String telephone, required String operateur}) =>
@@ -478,6 +621,11 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
               const SizedBox(height: 16),
               // ── Type de bien ──────────────────────────────────
               Text(_loc.t('form_type_bien'), style: AppTextStyles.h3),
+              const SizedBox(height: 4),
+              Text(
+                _loc.t('form_type_pct_note'),
+                style: TextStyle(fontSize: 11, color: context.appTextSecondary),
+              ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                   isExpanded: true,
@@ -488,7 +636,19 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                       child: Text(_loc.t('form_immo_group'),
                           style: const TextStyle(color: AppColors.textHint, fontSize: 13)),
                     ),
-                    ..._typesImmo.map((t) => DropdownMenuItem(value: t, child: Text(t))),
+                    ..._typesImmo.map((t) => DropdownMenuItem(
+                          value: t,
+                          child: Text('$t  (3 %)'),
+                        )),
+                    const DropdownMenuItem(
+                      value: null, enabled: false,
+                      child: Text('— Hébergement (forfait) —',
+                          style: TextStyle(color: AppColors.textHint, fontSize: 13)),
+                    ),
+                    ..._typesHeberg.map((t) => DropdownMenuItem(
+                          value: t,
+                          child: Text(t),
+                        )),
                     DropdownMenuItem(
                       value: null, enabled: false,
                       child: Text(_loc.t('form_service_group'),
@@ -501,7 +661,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                     ),
                     DropdownMenuItem(
                       value: _typeAutre,
-                      child: Text(_loc.t('form_type_autre')),
+                      child: Text('${_loc.t('form_type_autre')}  (3 %)'),
                     ),
                   ],
                   onChanged: (v) {
@@ -542,27 +702,9 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
               ],
 
               // ── Catégorie / Standing (immobilier uniquement) ──
-              if (_isImmoType) ...[
-                const SizedBox(height: 16),
-                Text(_loc.t('form_standing'), style: AppTextStyles.h3),
-                const SizedBox(height: 4),
-                Text(
-                  _loc.t('form_standing_desc'),
-                  style: TextStyle(fontSize: 12, color: context.appTextSecondary),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  value: _grade,
-                  items: [
-                    DropdownMenuItem(value: 'standards',    child: Text(_loc.t('form_grade_standard'))),
-                    DropdownMenuItem(value: 'haut_standing', child: Text(_loc.t('form_grade_haut'))),
-                    DropdownMenuItem(value: 'meubles',      child: Text(_loc.t('form_grade_meuble'))),
-                    DropdownMenuItem(value: 'a_louer',      child: Text(_loc.t('form_grade_a_louer'))),
-                  ],
-                  onChanged: (v) => setState(() => _grade = v!),
-                ),
-              ],
+              // Sélecteur de grade supprimé : commission fixe 3 % pour l'immobilier
+              // standard. Les types hébergement (Meublé/Motel, Auberge, Hôtel) utilisent
+              // un forfait par durée sélectionné à la publication.
 
               // ── Badge info pour les types service ─────────────
               if (_isServiceType) ...[
@@ -658,23 +800,33 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                 Text(_loc.t('form_opening_hours'), style: AppTextStyles.h3),
                 const SizedBox(height: 8),
                 Row(children: [
-                  Expanded(child: TextFormField(
-                    controller: _heureOuvCtrl,
-                    decoration: InputDecoration(
-                        labelText: _loc.t('form_opening_time'),
-                        hintText: '08:00',
-                        prefixIcon: const Icon(Icons.schedule)),
-                    keyboardType: TextInputType.datetime,
-                  )),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _heureOuvCtrl,
+                      readOnly: true,
+                      onTap: () => _choisirHeure(_heureOuvCtrl,
+                          defaut: const TimeOfDay(hour: 8, minute: 0)),
+                      decoration: InputDecoration(
+                          labelText: _loc.t('form_opening_time'),
+                          hintText: '08:00',
+                          prefixIcon: const Icon(Icons.schedule),
+                          suffixIcon: const Icon(Icons.arrow_drop_down)),
+                    ),
+                  ),
                   const SizedBox(width: 12),
-                  Expanded(child: TextFormField(
-                    controller: _heureFermCtrl,
-                    decoration: InputDecoration(
-                        labelText: _loc.t('form_closing_time'),
-                        hintText: '22:00',
-                        prefixIcon: const Icon(Icons.schedule_outlined)),
-                    keyboardType: TextInputType.datetime,
-                  )),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _heureFermCtrl,
+                      readOnly: true,
+                      onTap: () => _choisirHeure(_heureFermCtrl,
+                          defaut: const TimeOfDay(hour: 22, minute: 0)),
+                      decoration: InputDecoration(
+                          labelText: _loc.t('form_closing_time'),
+                          hintText: '22:00',
+                          prefixIcon: const Icon(Icons.schedule_outlined),
+                          suffixIcon: const Icon(Icons.arrow_drop_down)),
+                    ),
+                  ),
                 ]),
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -719,22 +871,26 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                     decoration: const InputDecoration(hintText: 'Ex: 45', suffixText: 'm²')),
               ],
               const SizedBox(height: 16),
-              Text(_loc.t('form_description'), style: AppTextStyles.h3),
-              const SizedBox(height: 8),
-              TextFormField(controller: _descCtrl, maxLines: 4,
-                  decoration: InputDecoration(hintText: _loc.t('form_desc_hint')),
-                  validator: (v) => v!.isEmpty ? _loc.t('form_required') : null),
-              const SizedBox(height: 16),
-              Text(_loc.t('form_equipment'), style: AppTextStyles.h3),
-              const SizedBox(height: 8),
-              Wrap(spacing: 8, runSpacing: 8,
-                  children: _equipementsDispos.map((eq) {
-                    final sel = _equipements.contains(eq);
-                    return FilterChip(label: Text(_loc.t(_equipKeys[eq] ?? eq)), selected: sel,
-                        selectedColor: context.appPrimaryLight, checkmarkColor: AppColors.primary,
-                        onSelected: (v) => setState(() => v ? _equipements.add(eq) : _equipements.remove(eq)));
-                  }).toList()),
-              const SizedBox(height: 20),
+              if (!_isPharmacieType) ...[
+                Text(_loc.t('form_description'), style: AppTextStyles.h3),
+                const SizedBox(height: 8),
+                TextFormField(controller: _descCtrl, maxLines: 4,
+                    decoration: InputDecoration(hintText: _loc.t('form_desc_hint')),
+                    validator: (v) => v!.isEmpty ? _loc.t('form_required') : null),
+                const SizedBox(height: 16),
+              ],
+              if (!_isPharmacieType) ...[
+                Text(_loc.t('form_equipment'), style: AppTextStyles.h3),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8,
+                    children: _equipementsDispos.map((eq) {
+                      final sel = _equipements.contains(eq);
+                      return FilterChip(label: Text(_loc.t(_equipKeys[eq] ?? eq)), selected: sel,
+                          selectedColor: context.appPrimaryLight, checkmarkColor: AppColors.primary,
+                          onSelected: (v) => setState(() => v ? _equipements.add(eq) : _equipements.remove(eq)));
+                    }).toList()),
+                const SizedBox(height: 20),
+              ],
               Text(_loc.t('form_localization'), style: AppTextStyles.h3),
               const SizedBox(height: 8),
               ElevatedButton.icon(
@@ -1170,6 +1326,78 @@ class _MesAnnoncesTab extends StatefulWidget {
 class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
   late AppLocalizations _loc;
 
+  StreamSubscription<QuerySnapshot>? _sub;
+  Timer? _fallbackTimer;
+  List<Logement> _logements = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _startListening();
+    // Filet de sécurité : toutes les 3 s on refait une lecture serveur pour
+    // rattraper un éventuel changement admin que le snapshot listener local
+    // aurait manqué (cache Firestore, réseau intermittent, écouteur figé).
+    _fallbackTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _forceRefresh();
+    });
+  }
+
+  void _startListening() {
+    debugPrint('[MesAnnonces] 🔌 _startListening for uid=${widget.uid}');
+    _sub?.cancel();
+    _sub = LogementService.getMesLogements(widget.uid).listen(
+      (snap) {
+        if (!mounted) return;
+        debugPrint(
+            '[MesAnnonces] 📡 snapshot reçu — ${snap.docs.length} docs, fromCache=${snap.metadata.isFromCache}, hasPending=${snap.metadata.hasPendingWrites}');
+        for (final d in snap.docs) {
+          final data = d.data() as Map<String, dynamic>;
+          debugPrint(
+              '[MesAnnonces]    • ${d.id} type=${data['typeBien']} visibleAdmin=${data['visibleAdmin']} disponible=${data['disponible']}');
+        }
+        setState(() {
+          _logements = snap.docs
+              .map((d) =>
+                  Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
+              .toList();
+          _loading = false;
+        });
+      },
+      onError: (Object e) {
+        debugPrint('[MesAnnonces] ❌ stream error: $e');
+        _forceRefresh();
+      },
+    );
+  }
+
+  Future<void> _forceRefresh() async {
+    try {
+      debugPrint('[MesAnnonces] 🔄 forceRefresh Source.server…');
+      final snap = await FirebaseFirestore.instance
+          .collection('logements')
+          .where('uid_prestataire', isEqualTo: widget.uid)
+          .orderBy('createdAt', descending: true)
+          .get(const GetOptions(source: Source.server));
+      debugPrint(
+          '[MesAnnonces] ✅ forceRefresh reçu ${snap.docs.length} docs (fromCache=${snap.metadata.isFromCache})');
+      for (final d in snap.docs) {
+        final data = d.data();
+        debugPrint(
+            '[MesAnnonces]    • ${d.id} type=${data['typeBien']} visibleAdmin=${data['visibleAdmin']} disponible=${data['disponible']}');
+      }
+      if (!mounted) return;
+      setState(() {
+        _logements = snap.docs
+            .map((d) => Logement.fromMap(d.id, d.data()))
+            .toList();
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('[MesAnnonces] ❌ forceRefresh error: $e');
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -1177,47 +1405,67 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
   }
 
   @override
+  void dispose() {
+    _sub?.cancel();
+    _fallbackTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: LogementService.getMesLogements(widget.uid),
-      builder: (ctx, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (!snap.hasData || snap.data!.docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.home_work_outlined, size: 64, color: Colors.white.withValues(alpha: 0.5)),
-                const SizedBox(height: 16),
-                Text(_loc.t('dashboard_no_listings'),
-                    style: const TextStyle(fontSize: 16, color: Colors.white)),
-                const SizedBox(height: 8),
-                Text(_loc.t('dashboard_no_listings_hint'),
-                    style: const TextStyle(fontSize: 13, color: Colors.white70)),
-              ],
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_logements.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _forceRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 120),
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.home_work_outlined,
+                      size: 64, color: Colors.white.withValues(alpha: 0.5)),
+                  const SizedBox(height: 16),
+                  Text(_loc.t('dashboard_no_listings'),
+                      style: const TextStyle(fontSize: 16, color: Colors.white)),
+                  const SizedBox(height: 8),
+                  Text(_loc.t('dashboard_no_listings_hint'),
+                      style:
+                          const TextStyle(fontSize: 13, color: Colors.white70)),
+                ],
+              ),
             ),
-          );
-        }
+          ],
+        ),
+      );
+    }
 
-        final logements = snap.data!.docs
-            .map((d) => Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
-            .toList();
-
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: logements.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (ctx, i) => _AnnonceCard(
-            logement: logements[i],
-            onEdit: () => Navigator.push(ctx,
-                MaterialPageRoute(builder: (_) => FormulaireAnnonce(logement: logements[i]))),
-            onDelete: () => _confirmerSuppression(logements[i].id),
-            onToggleDisponible: () => _toggleDisponible(logements[i]),
-          ),
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: _forceRefresh,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: _logements.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        // Clé stable qui inclut visibleAdmin + disponible → dès qu'un de ces
+        // champs change en Firestore, Flutter reconstruit l'_AnnonceCard.
+        itemBuilder: (ctx, i) => _AnnonceCard(
+          key: ValueKey(
+              'annonce-${_logements[i].id}-${_logements[i].visibleAdmin}-${_logements[i].disponible}'),
+          logement: _logements[i],
+          onEdit: () => Navigator.push(
+              ctx,
+              MaterialPageRoute(
+                  builder: (_) => FormulaireAnnonce(logement: _logements[i]))),
+          onDelete: () => _confirmerSuppression(_logements[i].id),
+          onToggleDisponible: () => _toggleDisponible(_logements[i]),
+        ),
+      ),
     );
   }
 
@@ -1275,21 +1523,182 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
     }
   }
 
+  // Types à réactivation LIBRE (déjà payés par visibilité annuelle ou forfait
+  // hébergement) — hors immobilier standard à commission %.
+  static const _typesForfaitToggle = <String>{
+    // Visibilité annuelle
+    'Entreprise',
+    'Restaurant / Snack',
+    'École',
+    // Hébergement forfaitaire par durée
+    'Meublé / Motel',
+    'Auberge',
+    'Hôtel',
+  };
+
   Future<void> _toggleDisponible(Logement l) async {
-    final doc = await FirebaseFirestore.instance.collection('logements').doc(l.id).get();
-    final visibleAdmin = doc.data()?['visibleAdmin'] ?? true;
-    if (!visibleAdmin && !l.disponible) {
+    final loc = AppLocalizations.of(context);
+    debugPrint(
+        '[Toggle] 👆 tap sur ${l.id} — Logement local: type=${l.typeBien} visibleAdmin=${l.visibleAdmin} disponible=${l.disponible}');
+
+    // Toujours relire l'état à jour depuis Firestore (le stream peut être en retard
+    // sur un changement admin récent).
+    final doc = await FirebaseFirestore.instance
+        .collection('logements')
+        .doc(l.id)
+        .get(const GetOptions(source: Source.server));
+    final data = doc.data() ?? {};
+    debugPrint(
+        '[Toggle] 🔍 lecture Firestore serveur: visibleAdmin=${data['visibleAdmin']} disponible=${data['disponible']}');
+    // Défaut type-aware : les pharmacies (créées gratuitement) sont bloquées
+    // tant que l'admin n'a pas explicitement approuvé leur visibilité.
+    final rawVisibleAdmin = data['visibleAdmin'];
+    final typeBien = (data['typeBien'] ?? l.typeBien).toString();
+    final visibleAdmin = rawVisibleAdmin is bool
+        ? rawVisibleAdmin
+        : typeBien != 'Pharmacie';
+    final currentlyDisponible = data['disponible'] as bool? ?? l.disponible;
+    final wantEnable = !currentlyDisponible;
+
+    // ── 1. Admin a bloqué la visibilité → refuser tout changement ──────────
+    if (!visibleAdmin) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(AppLocalizations.of(context).t('admin_visibility_required')),
+          content: Text(loc.t('admin_visibility_required')),
           backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          duration: const Duration(seconds: 4),
+        ));
+      }
+      return;
+    }
+
+    // ── 2. Désactivation → toujours libre ────────────────────────────────────
+    if (!wantEnable) {
+      await LogementService.updateLogement(l.id, {'disponible': false});
+      return;
+    }
+
+    // ── 3. Réactivation : pharmacie, visibilité annuelle et hébergement
+    //       forfaitaire → libres ─────────────────────────────────────────
+    final isPharmacie = l.typeBien == 'Pharmacie';
+    final isForfait = _typesForfaitToggle.contains(l.typeBien);
+    if (isPharmacie || isForfait) {
+      await LogementService.updateLogement(l.id, {'disponible': true});
+      return;
+    }
+
+    // ── 4. Bien standard (immobilier / Autre) → repaiement requis ───────────
+    await _reactiverBienStandard(l);
+  }
+
+  Future<void> _reactiverBienStandard(Logement l) async {
+    final loc = AppLocalizations.of(context);
+
+    // Bypass pour comptes gratuits
+    if (AuthService.instance.currentUser?.compteGratuit == true) {
+      await LogementService.updateLogement(l.id, {
+        'disponible': true,
+        'paymentPending': false,
+        'publicationExpiry': Timestamp.fromDate(
+            DateTime.now().add(const Duration(days: 30))),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(loc.t('form_published_ok')),
+          backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ));
       }
       return;
     }
-    await LogementService.updateLogement(l.id, {'disponible': !l.disponible});
+
+    // Nouvelle grille : commission fixe 3 % pour tous les biens standards.
+    final montant = TarificationService.montantPublicationStandard(l.prix);
+
+    final confirmer = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(children: [
+          const Icon(Icons.refresh_rounded, color: AppColors.primary, size: 22),
+          const SizedBox(width: 8),
+          Expanded(child: Text(loc.t('reactivation_confirm_title'))),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(loc.t('reactivation_confirm_body')),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(children: [
+                const Icon(Icons.payments_outlined, size: 18, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Text('$montant XAF',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, color: AppColors.primary)),
+              ]),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(loc.t('reactivation_cancel'))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text(loc.t('reactivation_pay_button')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmer != true || !mounted) return;
+
+    final paye = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaiementPublicationScreen(
+          logementId: l.id,
+          titreAnnonce: l.titre,
+          montant: montant,
+          titreEcran: loc.t('reactivation_screen_title'),
+          dureeLabel: loc.t('reactivation_duree_label'),
+          initierPersonnalise: ({required String telephone, required String operateur}) =>
+              PaiementService.instance.initierPublication(
+            logementId: l.id,
+            telephone: telephone,
+            channel: operateur,
+            montant: montant,
+          ),
+          boutonLabel: loc.t('reactivation_pay_button'),
+          succesMessage: loc.t('reactivation_success'),
+        ),
+      ),
+    );
+
+    if (paye == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(loc.t('reactivation_success')),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ));
+    }
   }
 }
 
@@ -1301,6 +1710,7 @@ class _AnnonceCard extends StatelessWidget {
   final VoidCallback onToggleDisponible;
 
   const _AnnonceCard({
+    super.key,
     required this.logement,
     required this.onEdit,
     required this.onDelete,
@@ -1351,6 +1761,7 @@ class _AnnonceCard extends StatelessWidget {
               logementId: l.id,
               titre: l.titre,
               photo: l.photos.isNotEmpty ? l.photos.first : null,
+              compteGratuit: AuthService.instance.currentUser?.compteGratuit ?? false,
             ),
           ),
         ),
@@ -1434,12 +1845,15 @@ class _AnnonceCard extends StatelessWidget {
                   children: [
                     _StatChip(icon: Icons.visibility_outlined, value: '${l.nbVues}', label: 'vues'),
                     const SizedBox(width: 8),
-                    _StatChip(icon: Icons.people_outline, value: loc.t(_typeBienKeys[l.typeBien] ?? l.typeBien), label: ''),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: l.visibleAdmin ? onToggleDisponible : null,
+                    Flexible(
+                      child: _StatChip(icon: Icons.people_outline, value: loc.t(_typeBienKeys[l.typeBien] ?? l.typeBien), label: ''),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: GestureDetector(
+                      onTap: onToggleDisponible,
                       child: Opacity(
-                        opacity: l.visibleAdmin ? 1.0 : 0.5,
+                        opacity: l.visibleAdmin ? 1.0 : 0.6,
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
@@ -1449,21 +1863,23 @@ class _AnnonceCard extends StatelessWidget {
                             border: Border.all(color: !l.visibleAdmin ? AppColors.warning
                                 : l.disponible ? AppColors.primary : context.appBorder),
                           ),
-                          child: Row(children: [
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
                             Icon(!l.visibleAdmin ? Icons.lock_outline
                                 : l.disponible ? Icons.toggle_on : Icons.toggle_off,
                                 size: 16, color: !l.visibleAdmin ? AppColors.warning
                                     : l.disponible ? AppColors.primary : AppColors.textHint),
                             const SizedBox(width: 4),
-                            Text(!l.visibleAdmin ? loc.t('admin_pending_approval')
+                            Flexible(child: Text(!l.visibleAdmin ? loc.t('admin_pending_approval')
                                 : l.disponible ? loc.t('dashboard_listing_active') : loc.t('dashboard_listing_inactive'),
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
                                 style: TextStyle(fontSize: 12,
                                     color: !l.visibleAdmin ? AppColors.warning
                                         : l.disponible ? AppColors.primary : AppColors.textHint,
-                                    fontWeight: FontWeight.w600)),
+                                    fontWeight: FontWeight.w600))),
                           ]),
                         ),
                       ),
+                    ),
                     ),
                   ],
                 ),
@@ -2866,6 +3282,28 @@ class _MesPublicitesTabState extends State<_MesPublicitesTab> {
   }
 
   Future<void> _reactiver(Publicite pub) async {
+    // Bypass pour comptes gratuits
+    if (AuthService.instance.currentUser?.compteGratuit == true) {
+      final until = DateTime.now()
+          .add(const Duration(days: PubliciteService.dureeJours));
+      await FirebaseFirestore.instance
+          .collection('publicites')
+          .doc(pub.id)
+          .update({
+        'actif': true,
+        'paymentPending': false,
+        'expiresAt': Timestamp.fromDate(until),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Publicité réactivée gratuitement.'),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      return;
+    }
+
     final paye = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
