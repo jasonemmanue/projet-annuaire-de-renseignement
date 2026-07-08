@@ -138,6 +138,63 @@ class TarificationService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // ①-BIS COMMISSION FIXE 3 % — biens immobiliers standards (nouvelle grille)
+  // ═══════════════════════════════════════════════════════════════════════════
+  /// Taux de commission unique appliqué à Studio, Appartement, Villa, Terrain,
+  /// Bureau, Commerce et « Autre ». Publication visible 1 mois.
+  static const double commissionStandard = 0.03;
+
+  /// Montant à payer pour publier un bien standard (3 % du prix, plancher 200).
+  static int montantPublicationStandard(double prixBien) {
+    return minMontant(prixBien * commissionStandard);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ①-TER HÉBERGEMENT — forfait par durée (Meublé/Motel, Auberge, Hôtel)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Grille hébergement : type → { code durée → prix XAF }.
+  static const Map<String, Map<String, int>> tarifsHebergement = {
+    'Meublé / Motel': {'1m': 2000, '3m': 5000, '6m': 10000, '1a': 20000},
+    'Auberge':        {'1m': 1000, '3m': 3000, '6m': 5000,  '1a': 10000},
+    'Hôtel':          {'1m': 3000, '3m': 8000, '6m': 15000, '1a': 25000},
+  };
+
+  /// Durée (en jours) associée à chaque code de forfait.
+  static const Map<String, int> dureeJoursHebergement = {
+    '1m': 30,
+    '3m': 90,
+    '6m': 180,
+    '1a': 365,
+  };
+
+  /// Options affichables dans un sélecteur de durée pour l'hébergement.
+  static const List<({String code, String label, int jours})>
+      optionsHebergement = [
+    (code: '1m', label: '1 mois',  jours: 30),
+    (code: '3m', label: '3 mois',  jours: 90),
+    (code: '6m', label: '6 mois',  jours: 180),
+    (code: '1a', label: '1 an',    jours: 365),
+  ];
+
+  /// Types éligibles au forfait hébergement (clés de la grille).
+  static const List<String> typesHebergement = [
+    'Meublé / Motel',
+    'Auberge',
+    'Hôtel',
+  ];
+
+  /// Vrai si [typeBien] utilise la grille forfaitaire (hébergement).
+  static bool isTypeHebergement(String typeBien) =>
+      tarifsHebergement.containsKey(typeBien);
+
+  /// Montant hébergement (XAF) pour un type + code durée ('1m'|'3m'|'6m'|'1a').
+  /// Retourne null si le type ou la durée n'est pas dans la grille.
+  static int? montantHebergement(String typeBien, String codeDuree) {
+    return tarifsHebergement[typeBien]?[codeDuree];
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // ② VISITEUR — frais d'urgence (traitement prioritaire), montant fixe
   // ═══════════════════════════════════════════════════════════════════════════
   //

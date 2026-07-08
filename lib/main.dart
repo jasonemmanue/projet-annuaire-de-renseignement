@@ -286,8 +286,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Stories visiteur : tous les 4 retours d'arrière-plan.
-    if (state == AppLifecycleState.resumed && !_isPrestataire) {
+    // Stories : tous les 4 retours d'arrière-plan (visiteurs ET prestataires hors dashboard).
+    if (state == AppLifecycleState.resumed && _currentIndex != 3) {
       if (StoriesTrigger.instance.registerForegroundReturn()) {
         _maybeShowStories();
       }
@@ -360,8 +360,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   void _onTabTap(int i) {
     final wasIndex = _currentIndex;
     setState(() => _currentIndex = i);
-    // Stories visiteur : tous les 3 changements de tab effectifs.
-    if (wasIndex != i && !_isPrestataire) {
+    // Stories : tous les 3 changements de tab (visiteurs ET prestataires hors dashboard).
+    if (wasIndex != i && i != 3) {
       if (StoriesTrigger.instance.registerNavigation()) {
         _maybeShowStories();
       }

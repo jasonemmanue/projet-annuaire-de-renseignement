@@ -159,7 +159,10 @@ class Logement {
         : DateTime.now(),
     nbVues: (map['vues'] as num?)?.toInt() ?? 0,
     disponible: map['disponible'] ?? true,
-    visibleAdmin: map['visibleAdmin'] ?? true,
+    // Défaut : pharmacies (gratuites) attendent l'approbation admin, les autres
+    // ont déjà payé donc partent avec visibilité admin OK.
+    visibleAdmin: map['visibleAdmin'] ??
+        ((map['typeBien'] ?? '') != 'Pharmacie'),
     paymentPending: map['paymentPending'] ?? false,
     documentPdf: map['documentPdf'],
     sponsoredUntil: map['sponsoredUntil'] is Timestamp

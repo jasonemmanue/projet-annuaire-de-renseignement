@@ -408,10 +408,12 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
 
       // ─── Pharmacie → publication directement gratuite ─────────────────────
       if (_isPharmacieType) {
+        final isGratuit = AuthService.instance.currentUser?.compteGratuit == true;
         await LogementService.addLogement({
           ...data,
           'disponible': true,
-          'visibleAdmin': false,
+          // Comptes gratuits : pas d'approbation admin requise.
+          'visibleAdmin': isGratuit,
           'paymentPending': false,
         });
         if (mounted) {
@@ -440,6 +442,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
             : DateTime.now().add(const Duration(days: 30));
         await FirebaseFirestore.instance.collection('logements').doc(brouillonId).update({
           'disponible': true,
+          'visibleAdmin': true,
           'paymentPending': false,
           if (_isVisibiliteType)
             'visibiliteExpiry': Timestamp.fromDate(expiry)
@@ -1560,8 +1563,11 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
     final currentlyDisponible = data['disponible'] as bool? ?? l.disponible;
     final wantEnable = !currentlyDisponible;
 
-    // ── 1. Admin a bloqué la visibilité → refuser tout changement ──────────
-    if (!visibleAdmin) {
+    final isGratuit =
+        AuthService.instance.currentUser?.compteGratuit == true;
+
+    // ── 1. Admin a bloqué la visibilité → refuser sauf comptes gratuits ────
+    if (!visibleAdmin && !isGratuit) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(loc.t('admin_visibility_required')),
@@ -1585,7 +1591,10 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
     final isPharmacie = l.typeBien == 'Pharmacie';
     final isForfait = _typesForfaitToggle.contains(l.typeBien);
     if (isPharmacie || isForfait) {
-      await LogementService.updateLogement(l.id, {'disponible': true});
+      // Compte gratuit : forcer visibleAdmin si le champ était false (pharmacie)
+      final fields = <String, dynamic>{'disponible': true};
+      if (!visibleAdmin && isGratuit) fields['visibleAdmin'] = true;
+      await LogementService.updateLogement(l.id, fields);
       return;
     }
 
@@ -1600,6 +1609,7 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
     if (AuthService.instance.currentUser?.compteGratuit == true) {
       await LogementService.updateLogement(l.id, {
         'disponible': true,
+        'visibleAdmin': true,
         'paymentPending': false,
         'publicationExpiry': Timestamp.fromDate(
             DateTime.now().add(const Duration(days: 30))),

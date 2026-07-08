@@ -333,7 +333,7 @@ class _StoriesPublicitesOverlayState extends State<StoriesPublicitesOverlay>
                     ),
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
-                    onPressed: _fermer,
+                    onPressed: _suivant,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: AppColors.primary,

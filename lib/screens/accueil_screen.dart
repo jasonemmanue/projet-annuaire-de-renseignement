@@ -914,13 +914,21 @@ class _SponsoredCard extends StatelessWidget {
                           color: AppColors.accent,
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Text(
-                          AppLocalizations.of(context).t('common_sponsored'),
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star_rounded,
+                                size: 11, color: Colors.black87),
+                            const SizedBox(width: 3),
+                            Text(
+                              AppLocalizations.of(context).t('common_sponsored'),
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -954,6 +962,28 @@ class _SponsoredCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
+              ),
+
+              // Badge étoile À la une
+              Positioned(
+                top: 12,
+                left: 12,
+                child: Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.star_rounded,
+                      color: Colors.black87, size: 16),
                 ),
               ),
 

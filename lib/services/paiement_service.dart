@@ -253,6 +253,7 @@ class PaiementService {
     required String telephone,
     required int montant,
     String? channel,
+    int? dureeJours,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -264,7 +265,7 @@ class PaiementService {
 
     if (_simulation) {
       try {
-        final expiry = DateTime.now().add(const Duration(days: 30));
+        final expiry = DateTime.now().add(Duration(days: dureeJours ?? 30));
         await _db.collection('logements').doc(logementId).set(
           {
             'disponible': true,
@@ -303,6 +304,7 @@ class PaiementService {
         'logementId': logementId,
         'telephone': telephone,
         'montant': montant,
+        if (dureeJours != null) 'dureeJours': dureeJours,
         if (_toChannel(channel) != null) 'operateur': _toChannel(channel),
       });
       log.info('Body: $body');

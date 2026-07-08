@@ -194,7 +194,14 @@ service cloud.firestore {
       // ── messages ──────────────────────────────────────────────────
       // Couvre tous les types : text, image, video, file, + champ replyTo optionnel.
       match /messages/{msgId} {
-        allow read, create, update, delete: if
+        // Lecture : participant, visiteur anonyme (chat visiteur), OU admin (modération).
+        allow read: if
+          (isAuthenticated() && request.auth.uid in
+            get(/databases/$(database)/documents/conversations/$(convId)).data.participants)
+          || (!isAuthenticated())
+          || isAdmin();
+        // Écriture : participant ou visiteur anonyme (admin ne poste pas depuis le web).
+        allow create, update, delete: if
           (isAuthenticated() && request.auth.uid in
             get(/databases/$(database)/documents/conversations/$(convId)).data.participants)
           || (!isAuthenticated());
