@@ -60,6 +60,9 @@ class PubliciteService {
     required String description,
     required List<XFile> photos,
     XFile? video,
+    String? logementId,
+    String? logementTitre,
+    String? logementPhoto,
   }) async {
     final docRef = _db.collection('publicites').doc();
     final pubId = docRef.id;
@@ -84,8 +87,11 @@ class PubliciteService {
       photos: photoUrls,
       videoUrl: videoUrl,
       dateCreation: DateTime.now(),
-      actif: false,           // pas encore diffusable
-      paymentPending: true,   // en attente du paiement initial
+      actif: false,
+      paymentPending: true,
+      logementId: logementId,
+      logementTitre: logementTitre,
+      logementPhoto: logementPhoto,
     );
 
     await docRef.set(pub.toMap());

@@ -80,8 +80,9 @@ class _AccueilScreenState extends State<AccueilScreen> {
   late AppLocalizations _l;
 
   // ── Carrousel « À la une » ───────────────────────────────────
-  final PageController _alaUneCtrl = PageController(viewportFraction: 0.9);
+  PageController _alaUneCtrl = PageController(viewportFraction: 0.9);
   Timer? _alaUneTimer;
+  int _prevAlaUneCount = 0;
 
   List<Logement> get _aLaUne {
     final sponsories = _logements.where((l) => l.estSponsorie).toList();
@@ -92,12 +93,27 @@ class _AccueilScreenState extends State<AccueilScreen> {
   void _demarrerTimerAlaUne() {
     _alaUneTimer?.cancel();
     final count = _aLaUne.length;
+
+    if (count != _prevAlaUneCount) {
+      final oldCtrl = _alaUneCtrl;
+      final safePage = oldCtrl.hasClients
+          ? (oldCtrl.page?.round() ?? 0).clamp(0, count > 0 ? count - 1 : 0)
+          : 0;
+      _alaUneCtrl = PageController(
+        viewportFraction: 0.9,
+        initialPage: safePage,
+      );
+      _prevAlaUneCount = count;
+      oldCtrl.dispose();
+    }
+
     if (count <= 1) return;
     _alaUneTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted || !_alaUneCtrl.hasClients) return;
       final current = _alaUneCtrl.page?.round() ?? 0;
+      final next = (current + 1) % count;
       _alaUneCtrl.animateToPage(
-        (current + 1) % count,
+        next,
         duration: const Duration(milliseconds: 600),
         curve: Curves.easeInOut,
       );
@@ -790,6 +806,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
                   SizedBox(
                     height: 220,
                     child: PageView.builder(
+                      key: ValueKey('alaune_${aLaUne.length}'),
                       controller: _alaUneCtrl,
                       itemCount: aLaUne.length,
                       itemBuilder: (_, i) => Padding(

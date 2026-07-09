@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:video_player/video_player.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/favoris_service.dart';
+import '../services/messagerie_service.dart';
 import '../services/publicite_service.dart';
+import '../screens/messagerie_screen.dart';
 import 'stories_publicites_overlay.dart';
 
 // ============================================================
@@ -818,6 +822,9 @@ class _PublicitePrestataireBannerState
   List<Publicite> _pubs = [];
   bool _loaded = false;
   StreamSubscription<List<Publicite>>? _sub;
+  final ScrollController _scrollCtrl = ScrollController();
+  Timer? _autoScrollTimer;
+  static const double _tileWidth = 138.0; // 130 + 8 margin
 
   @override
   void initState() {
@@ -828,117 +835,335 @@ class _PublicitePrestataireBannerState
         _pubs = pubs;
         _loaded = true;
       });
+      _demarrerAutoScroll();
+    });
+  }
+
+  void _demarrerAutoScroll() {
+    _autoScrollTimer?.cancel();
+    final count = _pubs.length.clamp(0, 6);
+    if (count <= 2) return;
+
+    _autoScrollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted || !_scrollCtrl.hasClients) return;
+      final maxScroll = _scrollCtrl.position.maxScrollExtent;
+      final current = _scrollCtrl.offset;
+      final next = current + _tileWidth;
+
+      if (next >= maxScroll) {
+        _scrollCtrl.animateTo(
+          0,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+        );
+      } else {
+        _scrollCtrl.animateTo(
+          next,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+        );
+      }
     });
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _autoScrollTimer?.cancel();
+    _scrollCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_loaded || _pubs.isEmpty) return const SizedBox.shrink();
-    final pub = _pubs.first;
-    final photo = pub.photos.isNotEmpty ? pub.photos.first : null;
     final l = AppLocalizations.of(context);
 
-    return GestureDetector(
-      onTap: () => ouvrirStoriesPublicites(context),
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-        height: 72,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              AppColors.primary,
-              AppColors.primary.withValues(alpha: 0.80),
-            ],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-          ),
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.30),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.primary,
+            AppColors.primary.withValues(alpha: 0.85),
           ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: Row(
-          children: [
-            // Vignette photo ou icône
-            ClipRRect(
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                bottomLeft: Radius.circular(12),
-              ),
-              child: photo != null
-                  ? Image.network(
-                      photo,
-                      width: 72,
-                      height: 72,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _iconeFallback(),
-                    )
-                  : _iconeFallback(),
-            ),
-            const SizedBox(width: 12),
-            // Texte
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.30),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── En-tête ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: Row(
+              children: [
+                const Icon(Icons.campaign_rounded, color: Colors.white70, size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
                     l.t('pub_banner_title'),
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 11,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    pub.titre.isNotEmpty ? pub.titre : pub.prestataireNom,
+                ),
+                GestureDetector(
+                  onTap: () => ouvrirStoriesPublicites(context),
+                  child: Text(
+                    l.t('pub_banner_see_all'),
                     style: const TextStyle(
                       color: Colors.white,
+                      fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      fontSize: 13,
+                      decoration: TextDecoration.underline,
+                      decorationColor: Colors.white70,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                  if (_pubs.length > 1) ...[
-                    const SizedBox(height: 1),
-                    Row(
-                      children: List.generate(
-                        _pubs.length.clamp(0, 5),
-                        (i) => Container(
-                          width: 5,
-                          height: 5,
-                          margin:
-                              const EdgeInsets.only(right: 4),
-                          decoration: BoxDecoration(
-                            color: i == 0
-                                ? Colors.white
-                                : Colors.white38,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                ),
+              ],
+            ),
+          ),
+          // ── Previews des publicités (photos + vidéos) — auto-scroll ──
+          NotificationListener<ScrollNotification>(
+            onNotification: (notif) {
+              if (notif is ScrollStartNotification &&
+                  notif.dragDetails != null) {
+                _autoScrollTimer?.cancel();
+              } else if (notif is ScrollEndNotification) {
+                _demarrerAutoScroll();
+              }
+              return false;
+            },
+            child: SizedBox(
+              height: 140,
+              child: ListView.builder(
+                controller: _scrollCtrl,
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                itemCount: _pubs.length.clamp(0, 6),
+                itemBuilder: (ctx, i) => _PubPreviewTile(
+                  pub: _pubs[i],
+                  onContact: () => _contacterPrestataire(context, _pubs[i]),
+                  onTap: () => ouvrirStoriesPublicites(context),
+                ),
               ),
             ),
-            // Chevron
-            const Padding(
-              padding: EdgeInsets.only(right: 12, left: 4),
-              child: Icon(Icons.chevron_right,
-                  color: Colors.white70, size: 22),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _contacterPrestataire(BuildContext context, Publicite pub) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final currentUid = currentUser?.uid ?? await getOrCreateVisitorId();
+
+    if (currentUid == pub.prestataireId) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('C\'est votre propre publicité.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+
+    // Utilise l'annonce liée si disponible, sinon fallback sur l'ID pub
+    final logementId = pub.logementId ?? 'pub_${pub.id}';
+    final logementTitre = pub.logementTitre ?? pub.titre;
+    final logementPhoto = pub.logementPhoto
+        ?? (pub.photos.isNotEmpty ? pub.photos.first : null);
+
+    final conversationId = await MessagerieService.getOrCreateConversation(
+      clientId: currentUid,
+      prestataireId: pub.prestataireId,
+      logementId: logementId,
+      logementTitre: logementTitre.isNotEmpty ? logementTitre : pub.prestataireNom,
+      logementPhoto: logementPhoto,
+    );
+    if (!context.mounted) return;
+
+    final myUids = await getAllMyUids();
+    if (!context.mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          conversationId: conversationId,
+          logementTitre: logementTitre.isNotEmpty ? logementTitre : pub.prestataireNom,
+          logementPhoto: logementPhoto,
+          otherId: pub.prestataireId,
+          currentUid: currentUid,
+          myUids: myUids,
+          logementId: pub.logementId,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Tuile de preview pour une publicité (photo ou vidéo) ─────
+class _PubPreviewTile extends StatefulWidget {
+  final Publicite pub;
+  final VoidCallback onContact;
+  final VoidCallback onTap;
+
+  const _PubPreviewTile({
+    required this.pub,
+    required this.onContact,
+    required this.onTap,
+  });
+
+  @override
+  State<_PubPreviewTile> createState() => _PubPreviewTileState();
+}
+
+class _PubPreviewTileState extends State<_PubPreviewTile> {
+  VideoPlayerController? _videoCtrl;
+  bool _videoReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final url = widget.pub.videoUrl;
+    if (url != null && url.isNotEmpty) {
+      _videoCtrl = VideoPlayerController.networkUrl(Uri.parse(url))
+        ..setVolume(0)
+        ..initialize().then((_) {
+          if (!mounted) return;
+          setState(() => _videoReady = true);
+          _videoCtrl!.play();
+          _videoCtrl!.setLooping(true);
+        }).catchError((_) {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoCtrl?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pub = widget.pub;
+    final l = AppLocalizations.of(context);
+    final hasVideo = _videoReady && _videoCtrl != null;
+
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: Container(
+        width: 130,
+        margin: const EdgeInsets.only(right: 8),
+        decoration: BoxDecoration(
+          color: Colors.black26,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Preview media ──
+            Expanded(
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                child: hasVideo
+                    ? Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          FittedBox(
+                            fit: BoxFit.cover,
+                            clipBehavior: Clip.hardEdge,
+                            child: SizedBox(
+                              width: _videoCtrl!.value.size.width,
+                              height: _videoCtrl!.value.size.height,
+                              child: VideoPlayer(_videoCtrl!),
+                            ),
+                          ),
+                          Positioned(
+                            top: 4, left: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Icon(Icons.play_circle_fill,
+                                  color: Colors.white, size: 14),
+                            ),
+                          ),
+                        ],
+                      )
+                    : pub.photos.isNotEmpty
+                        ? Image.network(
+                            pub.photos.first,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _fallbackIcon(),
+                          )
+                        : _fallbackIcon(),
+              ),
+            ),
+            // ── Titre + bouton contacter ──
+            Container(
+              padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+              decoration: const BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.vertical(bottom: Radius.circular(10)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    pub.titre.isNotEmpty ? pub.titre : pub.prestataireNom,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  GestureDetector(
+                    onTap: widget.onContact,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.chat_bubble_outline,
+                              color: AppColors.primary, size: 10),
+                          const SizedBox(width: 3),
+                          Text(
+                            l.t('pub_banner_contact'),
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -946,12 +1171,11 @@ class _PublicitePrestataireBannerState
     );
   }
 
-  Widget _iconeFallback() => Container(
-        width: 72,
-        height: 72,
+  Widget _fallbackIcon() => Container(
         color: Colors.white10,
-        child: const Icon(Icons.campaign_outlined,
-            color: Colors.white, size: 30),
+        child: const Center(
+          child: Icon(Icons.campaign_outlined, color: Colors.white54, size: 28),
+        ),
       );
 }
 

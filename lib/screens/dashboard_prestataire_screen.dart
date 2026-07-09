@@ -431,7 +431,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
       final brouillonId = await LogementService.addLogement({
         ...data,
         'disponible': false,
-        'visibleAdmin': true,
+        'visibleAdmin': false,
         'paymentPending': true,
       });
 
@@ -1101,11 +1101,15 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
             (l) => l['code'] == langCode,
         orElse: () => _langues.first)['flag']!;
 
+    final isConnected = FirebaseAuth.instance.currentUser != null;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_loc.t('dashboard_my_space'), maxLines: 2, style: const TextStyle(height: 1.2)),
         toolbarHeight: 64,
         actions: [
+          // ── Cloche de notifications ─────────────────────────
+          _NotificationBell(uid: uid, isConnected: isConnected),
           IconButton(
             tooltip: isDark ? _loc.t('dashboard_tooltip_light') : _loc.t('dashboard_tooltip_dark'),
             icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
@@ -1315,6 +1319,224 @@ class _BadgeDash extends StatelessWidget {
     ),
     child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
   );
+}
+
+// ── Cloche de notifications prestataire ──────────────────────
+class _NotificationBell extends StatelessWidget {
+  final String uid;
+  final bool isConnected;
+  const _NotificationBell({required this.uid, required this.isConnected});
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+
+    if (!isConnected || uid.isEmpty) {
+      return IconButton(
+        icon: const Icon(Icons.notifications_off_outlined, color: Colors.white54),
+        tooltip: loc.t('notif_bell_blocked'),
+        onPressed: () {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(loc.t('notif_bell_blocked')),
+            behavior: SnackBarBehavior.floating,
+          ));
+        },
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('admin_notifications')
+          .where('uid_prestataire', isEqualTo: uid)
+          .orderBy('createdAt', descending: true)
+          .limit(50)
+          .snapshots(),
+      builder: (ctx, snap) {
+        final docs = snap.data?.docs ?? [];
+        final unreadCount = docs.where((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return data['lu'] != true;
+        }).length;
+
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+              tooltip: loc.t('notif_bell_title'),
+              onPressed: () => _ouvrirNotifications(context, docs, loc),
+            ),
+            if (unreadCount > 0)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                    color: AppColors.accent,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  child: Text(
+                    unreadCount > 9 ? '9+' : '$unreadCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _ouvrirNotifications(
+      BuildContext context, List<QueryDocumentSnapshot> docs, AppLocalizations loc) {
+    // Marquer toutes comme lues
+    for (final doc in docs) {
+      final data = doc.data() as Map<String, dynamic>;
+      if (data['lu'] != true) {
+        doc.reference.update({'lu': true});
+      }
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        minChildSize: 0.3,
+        builder: (ctx, scrollCtrl) {
+          if (docs.isEmpty) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(loc.t('notif_bell_title'),
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+                const SizedBox(height: 40),
+                Icon(Icons.notifications_none, size: 56, color: Colors.grey.shade300),
+                const SizedBox(height: 16),
+                Text(loc.t('notif_bell_empty'),
+                    style: const TextStyle(fontSize: 16, color: AppColors.textHint)),
+                const SizedBox(height: 8),
+                Text(loc.t('notif_bell_empty_hint'),
+                    style: const TextStyle(fontSize: 13, color: AppColors.textHint),
+                    textAlign: TextAlign.center),
+              ],
+            );
+          }
+
+          return Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(loc.t('notif_bell_title'),
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.separated(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final data = docs[i].data() as Map<String, dynamic>;
+                    final type = data['type'] as String? ?? '';
+                    final titre = data['titre'] as String? ?? '';
+                    final createdAt = data['createdAt'] is Timestamp
+                        ? (data['createdAt'] as Timestamp).toDate()
+                        : DateTime.now();
+                    final wasUnread = data['lu'] != true;
+
+                    IconData icon;
+                    Color iconColor;
+                    String label;
+                    switch (type) {
+                      case 'sponsorisation':
+                        icon = Icons.star_rounded;
+                        iconColor = AppColors.accent;
+                        label = loc.t('notif_bell_new_sponsor');
+                        break;
+                      case 'publicite':
+                        icon = Icons.campaign;
+                        iconColor = AppColors.primary;
+                        label = loc.t('notif_bell_new_pub');
+                        break;
+                      default:
+                        icon = Icons.info_outline;
+                        iconColor = AppColors.textHint;
+                        label = titre.isNotEmpty ? titre : type;
+                    }
+
+                    final timeAgo = DateTime.now().difference(createdAt);
+                    String timeStr;
+                    if (timeAgo.inDays > 0) {
+                      timeStr = '${timeAgo.inDays}j';
+                    } else if (timeAgo.inHours > 0) {
+                      timeStr = '${timeAgo.inHours}h';
+                    } else {
+                      timeStr = '${timeAgo.inMinutes}min';
+                    }
+
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: iconColor.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(icon, color: iconColor, size: 20),
+                      ),
+                      title: Text(label,
+                          style: TextStyle(
+                            fontWeight: wasUnread ? FontWeight.w700 : FontWeight.w500,
+                            fontSize: 14,
+                          )),
+                      subtitle: titre.isNotEmpty && label != titre
+                          ? Text(titre,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12))
+                          : null,
+                      trailing: Text(timeStr,
+                          style: const TextStyle(
+                              color: AppColors.textHint, fontSize: 11)),
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 // ── Onglet "Mes annonces" ─────────────────────────────────────
@@ -1844,9 +2066,10 @@ class _AnnonceCard extends StatelessWidget {
                 Row(children: [
                   const Icon(Icons.location_on, size: 13, color: AppColors.textHint),
                   const SizedBox(width: 2),
-                  Text('${l.quartier}, ${l.ville}',
-                      style: const TextStyle(fontSize: 12)),
-                  const Spacer(),
+                  Flexible(child: Text('${l.quartier}, ${l.ville}',
+                      style: const TextStyle(fontSize: 12),
+                      maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  const SizedBox(width: 8),
                   Text(l.prixLabel,
                       style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 14)),
                 ]),
@@ -1854,11 +2077,11 @@ class _AnnonceCard extends StatelessWidget {
                 Row(
                   children: [
                     _StatChip(icon: Icons.visibility_outlined, value: '${l.nbVues}', label: 'vues'),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Flexible(
                       child: _StatChip(icon: Icons.people_outline, value: loc.t(_typeBienKeys[l.typeBien] ?? l.typeBien), label: ''),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Flexible(
                       child: GestureDetector(
                       onTap: onToggleDisponible,
@@ -1992,10 +2215,11 @@ class _StatChip extends StatelessWidget {
   final IconData icon; final String value; final String label;
   const _StatChip({required this.icon, required this.value, required this.label});
   @override
-  Widget build(BuildContext context) => Row(children: [
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
     Icon(icon, size: 14, color: AppColors.textHint),
     const SizedBox(width: 3),
-    Text('$value $label'.trim(), style: const TextStyle(fontSize: 12)),
+    Flexible(child: Text('$value $label'.trim(), style: const TextStyle(fontSize: 12),
+        maxLines: 1, overflow: TextOverflow.ellipsis)),
   ]);
 }
 

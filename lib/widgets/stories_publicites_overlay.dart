@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:video_player/video_player.dart';
 import '../models/models.dart';
 import '../services/publicite_service.dart';
+import '../services/messagerie_service.dart';
+import '../screens/messagerie_screen.dart';
 import '../theme/app_theme.dart';
+import '../l10n/app_localizations.dart';
 
 // ============================================================
 // FICHIER : lib/widgets/stories_publicites_overlay.dart
@@ -290,7 +294,7 @@ class _StoriesPublicitesOverlayState extends State<StoriesPublicitesOverlay>
               ),
             ),
 
-            // Bas : titre + description + bouton Passer
+            // Bas : titre + description + boutons Contacter / Passer
             Positioned(
               left: 12,
               right: 12,
@@ -331,31 +335,126 @@ class _StoriesPublicitesOverlayState extends State<StoriesPublicitesOverlay>
                               ),
                             ),
                           ],
+                          if (pub.logementTitre != null && pub.logementTitre!.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                const Icon(Icons.home_outlined, color: Colors.white54, size: 14),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    pub.logementTitre!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white54,
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: _suivant,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 28, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () => _contacterPrestataire(pub),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                        label: Text(
+                          AppLocalizations.of(context).t('pub_banner_contact'),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
                       ),
-                    ),
-                    icon: const Icon(Icons.skip_next, size: 18),
-                    label: const Text(
-                      'Passer',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
+                      const SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: _suivant,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: AppColors.primary,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        icon: const Icon(Icons.skip_next, size: 16),
+                        label: const Text(
+                          'Passer',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _contacterPrestataire(Publicite pub) async {
+    _pause();
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final currentUid = currentUser?.uid ?? await getOrCreateVisitorId();
+
+    if (currentUid == pub.prestataireId) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('C\'est votre propre publicité.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      _reprendre();
+      return;
+    }
+
+    final logementId = pub.logementId ?? 'pub_${pub.id}';
+    final logementTitre = pub.logementTitre ?? pub.titre;
+    final logementPhoto = pub.logementPhoto
+        ?? (pub.photos.isNotEmpty ? pub.photos.first : null);
+
+    final conversationId = await MessagerieService.getOrCreateConversation(
+      clientId: currentUid,
+      prestataireId: pub.prestataireId,
+      logementId: logementId,
+      logementTitre: logementTitre.isNotEmpty ? logementTitre : pub.prestataireNom,
+      logementPhoto: logementPhoto,
+    );
+    if (!mounted) return;
+
+    final myUids = await getAllMyUids();
+    if (!mounted) return;
+
+    _fermer();
+    if (!mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          conversationId: conversationId,
+          logementTitre: logementTitre.isNotEmpty ? logementTitre : pub.prestataireNom,
+          logementPhoto: logementPhoto,
+          otherId: pub.prestataireId,
+          currentUid: currentUid,
+          myUids: myUids,
+          logementId: pub.logementId,
         ),
       ),
     );

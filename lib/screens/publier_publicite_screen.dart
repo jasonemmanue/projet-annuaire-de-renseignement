@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
+import '../models/models.dart';
 import '../services/auth_service.dart';
 import '../services/publicite_service.dart';
 import '../services/paiement_service.dart';
@@ -15,6 +16,7 @@ import 'paiement_publication_screen.dart';
 // ÉCRAN : PublierPubliciteScreen
 // Permet au prestataire de publier une publicité photo/vidéo
 // pour promouvoir son activité sur l'accueil visiteur.
+// La publicité doit être liée à une annonce existante.
 // ============================================================
 
 class PublierPubliciteScreen extends StatefulWidget {
@@ -36,7 +38,42 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
 
   bool _isSubmitting = false;
 
+  // Annonce liée
+  List<Logement> _mesAnnonces = [];
+  bool _loadingAnnonces = true;
+  Logement? _annonceSelectionnee;
+
   static const int _maxPhotos = 5;
+
+  @override
+  void initState() {
+    super.initState();
+    _chargerMesAnnonces();
+  }
+
+  Future<void> _chargerMesAnnonces() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      setState(() => _loadingAnnonces = false);
+      return;
+    }
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('logements')
+          .where('uid_prestataire', isEqualTo: uid)
+          .orderBy('createdAt', descending: true)
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _mesAnnonces = snap.docs
+            .map((d) => Logement.fromMap(d.id, d.data()))
+            .toList();
+        _loadingAnnonces = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingAnnonces = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -44,6 +81,86 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
     _descCtrl.dispose();
     _videoController?.dispose();
     super.dispose();
+  }
+
+  // ── Sélection annonce liée ────────────────────────────────────
+
+  void _choisirAnnonce(AppLocalizations l) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        maxChildSize: 0.85,
+        minChildSize: 0.3,
+        builder: (ctx, scrollCtrl) => Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(l.t('pub_select_listing_hint'),
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView.separated(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: _mesAnnonces.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final a = _mesAnnonces[i];
+                  final isSelected = _annonceSelectionnee?.id == a.id;
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: a.photos.isNotEmpty
+                          ? Image.network(a.photos.first,
+                              width: 50, height: 50, fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                width: 50, height: 50,
+                                color: context.appPrimaryLight,
+                                child: const Icon(Icons.home, color: AppColors.primary, size: 24),
+                              ))
+                          : Container(
+                              width: 50, height: 50,
+                              color: context.appPrimaryLight,
+                              child: const Icon(Icons.home, color: AppColors.primary, size: 24),
+                            ),
+                    ),
+                    title: Text(a.titre,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(
+                      '${a.typeBien} — ${a.quartier}, ${a.ville}',
+                      style: TextStyle(fontSize: 12, color: context.appTextSecondary),
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: isSelected
+                        ? const Icon(Icons.check_circle, color: AppColors.primary)
+                        : const Icon(Icons.radio_button_off, color: AppColors.textHint),
+                    onTap: () {
+                      setState(() => _annonceSelectionnee = a);
+                      Navigator.pop(context);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // ── Sélection médias ─────────────────────────────────────────
@@ -86,25 +203,27 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
 
   Future<void> _publier() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_annonceSelectionnee == null) {
+      _showSnack(AppLocalizations.of(context).t('pub_listing_required'));
+      return;
+    }
     if (_photos.isEmpty) {
       _showSnack(AppLocalizations.of(context).t('pub_error_no_photo'));
       return;
     }
 
-    // Vérifier que le token Firebase Auth est valide
     final firebaseUser = FirebaseAuth.instance.currentUser;
     if (firebaseUser == null) {
       _showSnack('Session expirée — reconnectez-vous');
       return;
     }
-    // Force refresh du token pour s'assurer qu'il est à jour
     await firebaseUser.getIdToken(true);
 
     setState(() => _isSubmitting = true);
     try {
       final user = AuthService.instance.currentUser!;
+      final annonce = _annonceSelectionnee!;
 
-      // Étape 1 : crée la pub en brouillon (paymentPending: true, actif: false).
       final pubId = await PubliciteService.creerBrouillon(
         prestataireId: user.id,
         prestataireNom: '${user.prenom} ${user.nom}'.trim(),
@@ -114,6 +233,9 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
         description: _descCtrl.text.trim(),
         photos: _photos,
         video: _video,
+        logementId: annonce.id,
+        logementTitre: annonce.titre,
+        logementPhoto: annonce.photos.isNotEmpty ? annonce.photos.first : null,
       );
 
       if (!mounted) return;
@@ -222,6 +344,114 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  // ── Sélection de l'annonce liée ────────────
+                  Text(l.t('pub_select_listing'), style: AppTextStyles.h3),
+                  const SizedBox(height: 8),
+                  if (_loadingAnnonces)
+                    const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                  else if (_mesAnnonces.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.warning.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: AppColors.warning, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              l.t('pub_no_listings_available'),
+                              style: const TextStyle(fontSize: 13, color: AppColors.warning),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    GestureDetector(
+                      onTap: () => _choisirAnnonce(l),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardTheme.color ?? context.appSurface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _annonceSelectionnee != null
+                                ? AppColors.primary
+                                : AppColors.textHint.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: _annonceSelectionnee != null
+                            ? Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: _annonceSelectionnee!.photos.isNotEmpty
+                                        ? Image.network(
+                                            _annonceSelectionnee!.photos.first,
+                                            width: 56, height: 56, fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) => Container(
+                                              width: 56, height: 56,
+                                              color: context.appPrimaryLight,
+                                              child: const Icon(Icons.home, color: AppColors.primary),
+                                            ),
+                                          )
+                                        : Container(
+                                            width: 56, height: 56,
+                                            color: context.appPrimaryLight,
+                                            child: const Icon(Icons.home, color: AppColors.primary),
+                                          ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _annonceSelectionnee!.titre,
+                                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '${_annonceSelectionnee!.typeBien} — ${_annonceSelectionnee!.quartier}, ${_annonceSelectionnee!.ville}',
+                                          style: TextStyle(fontSize: 12, color: context.appTextSecondary),
+                                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.chevron_right, color: AppColors.textHint),
+                                ],
+                              )
+                            : Row(
+                                children: [
+                                  Container(
+                                    width: 56, height: 56,
+                                    decoration: BoxDecoration(
+                                      color: context.appPrimaryLight,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.add_home_outlined, color: AppColors.primary),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      l.t('pub_select_listing_hint'),
+                                      style: TextStyle(fontSize: 13, color: context.appTextSecondary),
+                                    ),
+                                  ),
+                                  const Icon(Icons.chevron_right, color: AppColors.textHint),
+                                ],
+                              ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 20),
+
                   // ── Titre ──────────────────────────────────
                   Text(l.t('pub_field_title'), style: AppTextStyles.h3),
                   const SizedBox(height: 8),

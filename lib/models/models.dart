@@ -562,6 +562,10 @@ class Publicite {
   final String? transactionRef;
   /// Brouillon en attente du paiement initial (true) ou diffusable (false).
   final bool paymentPending;
+  /// Annonce liée à cette publicité.
+  final String? logementId;
+  final String? logementTitre;
+  final String? logementPhoto;
 
   const Publicite({
     required this.id,
@@ -578,6 +582,9 @@ class Publicite {
     this.expiresAt,
     this.transactionRef,
     this.paymentPending = false,
+    this.logementId,
+    this.logementTitre,
+    this.logementPhoto,
   });
 
   /// Indique si la pub est dans sa période de diffusion (actif + non expirée).
@@ -612,6 +619,9 @@ class Publicite {
             : null,
         transactionRef: map['transactionRef'] as String?,
         paymentPending: map['paymentPending'] ?? false,
+        logementId: map['logementId'] as String?,
+        logementTitre: map['logementTitre'] as String?,
+        logementPhoto: map['logementPhoto'] as String?,
       );
 
   Map<String, dynamic> toMap() => {
@@ -628,6 +638,9 @@ class Publicite {
         if (expiresAt != null) 'expiresAt': Timestamp.fromDate(expiresAt!),
         if (transactionRef != null) 'transactionRef': transactionRef,
         'paymentPending': paymentPending,
+        if (logementId != null) 'logementId': logementId,
+        if (logementTitre != null) 'logementTitre': logementTitre,
+        if (logementPhoto != null) 'logementPhoto': logementPhoto,
       };
 }
 
