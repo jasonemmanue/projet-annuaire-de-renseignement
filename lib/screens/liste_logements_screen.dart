@@ -239,25 +239,27 @@ class _ListeLogementsScreenState extends State<ListeLogementsScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // ① Bandeau hors-connexion
-          _BandeauOffline(
-            visible: !_estConnecte,
-            dateDernierCache: _dateDernierCache,
-          ),
+      body: sw.SkylineBackground(
+        child: Column(
+          children: [
+            // ① Bandeau hors-connexion
+            _BandeauOffline(
+              visible: !_estConnecte,
+              dateDernierCache: _dateDernierCache,
+            ),
 
-          // ② Corps
-          Expanded(
-            child: _isLoading
-                ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            )
-                : _erreurSansCache
-                ? _buildErreurSansCache()
-                : _buildCorps(),
-          ),
-        ],
+            // ② Corps
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              )
+                  : _erreurSansCache
+                  ? _buildErreurSansCache()
+                  : _buildCorps(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -269,23 +271,22 @@ class _ListeLogementsScreenState extends State<ListeLogementsScreen> {
       children: [
         // Barre tri + compteur
         Container(
-          color: Theme.of(context).scaffoldBackgroundColor,
+          color: Colors.black.withValues(alpha: 0.20),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
               Text(
                 '${logements.length} logement${logements.length > 1 ? 's' : ''}',
-                style: AppTextStyles.bodyMedium,
+                style: AppTextStyles.bodyMedium.copyWith(color: Colors.white),
               ),
-              // Indicateur cache discret
               if (!_estConnecte) ...[
                 const SizedBox(width: 8),
-                const Icon(Icons.cloud_off, size: 14, color: AppColors.textHint),
+                const Icon(Icons.cloud_off, size: 14, color: Colors.white60),
                 const SizedBox(width: 2),
                 const Text(
                   'cache',
                   style: TextStyle(
-                    color: AppColors.textHint,
+                    color: Colors.white60,
                     fontSize: 11,
                     fontStyle: FontStyle.italic,
                   ),
@@ -296,25 +297,25 @@ class _ListeLogementsScreenState extends State<ListeLogementsScreen> {
                 onTap: () => _afficherTri(context),
                 child: Row(
                   children: [
-                    const Icon(Icons.sort, size: 16, color: AppColors.primary),
+                    const Icon(Icons.sort, size: 16, color: Colors.white),
                     const SizedBox(width: 4),
                     Text(
                       _options.firstWhere(
-                              (o) => o['value'] == _triActif)['label']!,
+                          (o) => o['value'] == _triActif)['label']!,
                       style: const TextStyle(
-                        color: AppColors.primary,
+                        color: Colors.white,
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                       ),
                     ),
-                    const Icon(Icons.arrow_drop_down, color: AppColors.primary),
+                    const Icon(Icons.arrow_drop_down, color: Colors.white),
                   ],
                 ),
               ),
             ],
           ),
         ),
-        const Divider(height: 1),
+        const Divider(height: 1, color: Colors.white24),
 
         // Liste / Grille
         Expanded(
