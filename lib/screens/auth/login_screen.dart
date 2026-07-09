@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../l10n/app_localizations.dart';
+import '../../utils/media_permission.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/storage_service.dart';
@@ -521,6 +522,8 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
   String get _fullPhone => '+237${_telCtrl.text.trim()}';
 
   Future<void> _pickPhoto(ImageSource source) async {
+    final type = source == ImageSource.camera ? MediaType.camera : MediaType.photos;
+    if (!await demanderPermissionMedia(context, type)) return;
     final img = await ImagePicker().pickImage(
         source: source, imageQuality: 80);
     if (img != null && mounted) setState(() => _photo = img);

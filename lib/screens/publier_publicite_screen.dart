@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../l10n/app_localizations.dart';
+import '../utils/media_permission.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
@@ -167,6 +168,7 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
 
   Future<void> _choisirPhotos() async {
     if (_photos.length >= _maxPhotos) return;
+    if (!await demanderPermissionMedia(context, MediaType.photos)) return;
     final picker = ImagePicker();
     final images = await picker.pickMultiImage(
       imageQuality: 80,
@@ -177,6 +179,7 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
 
   Future<void> _prendrePhoto() async {
     if (_photos.length >= _maxPhotos) return;
+    if (!await demanderPermissionMedia(context, MediaType.camera)) return;
     final picker = ImagePicker();
     final img =
         await picker.pickImage(source: ImageSource.camera, imageQuality: 80);
@@ -184,6 +187,7 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
   }
 
   Future<void> _choisirVideo() async {
+    if (!await demanderPermissionMedia(context, MediaType.videos)) return;
     final picker = ImagePicker();
     final vid = await picker.pickVideo(
       source: ImageSource.gallery,

@@ -29,6 +29,7 @@ import '../services/auth_service.dart';
 import '../services/messagerie_service.dart';
 import '../services/analytics_service.dart';
 import '../services/logement_service.dart';
+import '../utils/media_permission.dart';
 
 // ─── UID visiteur persisté ────────────────────────────────────
 Future<String> getOrCreateVisitorId() async {
@@ -653,6 +654,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _envoyerPhoto() async {
+    if (!await demanderPermissionMedia(context, MediaType.photos)) return;
     final picker = ImagePicker();
     final picked = await picker.pickImage(
         source: ImageSource.gallery, imageQuality: 80);
@@ -677,6 +679,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _envoyerVideo() async {
+    if (!await demanderPermissionMedia(context, MediaType.videos)) return;
     final picker = ImagePicker();
     final picked =
         await picker.pickVideo(source: ImageSource.gallery);

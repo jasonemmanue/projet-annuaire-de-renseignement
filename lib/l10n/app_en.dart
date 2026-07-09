@@ -794,4 +794,16 @@ const Map<String, String> enStrings = {
   'pub_select_listing_hint': 'Select the listing to promote',
   'pub_no_listings_available': 'No listings available. Publish a listing first.',
   'pub_listing_required': 'Please select a listing',
+
+  // Media permissions
+  'perm_photos_title': 'Photo access required',
+  'perm_photos_message': 'Horem+ needs access to your photos to add images.',
+  'perm_camera_title': 'Camera access required',
+  'perm_camera_message': 'Horem+ needs access to your camera to take a photo.',
+  'perm_videos_title': 'Video access required',
+  'perm_videos_message': 'Horem+ needs access to your videos to add a video.',
+  'perm_denied_permanently': 'Permission denied. Please enable it in your phone settings.',
+  'perm_open_settings': 'Open settings',
+  'perm_cancel': 'Cancel',
+  'perm_allow': 'Allow',
 };

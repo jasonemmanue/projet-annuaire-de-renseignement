@@ -795,4 +795,16 @@ const Map<String, String> frStrings = {
   'pub_select_listing_hint': 'Sélectionnez l\'annonce à promouvoir',
   'pub_no_listings_available': 'Aucune annonce disponible. Publiez d\'abord une annonce.',
   'pub_listing_required': 'Veuillez sélectionner une annonce',
+
+  // Permissions médias
+  'perm_photos_title': 'Accès aux photos requis',
+  'perm_photos_message': 'Horem+ a besoin d\'accéder à vos photos pour ajouter des images.',
+  'perm_camera_title': 'Accès à la caméra requis',
+  'perm_camera_message': 'Horem+ a besoin d\'accéder à votre caméra pour prendre une photo.',
+  'perm_videos_title': 'Accès aux vidéos requis',
+  'perm_videos_message': 'Horem+ a besoin d\'accéder à vos vidéos pour ajouter une vidéo.',
+  'perm_denied_permanently': 'Permission refusée. Veuillez l\'activer dans les paramètres de votre téléphone.',
+  'perm_open_settings': 'Ouvrir les paramètres',
+  'perm_cancel': 'Annuler',
+  'perm_allow': 'Autoriser',
 };

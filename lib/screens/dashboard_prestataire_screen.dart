@@ -14,6 +14,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../utils/media_permission.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
@@ -298,12 +299,14 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
   }
 
   Future<void> _choisirPhotos() async {
+    if (!await demanderPermissionMedia(context, MediaType.photos)) return;
     final picker = ImagePicker();
     final images = await picker.pickMultiImage(imageQuality: 80, limit: 6);
     if (images.isNotEmpty) setState(() => _photosSelectionnees.addAll(images));
   }
 
   Future<void> _prendrePhoto() async {
+    if (!await demanderPermissionMedia(context, MediaType.camera)) return;
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.camera, imageQuality: 80);
     if (image != null) setState(() => _photosSelectionnees.add(image));
