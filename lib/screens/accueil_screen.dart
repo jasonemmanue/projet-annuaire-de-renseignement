@@ -751,9 +751,6 @@ class _AccueilScreenState extends State<AccueilScreen> {
               ),
             ),
 
-          // ─── PUBLICITÉS PRESTATAIRES (rectangle compact) ─────
-          const SliverToBoxAdapter(child: sw.PublicitePrestataireBanner()),
-
           // ─── BANNIÈRE PUBLICITAIRE ────────────────────────────
           const SliverToBoxAdapter(child: sw.PubliciteBanner()),
 
@@ -822,6 +819,9 @@ class _AccueilScreenState extends State<AccueilScreen> {
                 ],
               ),
             ),
+
+          // ─── PUBLICITÉS PRESTATAIRES (sous À la une) ─────────
+          const SliverToBoxAdapter(child: sw.PublicitePrestataireBanner()),
 
           // ─── EN-TÊTE SECTION RECOMMANDÉS ─────────────────────
           SliverToBoxAdapter(

@@ -948,15 +948,20 @@ class _PublicitePrestataireBannerState
             },
             child: SizedBox(
               height: 140,
-              child: ListView.builder(
+              child: SingleChildScrollView(
                 controller: _scrollCtrl,
                 scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
-                itemCount: _pubs.length.clamp(0, 6),
-                itemBuilder: (ctx, i) => _PubPreviewTile(
-                  pub: _pubs[i],
-                  onContact: () => _contacterPrestataire(context, _pubs[i]),
-                  onTap: () => ouvrirStoriesPublicites(context),
+                child: Row(
+                  children: List.generate(
+                    _pubs.length.clamp(0, 6),
+                    (i) => _PubPreviewTile(
+                      pub: _pubs[i],
+                      onContact: () => _contacterPrestataire(context, _pubs[i]),
+                      onTap: () => ouvrirStoriesPublicites(context),
+                    ),
+                  ),
                 ),
               ),
             ),
