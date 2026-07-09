@@ -79,11 +79,10 @@ class _AccueilScreenState extends State<AccueilScreen> {
 
   late AppLocalizations _l;
 
-  // ── Carrousel « À la une » ───────────────────────────────────
-  PageController _alaUneCtrl = PageController(viewportFraction: 0.9);
+  // ── Carrousel « À la une » (scroll horizontal dynamique) ────
+  final ScrollController _alaUneScrollCtrl = ScrollController();
   Timer? _alaUneTimer;
-  int _prevAlaUneCount = 0;
-  int _alaUneGeneration = 0;
+  static const double _alaUneCardWidth = 280.0;
 
   List<Logement> get _aLaUne {
     final sponsories = _logements.where((l) => l.estSponsorie).toList();
@@ -94,33 +93,25 @@ class _AccueilScreenState extends State<AccueilScreen> {
   void _demarrerTimerAlaUne() {
     _alaUneTimer?.cancel();
     final count = _aLaUne.length;
-
-    if (count != _prevAlaUneCount) {
-      _prevAlaUneCount = count;
-      _alaUneGeneration++;
-      _alaUneCtrl.dispose();
-      _alaUneCtrl = PageController(viewportFraction: 0.9);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _lancerTimerAlaUne(count);
-      });
-      return;
-    }
-
-    _lancerTimerAlaUne(count);
-  }
-
-  void _lancerTimerAlaUne(int count) {
-    _alaUneTimer?.cancel();
     if (count <= 1) return;
     _alaUneTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!mounted || !_alaUneCtrl.hasClients) return;
-      final current = _alaUneCtrl.page?.round() ?? 0;
-      final next = (current + 1) % count;
-      _alaUneCtrl.animateToPage(
-        next,
-        duration: const Duration(milliseconds: 600),
-        curve: Curves.easeInOut,
-      );
+      if (!mounted || !_alaUneScrollCtrl.hasClients) return;
+      final maxScroll = _alaUneScrollCtrl.position.maxScrollExtent;
+      final current = _alaUneScrollCtrl.offset;
+      final next = current + _alaUneCardWidth;
+      if (next >= maxScroll) {
+        _alaUneScrollCtrl.animateTo(
+          0,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+        );
+      } else {
+        _alaUneScrollCtrl.animateTo(
+          next,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+        );
+      }
     });
   }
 
@@ -154,7 +145,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
   @override
   void dispose() {
     _alaUneTimer?.cancel();
-    _alaUneCtrl.dispose();
+    _alaUneScrollCtrl.dispose();
     _connectivitySub.cancel();
     _searchController.dispose();
     super.dispose();
@@ -759,13 +750,15 @@ class _AccueilScreenState extends State<AccueilScreen> {
           // ─── BANNIÈRE PUBLICITAIRE ────────────────────────────
           const SliverToBoxAdapter(child: sw.PubliciteBanner()),
 
-          // ─── « À LA UNE » — toujours visible ─────────────────
+          // ─── SERVICES EN VEDETTE (au-dessus de À la une) ─────
+          const SliverToBoxAdapter(child: sw.PublicitePrestataireBanner()),
+
+          // ─── « À LA UNE » — scroll horizontal dynamique ──────
           if (aLaUne.isNotEmpty)
             SliverToBoxAdapter(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // En-tête discret sans fond coloré
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                     child: Row(
@@ -804,18 +797,34 @@ class _AccueilScreenState extends State<AccueilScreen> {
                       ],
                     ),
                   ),
-                  // Carrousel auto-défilant
-                  SizedBox(
-                    height: 220,
-                    child: PageView.builder(
-                      key: ValueKey('alaune_$_alaUneGeneration'),
-                      controller: _alaUneCtrl,
-                      itemCount: aLaUne.length,
-                      itemBuilder: (_, i) => Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: _SponsoredCard(
-                          logement: aLaUne[i],
-                          onTap: () => _ouvrirDetail(aLaUne[i]),
+                  // Barre de scroll horizontale — auto + manuelle
+                  NotificationListener<ScrollNotification>(
+                    onNotification: (notif) {
+                      if (notif is ScrollStartNotification &&
+                          notif.dragDetails != null) {
+                        _alaUneTimer?.cancel();
+                      } else if (notif is ScrollEndNotification) {
+                        _demarrerTimerAlaUne();
+                      }
+                      return false;
+                    },
+                    child: SizedBox(
+                      height: 220,
+                      child: ListView.builder(
+                        controller: _alaUneScrollCtrl,
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        itemCount: aLaUne.length,
+                        itemBuilder: (_, i) => Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: SizedBox(
+                            width: _alaUneCardWidth,
+                            child: _SponsoredCard(
+                              logement: aLaUne[i],
+                              onTap: () => _ouvrirDetail(aLaUne[i]),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -824,9 +833,6 @@ class _AccueilScreenState extends State<AccueilScreen> {
                 ],
               ),
             ),
-
-          // ─── PUBLICITÉS PRESTATAIRES (sous À la une) ─────────
-          const SliverToBoxAdapter(child: sw.PublicitePrestataireBanner()),
 
           // ─── EN-TÊTE SECTION RECOMMANDÉS ─────────────────────
           SliverToBoxAdapter(
