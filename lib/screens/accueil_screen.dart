@@ -1046,11 +1046,16 @@ class _SponsoredCard extends StatelessWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            '${logement.quartier}, ${logement.ville}',
-                            style: const TextStyle(
-                                color: Colors.white70, fontSize: 12),
+                          Flexible(
+                            child: Text(
+                              '${logement.quartier}, ${logement.ville}',
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
+                          const SizedBox(width: 6),
                           Text(
                             logement.prixLabel,
                             style: const TextStyle(
