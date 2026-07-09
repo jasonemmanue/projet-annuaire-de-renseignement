@@ -117,7 +117,7 @@ const Map<String, String> frStrings = {
 
   // Accueil
   'accueil_tagline': 'Trouvez votre logement idéal',
-  'accueil_featured': '⭐ Annonces à la une',
+  'accueil_featured': 'Annonces à la une',
   'accueil_recommended': '📍 Recommandés près de vous',
   'accueil_no_listings': 'Aucune annonce disponible',
   'accueil_load_error': 'Impossible de charger les annonces',

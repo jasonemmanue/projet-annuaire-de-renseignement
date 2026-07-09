@@ -79,6 +79,31 @@ class _AccueilScreenState extends State<AccueilScreen> {
 
   late AppLocalizations _l;
 
+  // ── Carrousel « À la une » ───────────────────────────────────
+  final PageController _alaUneCtrl = PageController(viewportFraction: 0.9);
+  Timer? _alaUneTimer;
+
+  List<Logement> get _aLaUne {
+    final sponsories = _logements.where((l) => l.estSponsorie).toList();
+    if (sponsories.isNotEmpty) return sponsories;
+    return _logements.where((l) => l.estVisiblePourVisiteur).take(5).toList();
+  }
+
+  void _demarrerTimerAlaUne() {
+    _alaUneTimer?.cancel();
+    final count = _aLaUne.length;
+    if (count <= 1) return;
+    _alaUneTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted || !_alaUneCtrl.hasClients) return;
+      final current = _alaUneCtrl.page?.round() ?? 0;
+      _alaUneCtrl.animateToPage(
+        (current + 1) % count,
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeInOut,
+      );
+    });
+  }
+
   // ── Cycle de vie ─────────────────────────────────────────────
   @override
   void initState() {
@@ -108,6 +133,8 @@ class _AccueilScreenState extends State<AccueilScreen> {
 
   @override
   void dispose() {
+    _alaUneTimer?.cancel();
+    _alaUneCtrl.dispose();
     _connectivitySub.cancel();
     _searchController.dispose();
     super.dispose();
@@ -146,7 +173,10 @@ class _AccueilScreenState extends State<AccueilScreen> {
     } else {
       await _chargerDepuisCache();
     }
-    if (mounted) setState(() => _isLoading = false);
+    if (mounted) {
+      setState(() => _isLoading = false);
+      _demarrerTimerAlaUne();
+    }
   }
 
   /// Charge depuis Firestore puis met en cache.
@@ -508,8 +538,8 @@ class _AccueilScreenState extends State<AccueilScreen> {
 
   // ── Corps scrollable ─────────────────────────────────────────
   Widget _buildCorps() {
-    final filtres    = _logementsFiltres;
-    final sponsories = _logements.where((l) => l.estSponsorie).toList();
+    final filtres = _logementsFiltres;
+    final aLaUne  = _aLaUne;
 
     return RefreshIndicator(
       color: AppColors.primary,
@@ -705,37 +735,76 @@ class _AccueilScreenState extends State<AccueilScreen> {
               ),
             ),
 
-          // ─── ANNONCES SPONSORISÉES (carrousel) ───────────────
-          if (sponsories.isNotEmpty) ...[
-            SliverToBoxAdapter(
-              child: sw.SectionTitle(
-                title: _l.t('accueil_featured'),
-                onVoirTout: () => _lancerRecherche(''),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 220,
-                child: PageView.builder(
-                  controller: PageController(viewportFraction: 0.9),
-                  itemCount: sponsories.length,
-                  itemBuilder: (_, i) => Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: _SponsoredCard(
-                      logement: sponsories[i],
-                      onTap: () => _ouvrirDetail(sponsories[i]),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-
-          // ─── PUBLICITÉS PRESTATAIRES ─────────────────────────
+          // ─── PUBLICITÉS PRESTATAIRES (rectangle compact) ─────
           const SliverToBoxAdapter(child: sw.PublicitePrestataireBanner()),
 
           // ─── BANNIÈRE PUBLICITAIRE ────────────────────────────
           const SliverToBoxAdapter(child: sw.PubliciteBanner()),
+
+          // ─── « À LA UNE » — toujours visible ─────────────────
+          if (aLaUne.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // En-tête discret sans fond coloré
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.star_rounded,
+                            color: AppColors.accent, size: 22),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _l.t('accueil_featured'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 17,
+                              letterSpacing: 0.3,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black54,
+                                  blurRadius: 6,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => _lancerRecherche(''),
+                          child: Text(
+                            _l.t('accueil_see_all'),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Carrousel auto-défilant
+                  SizedBox(
+                    height: 220,
+                    child: PageView.builder(
+                      controller: _alaUneCtrl,
+                      itemCount: aLaUne.length,
+                      itemBuilder: (_, i) => Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: _SponsoredCard(
+                          logement: aLaUne[i],
+                          onTap: () => _ouvrirDetail(aLaUne[i]),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
 
           // ─── EN-TÊTE SECTION RECOMMANDÉS ─────────────────────
           SliverToBoxAdapter(

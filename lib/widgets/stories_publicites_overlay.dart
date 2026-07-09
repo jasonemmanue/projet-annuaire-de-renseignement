@@ -209,28 +209,31 @@ class _StoriesPublicitesOverlayState extends State<StoriesPublicitesOverlay>
               top: 12,
               left: 12,
               right: 12,
-              child: Row(
-                children: List.generate(widget.publicites.length, (i) {
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          minHeight: 3,
-                          backgroundColor: Colors.white.withValues(alpha: 0.3),
-                          valueColor:
-                              const AlwaysStoppedAnimation(Colors.white),
-                          value: i < _index
-                              ? 1.0
-                              : i > _index
-                                  ? 0.0
-                                  : _progress.value,
+              child: AnimatedBuilder(
+                animation: _progress,
+                builder: (_, __) => Row(
+                  children: List.generate(widget.publicites.length, (i) {
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            minHeight: 3,
+                            backgroundColor: Colors.white.withValues(alpha: 0.3),
+                            valueColor:
+                                const AlwaysStoppedAnimation(Colors.white),
+                            value: i < _index
+                                ? 1.0
+                                : i > _index
+                                    ? 0.0
+                                    : _progress.value,
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                }),
+                    );
+                  }),
+                ),
               ),
             ),
 

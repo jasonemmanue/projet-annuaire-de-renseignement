@@ -182,7 +182,7 @@ const Map<String, String> enStrings = {
 
   // Accueil
   'accueil_tagline': 'Find your ideal home',
-  'accueil_featured': '⭐ Featured listings',
+  'accueil_featured': 'Featured listings',
   'accueil_recommended': '📍 Recommended near you',
   'accueil_no_listings': 'No listings available',
   'accueil_load_error': 'Unable to load listings',

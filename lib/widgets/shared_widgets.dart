@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/favoris_service.dart';
 import '../services/publicite_service.dart';
+import 'stories_publicites_overlay.dart';
 
 // ============================================================
 // FICHIER : lib/widgets/shared_widgets.dart
@@ -802,14 +801,9 @@ class LoadingWidget extends StatelessWidget {
 }
 
 // ----------------------------------------------------------
-// BANNIÈRE STORIES PUBLICITÉS — inline, auto-advancing
-// Remplace l'ancien carrousel statique.
-// • Utilise watchPublicitesDiffusables() → filtre expiresAt correct
-// • Barres de progression animées (une par pub)
-// • Vidéo : avancement automatique à la fin de la lecture
-// • Photo : 6 s par défaut
-// • Bouton "Passer" → pub suivante (cycle)
-// • Ordre aléatoire à chaque rechargement
+// BANNIÈRE SERVICES EN VEDETTE — compact strip (72 px)
+// Affiche un rectangle cliquable signalant les services actifs.
+// Tap → ouvre l'overlay plein-écran StoriesPublicitesOverlay.
 // ----------------------------------------------------------
 class PublicitePrestataireBanner extends StatefulWidget {
   const PublicitePrestataireBanner({super.key});
@@ -820,402 +814,145 @@ class PublicitePrestataireBanner extends StatefulWidget {
 }
 
 class _PublicitePrestataireBannerState
-    extends State<PublicitePrestataireBanner>
-    with SingleTickerProviderStateMixin {
+    extends State<PublicitePrestataireBanner> {
   List<Publicite> _pubs = [];
-  int _index = 0;
   bool _loaded = false;
-  late AnimationController _ctrl;
-  VideoPlayerController? _video;
   StreamSubscription<List<Publicite>>? _sub;
-  bool _videoReady = false;
-
-  static const _kPhotoDuree = Duration(seconds: 6);
-  static const _kMaxPubs = 6;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this)
-      ..addStatusListener((s) {
-        if (s == AnimationStatus.completed) _suivant();
-      });
     _sub = PubliciteService.watchPublicitesDiffusables().listen((pubs) {
       if (!mounted) return;
-      final shuffled = List<Publicite>.from(pubs)
-        ..shuffle(Random());
-      final selection = shuffled.take(_kMaxPubs).toList();
-      final estVide = _pubs.isEmpty;
       setState(() {
-        _pubs = selection;
+        _pubs = pubs;
         _loaded = true;
-        if (_index >= _pubs.length) _index = 0;
       });
-      if (estVide && _pubs.isNotEmpty) _afficherCourant();
     });
   }
 
   @override
   void dispose() {
     _sub?.cancel();
-    _ctrl.dispose();
-    _video?.dispose();
     super.dispose();
-  }
-
-  Publicite? get _pubCourante =>
-      _pubs.isEmpty ? null : _pubs[_index];
-
-  Future<void> _afficherCourant() async {
-    _ctrl.stop();
-    _ctrl.reset();
-    final oldVideo = _video;
-    _video = null;
-    _videoReady = false;
-    await oldVideo?.dispose();
-    setState(() {});
-
-    final pub = _pubCourante;
-    if (pub == null) return;
-
-    if (pub.videoUrl?.isNotEmpty == true) {
-      try {
-        final vc = VideoPlayerController.networkUrl(
-            Uri.parse(pub.videoUrl!));
-        await vc.initialize();
-        if (!mounted) return;
-        _video = vc;
-        _videoReady = true;
-        _ctrl.duration = vc.value.duration > Duration.zero
-            ? vc.value.duration
-            : const Duration(seconds: 8);
-        vc.play();
-        vc.addListener(_onVideoTick);
-        _ctrl.forward();
-        setState(() {});
-      } catch (_) {
-        _video = null;
-        _videoReady = false;
-        _modePhoto();
-      }
-    } else {
-      _modePhoto();
-    }
-  }
-
-  void _modePhoto() {
-    _ctrl.duration = _kPhotoDuree;
-    _ctrl.forward();
-    setState(() {});
-  }
-
-  void _onVideoTick() {
-    final v = _video;
-    if (v == null) return;
-    if (v.value.position >= v.value.duration &&
-        v.value.duration > Duration.zero) {
-      _suivant();
-    }
-  }
-
-  void _suivant() {
-    if (_pubs.isEmpty) return;
-    setState(() => _index = (_index + 1) % _pubs.length);
-    _afficherCourant();
   }
 
   @override
   Widget build(BuildContext context) {
-    final l = AppLocalizations.of(context);
     if (!_loaded || _pubs.isEmpty) return const SizedBox.shrink();
-    final pub = _pubCourante!;
+    final pub = _pubs.first;
+    final photo = pub.photos.isNotEmpty ? pub.photos.first : null;
+    final l = AppLocalizations.of(context);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ── En-tête section ───────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: Row(
-            children: [
-              const Icon(Icons.campaign_outlined,
-                  color: AppColors.primary, size: 18),
-              const SizedBox(width: 6),
-              Text(
-                l.t('pub_banner_title'),
-                style: const TextStyle(
-                    fontWeight: FontWeight.w700, fontSize: 14),
-              ),
-              const Spacer(),
-              // Numéro de pub courante
-              Text(
-                '${_index + 1} / ${_pubs.length}',
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textHint),
-              ),
+    return GestureDetector(
+      onTap: () => ouvrirStoriesPublicites(context),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+        height: 72,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              AppColors.primary,
+              AppColors.primary.withValues(alpha: 0.80),
             ],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
           ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.30),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
-
-        // ── Zone media + barres de progression ───────────────
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          height: 200,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.10),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+        child: Row(
+          children: [
+            // Vignette photo ou icône
+            ClipRRect(
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                bottomLeft: Radius.circular(12),
               ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // ── Contenu (vidéo ou photo) ──────────────
-                _buildContenu(pub),
-
-                // ── Gradient overlay bas ──────────────────
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Colors.black87],
-                      stops: [0.45, 1.0],
+              child: photo != null
+                  ? Image.network(
+                      photo,
+                      width: 72,
+                      height: 72,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _iconeFallback(),
+                    )
+                  : _iconeFallback(),
+            ),
+            const SizedBox(width: 12),
+            // Texte
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    l.t('pub_banner_title'),
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                ),
-
-                // ── Barres de progression en haut ────────
-                Positioned(
-                  top: 8,
-                  left: 10,
-                  right: 10,
-                  child: Row(
-                    children: List.generate(_pubs.length, (i) {
-                      return Expanded(
-                        child: Padding(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 2),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(2),
-                            child: AnimatedBuilder(
-                              animation: _ctrl,
-                              builder: (_, __) =>
-                                  LinearProgressIndicator(
-                                minHeight: 3,
-                                backgroundColor:
-                                    Colors.white.withValues(alpha: 0.35),
-                                valueColor:
-                                    const AlwaysStoppedAnimation(
-                                        Colors.white),
-                                value: i < _index
-                                    ? 1.0
-                                    : i > _index
-                                        ? 0.0
-                                        : _ctrl.value,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
+                  const SizedBox(height: 2),
+                  Text(
+                    pub.titre.isNotEmpty ? pub.titre : pub.prestataireNom,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-
-                // ── Prestataire (en haut après barres) ───
-                Positioned(
-                  top: 24,
-                  left: 12,
-                  right: 12,
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 14,
-                        backgroundColor: Colors.white24,
-                        backgroundImage: pub.prestatairePhoto != null &&
-                                pub.prestatairePhoto!.isNotEmpty
-                            ? NetworkImage(pub.prestatairePhoto!)
-                            : null,
-                        child: pub.prestatairePhoto == null ||
-                                pub.prestatairePhoto!.isEmpty
-                            ? const Icon(Icons.business,
-                                color: Colors.white, size: 14)
-                            : null,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          pub.prestataireNom.isNotEmpty
-                              ? pub.prestataireNom
-                              : 'Prestataire',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                            shadows: [
-                              Shadow(
-                                  color: Colors.black54,
-                                  blurRadius: 4)
-                            ],
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // ── Titre + description + bouton Passer ──
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 12,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (pub.titre.isNotEmpty)
-                              Text(
-                                pub.titre,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 14,
-                                  shadows: [
-                                    Shadow(
-                                        color: Colors.black54,
-                                        blurRadius: 4)
-                                  ],
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            if (pub.description.isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                pub.description,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Bouton Passer
-                      GestureDetector(
-                        onTap: _suivant,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
+                  if (_pubs.length > 1) ...[
+                    const SizedBox(height: 1),
+                    Row(
+                      children: List.generate(
+                        _pubs.length.clamp(0, 5),
+                        (i) => Container(
+                          width: 5,
+                          height: 5,
+                          margin:
+                              const EdgeInsets.only(right: 4),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                                color: Colors.white54, width: 1),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Passer',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              SizedBox(width: 4),
-                              Icon(Icons.skip_next,
-                                  color: Colors.white, size: 14),
-                            ],
+                            color: i == 0
+                                ? Colors.white
+                                : Colors.white38,
+                            shape: BoxShape.circle,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // ── Zones de tap gauche / droite ──────────
-                Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: _precedent,
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: _suivant,
                       ),
                     ),
                   ],
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+            // Chevron
+            const Padding(
+              padding: EdgeInsets.only(right: 12, left: 4),
+              child: Icon(Icons.chevron_right,
+                  color: Colors.white70, size: 22),
+            ),
+          ],
         ),
-
-        const SizedBox(height: 8),
-      ],
-    );
-  }
-
-  void _precedent() {
-    if (_pubs.isEmpty || _index == 0) return;
-    setState(() => _index--);
-    _afficherCourant();
-  }
-
-  Widget _buildContenu(Publicite pub) {
-    if (_video != null && _videoReady && _video!.value.isInitialized) {
-      return Center(
-        child: AspectRatio(
-          aspectRatio: _video!.value.aspectRatio,
-          child: VideoPlayer(_video!),
-        ),
-      );
-    }
-    final photo = pub.photos.isNotEmpty ? pub.photos.first : null;
-    if (photo != null) {
-      return Image.network(
-        photo,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Container(
-          color: AppColors.primary.withValues(alpha: 0.15),
-          child: const Center(
-            child: Icon(Icons.campaign_outlined,
-                color: AppColors.primary, size: 48),
-          ),
-        ),
-      );
-    }
-    return Container(
-      color: AppColors.primary.withValues(alpha: 0.15),
-      child: const Center(
-        child: Icon(Icons.campaign_outlined,
-            color: AppColors.primary, size: 48),
       ),
     );
   }
+
+  Widget _iconeFallback() => Container(
+        width: 72,
+        height: 72,
+        color: Colors.white10,
+        child: const Icon(Icons.campaign_outlined,
+            color: Colors.white, size: 30),
+      );
 }
 
 // ============================================================
