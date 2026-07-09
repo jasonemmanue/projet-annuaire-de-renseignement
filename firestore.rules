@@ -141,6 +141,23 @@ service cloud.firestore {
     }
 
     // ================================================================
+    // COLLECTION : admin_notifications
+    // ================================================================
+    match /admin_notifications/{notifId} {
+      // Lecture : le prestataire concerné ou l'admin
+      allow read: if isAuthenticated()
+        && (resource.data.uid_prestataire == request.auth.uid || isAdmin());
+
+      // Mise à jour : le prestataire peut uniquement marquer comme lu
+      allow update: if isAuthenticated()
+        && resource.data.uid_prestataire == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lu']);
+
+      // Création/suppression : uniquement via Cloud Functions (admin SDK)
+      allow create, delete: if false;
+    }
+
+    // ================================================================
     // COLLECTION : publicites (publicités prestataires)
     // ================================================================
     match /publicites/{pubId} {

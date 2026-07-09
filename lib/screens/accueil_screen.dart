@@ -83,6 +83,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
   PageController _alaUneCtrl = PageController(viewportFraction: 0.9);
   Timer? _alaUneTimer;
   int _prevAlaUneCount = 0;
+  int _alaUneGeneration = 0;
 
   List<Logement> get _aLaUne {
     final sponsories = _logements.where((l) => l.estSponsorie).toList();
@@ -95,18 +96,21 @@ class _AccueilScreenState extends State<AccueilScreen> {
     final count = _aLaUne.length;
 
     if (count != _prevAlaUneCount) {
-      final oldCtrl = _alaUneCtrl;
-      final safePage = oldCtrl.hasClients
-          ? (oldCtrl.page?.round() ?? 0).clamp(0, count > 0 ? count - 1 : 0)
-          : 0;
-      _alaUneCtrl = PageController(
-        viewportFraction: 0.9,
-        initialPage: safePage,
-      );
       _prevAlaUneCount = count;
-      oldCtrl.dispose();
+      _alaUneGeneration++;
+      _alaUneCtrl.dispose();
+      _alaUneCtrl = PageController(viewportFraction: 0.9);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _lancerTimerAlaUne(count);
+      });
+      return;
     }
 
+    _lancerTimerAlaUne(count);
+  }
+
+  void _lancerTimerAlaUne(int count) {
+    _alaUneTimer?.cancel();
     if (count <= 1) return;
     _alaUneTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted || !_alaUneCtrl.hasClients) return;
@@ -208,6 +212,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
           _erreurSansCache = false;
           if (mettreAJourUI) _isLoading = false;
         });
+        _demarrerTimerAlaUne();
       }
     } catch (e) {
       debugPrint('[AccueilScreen] Erreur Firestore : $e');
@@ -803,7 +808,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
                   SizedBox(
                     height: 220,
                     child: PageView.builder(
-                      key: ValueKey('alaune_${aLaUne.length}'),
+                      key: ValueKey('alaune_$_alaUneGeneration'),
                       controller: _alaUneCtrl,
                       itemCount: aLaUne.length,
                       itemBuilder: (_, i) => Padding(
