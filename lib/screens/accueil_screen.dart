@@ -85,9 +85,13 @@ class _AccueilScreenState extends State<AccueilScreen> {
   static const double _alaUneCardWidth = 280.0;
 
   List<Logement> get _aLaUne {
-    final sponsories = _logements.where((l) => l.estSponsorie).toList();
-    if (sponsories.isNotEmpty) return sponsories;
-    return _logements.where((l) => l.estVisiblePourVisiteur).take(5).toList();
+    final visibles = _logements.where((l) => l.estVisiblePourVisiteur).toList();
+    visibles.sort((a, b) {
+      if (a.estSponsorie && !b.estSponsorie) return -1;
+      if (!a.estSponsorie && b.estSponsorie) return 1;
+      return 0;
+    });
+    return visibles;
   }
 
   void _demarrerTimerAlaUne() {
