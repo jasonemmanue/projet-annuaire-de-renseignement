@@ -1108,40 +1108,51 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_loc.t('dashboard_my_space'), maxLines: 2, style: const TextStyle(height: 1.2)),
-        toolbarHeight: 64,
-        actions: [
-          // ── Cloche de notifications ─────────────────────────
-          _NotificationBell(uid: uid, isConnected: isConnected),
-          IconButton(
-            tooltip: isDark ? _loc.t('dashboard_tooltip_light') : _loc.t('dashboard_tooltip_dark'),
-            icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
-            onPressed: () => AppController.instance.toggleTheme(),
-          ),
-          GestureDetector(
-            onTap: () => _changerLangue(context),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              child: Text(flagEmoji, style: const TextStyle(fontSize: 22)),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: TextButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const FormulaireAnnonce()),
+        title: Text(
+          _loc.t('dashboard_my_space').replaceAll('\n', ' '),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        toolbarHeight: 48,
+        actions: const [],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(96),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _NotificationBell(uid: uid, isConnected: isConnected),
+                    IconButton(
+                      tooltip: isDark ? _loc.t('dashboard_tooltip_light') : _loc.t('dashboard_tooltip_dark'),
+                      icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
+                      onPressed: () => AppController.instance.toggleTheme(),
+                    ),
+                    GestureDetector(
+                      onTap: () => _changerLangue(context),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: Text(flagEmoji, style: const TextStyle(fontSize: 22)),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const FormulaireAnnonce()),
+                      ),
+                      icon: const Icon(Icons.add_circle_outline, color: Colors.white, size: 20),
+                      label: Text(
+                        _loc.t('dashboard_new_listing'),
+                        style: const TextStyle(color: Colors.white, fontSize: 10, height: 1.2),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              icon: const Icon(Icons.add_circle_outline, color: Colors.white, size: 20),
-              label: Text(
-                _loc.t('dashboard_new_listing'),
-                style: const TextStyle(color: Colors.white, fontSize: 10, height: 1.2),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-        ],
-        bottom: TabBar(
+              TabBar(
           controller: _tabController,
           tabs: [
             Tab(icon: const Icon(Icons.list_alt), text: _loc.t('dashboard_tab_listings')),
@@ -1215,6 +1226,9 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
           unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
           indicator: const UnderlineTabIndicator(
             borderSide: BorderSide(color: AppColors.accent, width: 3),
+          ),
+        ),
+            ],
           ),
         ),
       ),
