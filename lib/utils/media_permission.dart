@@ -10,7 +10,63 @@ Future<bool> demanderPermissionMedia(
   BuildContext context,
   MediaType type,
 ) async {
-  final permission = _permissionPour(type);
+  if (type == MediaType.camera) {
+    return _demanderUnePermission(context, Permission.camera, type);
+  }
+
+  if (Platform.isAndroid) {
+    return _demanderPermissionAndroid(context, type);
+  }
+
+  return _demanderUnePermission(context, Permission.photos, type);
+}
+
+Future<bool> _demanderPermissionAndroid(
+  BuildContext context,
+  MediaType type,
+) async {
+  final granulaire =
+      type == MediaType.videos ? Permission.videos : Permission.photos;
+
+  var status = await granulaire.status;
+  if (status.isGranted || status.isLimited) return true;
+
+  final storageStatus = await Permission.storage.status;
+  if (storageStatus.isGranted || storageStatus.isLimited) return true;
+
+  if (status.isPermanentlyDenied && storageStatus.isPermanentlyDenied) {
+    if (!context.mounted) return false;
+    await _afficherDialogParametres(context, type);
+    return false;
+  }
+
+  if (!context.mounted) return false;
+  final accepted = await _afficherDialogDemande(context, type);
+  if (!accepted) return false;
+
+  // API 33+ : permission granulaire
+  if (!status.isPermanentlyDenied) {
+    status = await granulaire.request();
+    if (status.isGranted || status.isLimited) return true;
+  }
+
+  // API < 33 : fallback vers storage
+  if (!storageStatus.isPermanentlyDenied) {
+    final sResult = await Permission.storage.request();
+    if (sResult.isGranted || sResult.isLimited) return true;
+  }
+
+  if (context.mounted) {
+    await _afficherDialogParametres(context, type);
+  }
+  return false;
+}
+
+Future<bool> _demanderUnePermission(
+  BuildContext context,
+  Permission permission,
+  MediaType type,
+) async {
   var status = await permission.status;
 
   if (status.isGranted || status.isLimited) return true;
@@ -32,19 +88,6 @@ Future<bool> demanderPermissionMedia(
     await _afficherDialogParametres(context, type);
   }
   return false;
-}
-
-Permission _permissionPour(MediaType type) {
-  switch (type) {
-    case MediaType.photos:
-      if (Platform.isAndroid) return Permission.photos;
-      return Permission.photos;
-    case MediaType.camera:
-      return Permission.camera;
-    case MediaType.videos:
-      if (Platform.isAndroid) return Permission.videos;
-      return Permission.photos;
-  }
 }
 
 Future<bool> _afficherDialogDemande(

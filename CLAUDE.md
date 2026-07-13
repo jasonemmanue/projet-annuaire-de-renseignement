@@ -702,6 +702,34 @@ Cherche les alertes actives dont `typeBien` correspond et `prixMin <= prix <= pr
 
 ---
 
+## Débogage iPad / iOS
+
+Guide complet : `IPAD_DEBUG_GUIDE.md`
+
+### Résumé du processus
+1. **Mac obligatoire** — Xcode 15+ ne tourne que sur macOS
+2. Configurer le signing avec un Apple ID (gratuit pour dev, 99$/an pour App Store)
+3. Ajouter `GoogleService-Info.plist` dans `ios/Runner/` (Firebase Console)
+4. Vérifier `ios/Runner/Info.plist` : descriptions de permissions (caméra, galerie, localisation, micro)
+5. iPad en **mode développeur**, connecté par câble USB, confiance accordée
+6. `cd ios && pod install && cd ..`
+7. `flutter run -d <ipad_id>`
+
+### Fichiers iOS à surveiller
+| Fichier | Rôle |
+|---------|------|
+| `ios/Runner/Info.plist` | Permissions iOS (caméra, galerie, localisation) |
+| `ios/Runner/AppDelegate.swift` | Clé Google Maps iOS, config Firebase |
+| `ios/Runner/GoogleService-Info.plist` | Config Firebase iOS (à ajouter manuellement) |
+| `ios/Podfile` | Dépendances CocoaPods |
+
+### Différences clés Android ↔ iPad
+- Permissions : déclaratif dans `Info.plist` (pas de runtime request sauf localisation)
+- WebView paiement : WKWebView au lieu de Android WebView
+- Notifications : APNs + FCM (certificat Apple Push requis)
+
+---
+
 ## Backlog des fonctionnalités
 
 Voir `PROMPTS_RESTANTS.md` pour les prompts exacts des fonctionnalités à implémenter.

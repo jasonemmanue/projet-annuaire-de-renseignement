@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>App Renseignement</string>
+	<string>Horem+</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -41,6 +41,16 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Horem+ utilise la caméra pour prendre des photos de vos annonces et publicités</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Horem+ accède à vos photos pour illustrer vos annonces et publicités</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Horem+ utilise le microphone pour enregistrer des vidéos</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Horem+ utilise votre position pour afficher les annonces proches de vous</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Horem+ utilise votre position pour vous notifier des annonces à proximité</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
