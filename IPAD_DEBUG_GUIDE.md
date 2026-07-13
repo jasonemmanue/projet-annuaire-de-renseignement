@@ -105,105 +105,134 @@ flutter run -d <device_id> --verbose
 
 ---
 
-## Option B : Sans Mac (alternatives)
+## Option B : Sans Mac — CI/CD cloud (ta situation)
 
-### B1. Codemagic CI/CD (cloud)
-- Créer un compte sur [codemagic.io](https://codemagic.io)
-- Connecter ton repo GitHub/GitLab
-- Codemagic compile sur des Mac cloud et génère l'IPA
-- Tu peux installer l'IPA sur ton iPad via TestFlight
-
-### B2. GitHub Actions avec macOS runner
-```yaml
-# .github/workflows/ios-build.yml
-name: iOS Build
-on: push
-jobs:
-  build:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.x'
-      - run: flutter pub get
-      - run: cd ios && pod install
-      - run: flutter build ios --no-codesign
-```
-
-### B3. Location de Mac cloud
-- MacStadium, MacInCloud, AWS Mac instances
-- Accès distant à un Mac pour Xcode
+Tu n'as pas de Mac, donc tu utilises des Mac cloud pour compiler. Deux pipelines sont configurés.
 
 ---
 
-## Permissions iOS spécifiques (Info.plist)
+### B1. Codemagic (recommandé — 500 min gratuites/mois)
 
-Le fichier `ios/Runner/Info.plist` doit déclarer les permissions utilisées :
+**Fichier de config :** `codemagic.yaml` (racine du projet)
 
-```xml
-<!-- Caméra -->
-<key>NSCameraUsageDescription</key>
-<string>Horem+ a besoin de la caméra pour prendre des photos de vos annonces</string>
+#### Étape 1 : Créer un compte Codemagic
+1. Va sur https://codemagic.io et connecte-toi avec ton compte GitHub
+2. Ajoute le repo `app_renseignement`
+3. Codemagic détecte automatiquement `codemagic.yaml`
 
-<!-- Galerie photos -->
-<key>NSPhotoLibraryUsageDescription</key>
-<string>Horem+ a besoin d'accéder à vos photos pour illustrer vos annonces</string>
+#### Étape 2 : Configurer les credentials Apple
+1. Dans Codemagic → Settings → ton app → **Code signing (iOS)**
+2. Connecter ton Apple ID (ou App Store Connect API Key)
+3. Codemagic gère automatiquement les certificats et provisioning profiles
 
-<!-- Localisation -->
-<key>NSLocationWhenInUseUsageDescription</key>
-<string>Horem+ utilise votre position pour afficher les annonces proches</string>
+#### Étape 3 : Ajouter le GoogleService-Info.plist
+1. Télécharge `GoogleService-Info.plist` depuis la Firebase Console (projet sgk-home, app iOS)
+2. Encode-le en base64 : `base64 -i GoogleService-Info.plist`
+3. Dans Codemagic → Environment variables → ajoute `GOOGLE_SERVICE_INFO` avec la valeur base64
+4. Groupe : `apple_credentials`
 
-<!-- Microphone (pour vidéos) -->
-<key>NSMicrophoneUsageDescription</key>
-<string>Horem+ a besoin du microphone pour enregistrer des vidéos</string>
-```
+#### Étape 4 : Lancer un build
+- **Build de vérification** : push sur `main` → workflow `ios-build-check` se lance automatiquement
+- **Deploy TestFlight** : push sur une branche `release/*` ou crée un tag `v1.0.0` → workflow `ios-testflight`
+- L'IPA est uploadée sur TestFlight automatiquement
+- Tu recevras un email à sakamemmanuel@gmail.com
+
+#### Étape 5 : Installer sur iPad
+1. Installe l'app **TestFlight** sur ton iPad (App Store, gratuit)
+2. Connecte-toi avec ton Apple ID
+3. L'app Horem+ apparaît → Installer
 
 ---
 
-## Différences iPad vs Android à surveiller
+### B2. GitHub Actions (~200 min macOS gratuites/mois)
+
+**Fichiers de config :** `.github/workflows/ios-build.yml` et `.github/workflows/ios-testflight.yml`
+
+#### Workflow 1 : `ios-build.yml` (vérification automatique)
+- Se lance à chaque push sur `main`
+- Compile l'app iOS sans signing (vérifie que ça compile)
+- Aucune configuration nécessaire, marche tout de suite
+
+#### Workflow 2 : `ios-testflight.yml` (deploy manuel sur TestFlight)
+Nécessite des secrets GitHub. Va dans Settings → Secrets → Actions :
+
+| Secret | Description | Comment l'obtenir |
+|--------|-------------|-------------------|
+| `GOOGLE_SERVICE_INFO_PLIST_BASE64` | Firebase iOS config (base64) | Firebase Console → Projet → iOS → télécharger → `base64 -i fichier` |
+| `APPLE_P12_CERTIFICATE_BASE64` | Certificat distribution (base64) | Xcode (via Codemagic ou un Mac emprunté) |
+| `APPLE_P12_PASSWORD` | Mot de passe du .p12 | Choisi lors de l'export |
+| `APPLE_PROVISIONING_PROFILE_BASE64` | Provisioning profile (base64) | Apple Developer Portal ou Codemagic |
+| `KEYCHAIN_PASSWORD` | Mot de passe temporaire | N'importe quelle chaîne aléatoire |
+| `APP_STORE_CONNECT_KEY_ID` | API Key ID | App Store Connect → Users → Keys |
+| `APP_STORE_CONNECT_ISSUER_ID` | Issuer ID | App Store Connect → Users → Keys |
+| `APP_STORE_CONNECT_API_KEY_BASE64` | Fichier .p8 (base64) | App Store Connect → Users → Keys → Download |
+
+Pour lancer : GitHub → Actions → "iOS TestFlight Deploy" → Run workflow
+
+---
+
+### Comparaison Codemagic vs GitHub Actions
+
+| | Codemagic | GitHub Actions |
+|---|---|---|
+| Minutes macOS gratuites | 500/mois | ~200/mois (2000 × 0.1) |
+| Config signing iOS | Automatique (UI) | Manuelle (secrets) |
+| Détection Flutter | Native | Via action tierce |
+| Upload TestFlight | Intégré | Manuelle (xcrun) |
+| Complexité setup | Facile | Moyen |
+| **Recommandation** | **Pour les deploys iPad** | **Pour les checks CI** |
+
+**Stratégie recommandée :** GitHub Actions pour vérifier la compilation (gratuit, automatique), Codemagic pour les vraies releases TestFlight.
+
+---
+
+## Prérequis Apple (obligatoire pour TestFlight)
+
+Avant de pouvoir installer sur ton iPad via TestFlight, il te faut :
+
+1. **Apple ID** — gratuit, tu en as probablement un
+2. **Apple Developer Program** — **99 $/an** obligatoire pour TestFlight et App Store
+   - Inscription : https://developer.apple.com/programs/enroll/
+   - Sans ça, tu peux uniquement faire des builds `--no-codesign` (vérification compilation)
+3. **Bundle ID enregistré** — `com.horemplus.app` dans le Developer Portal
+4. **App créée dans App Store Connect** — nécessaire pour TestFlight
+
+---
+
+## Permissions iOS (déjà configurées)
+
+Les permissions sont déclarées dans `ios/Runner/Info.plist` :
+
+| Permission | Clé | Description |
+|------------|-----|-------------|
+| Caméra | `NSCameraUsageDescription` | Photos annonces/publicités |
+| Galerie | `NSPhotoLibraryUsageDescription` | Illustrations annonces |
+| Micro | `NSMicrophoneUsageDescription` | Enregistrement vidéos |
+| Position | `NSLocationWhenInUseUsageDescription` | Annonces à proximité |
+
+---
+
+## Différences iPad vs Android
 
 | Aspect | Android | iPad |
 |--------|---------|------|
 | Permissions galerie | `READ_MEDIA_IMAGES` / `READ_EXTERNAL_STORAGE` | `NSPhotoLibraryUsageDescription` |
 | Permissions caméra | `CAMERA` | `NSCameraUsageDescription` |
-| Paiement Mobile Money | WebView Android | WKWebView (iOS) — vérifier que `webview_flutter_wkwebview` est présent |
+| Paiement Mobile Money | WebView Android | WKWebView (iOS) |
 | Google Maps | API Key dans AndroidManifest | API Key dans AppDelegate.swift |
 | Notifications push | FCM via `google-services.json` | FCM via `GoogleService-Info.plist` + APNs |
 | Taille écran | Variable | iPad = grand écran, tester le layout responsive |
 
 ---
 
-## Checklist avant premier lancement iPad
+## Checklist pour installer Horem+ sur iPad (sans Mac)
 
-- [ ] Mac avec Xcode 15+ installé
-- [ ] `flutter doctor` sans erreur iOS
-- [ ] `ios/Runner.xcworkspace` ouvert et signing configuré
-- [ ] `GoogleService-Info.plist` ajouté dans `ios/Runner/` (depuis Firebase Console)
-- [ ] `Info.plist` avec toutes les descriptions de permissions
-- [ ] `AppDelegate.swift` avec la clé Google Maps
-- [ ] iPad en mode développeur, connecté par câble, confiance accordée
-- [ ] `pod install` exécuté dans `ios/`
-- [ ] `flutter run -d <ipad>` lance l'app sans erreur
-
----
-
-## Commandes utiles
-
-```bash
-# Lister les appareils iOS connectés
-flutter devices
-
-# Nettoyer le build iOS
-flutter clean
-cd ios && pod deintegrate && pod install && cd ..
-
-# Build iOS sans signing (pour CI)
-flutter build ios --no-codesign
-
-# Build IPA pour TestFlight
-flutter build ipa
-
-# Ouvrir le projet dans Xcode
-open ios/Runner.xcworkspace
-```
+- [ ] Apple Developer Program souscrit (99 $/an)
+- [ ] Compte Codemagic créé et repo connecté
+- [ ] `GoogleService-Info.plist` généré depuis Firebase Console (app iOS)
+- [ ] Signing iOS configuré dans Codemagic
+- [ ] `GOOGLE_SERVICE_INFO` ajouté dans les variables Codemagic
+- [ ] Push sur branche `release/v1.0` ou tag `v1.0.0`
+- [ ] Build réussi dans Codemagic
+- [ ] TestFlight installé sur iPad
+- [ ] App Horem+ visible dans TestFlight → Installer
