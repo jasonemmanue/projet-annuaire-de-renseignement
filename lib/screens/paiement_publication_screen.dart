@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../services/activation_email_service.dart';
 import '../services/paiement_service.dart';
 import '../services/paiement_debug_log.dart';
 import '../widgets/operateur_selector.dart';
 import '../widgets/silent_payment_webview.dart';
 import '../l10n/app_localizations.dart';
+import 'ios_activation_email_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/paiement_publication_screen.dart
@@ -42,6 +44,12 @@ class PaiementPublicationScreen extends StatefulWidget {
   final String boutonLabel;
   final String succesMessage;
 
+  // ── Flow iOS (App Store 3.1.1) ──
+  // Type de service à passer au flow email/web sur iOS. Sur Android, ces
+  // paramètres sont ignorés et le paiement se fait via cet écran comme avant.
+  final ActivationType activationType;
+  final Map<String, dynamic>? activationParams;
+
   const PaiementPublicationScreen({
     super.key,
     required this.logementId,
@@ -54,6 +62,8 @@ class PaiementPublicationScreen extends StatefulWidget {
     this.boutonLabel = 'Payer et publier l\'annonce',
     this.succesMessage =
         'Votre annonce est maintenant publiée et mise en avant pendant 30 jours.',
+    this.activationType = ActivationType.publication,
+    this.activationParams,
   });
 
   @override
@@ -79,6 +89,30 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
   Timer? _timer;
   Timer? _pollTimer;
   StreamSubscription<PaiementStatut>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    // iOS : redirection vers activation par email (App Store 3.1.1)
+    if (isExternalActivationRequired) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => IosActivationEmailScreen(
+              type: widget.activationType,
+              serviceLabel: widget.titreEcran,
+              targetId: widget.logementId,
+              params: {
+                if (widget.titreAnnonce.isNotEmpty) 'titre': widget.titreAnnonce,
+                ...?widget.activationParams,
+              },
+            ),
+          ),
+        );
+      });
+    }
+  }
 
   @override
   void didChangeDependencies() {

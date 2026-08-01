@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../services/activation_email_service.dart';
 import '../services/auth_service.dart';
 import '../services/paiement_service.dart';
 import '../widgets/operateur_selector.dart';
 import '../widgets/silent_payment_webview.dart';
 import '../l10n/app_localizations.dart';
+import 'ios_activation_email_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/paiement_premium_screen.dart
@@ -50,6 +52,25 @@ class _PaiementPremiumScreenState extends State<PaiementPremiumScreen> {
   Timer? _timer;
   Timer? _pollTimer;
   StreamSubscription<PaiementStatut>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    // iOS : redirection vers activation par email (App Store 3.1.1)
+    if (isExternalActivationRequired) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const IosActivationEmailScreen(
+              type: ActivationType.premium,
+              serviceLabel: 'Pack Premium (30 jours)',
+            ),
+          ),
+        );
+      });
+    }
+  }
 
   @override
   void didChangeDependencies() {

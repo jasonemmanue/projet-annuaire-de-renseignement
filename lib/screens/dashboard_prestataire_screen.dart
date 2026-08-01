@@ -28,6 +28,8 @@ import '../l10n/app_localizations.dart';
 import 'messagerie_screen.dart';
 
 import 'paiement_publication_screen.dart';
+import '../services/activation_email_service.dart';
+import 'ios_activation_email_screen.dart' show isExternalActivationRequired;
 import '../services/tarification_service.dart';
 import '../services/paiement_service.dart';
 import 'sponsorisation_screen.dart';
@@ -249,10 +251,13 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                       title: Text(o.label,
                           style: const TextStyle(fontWeight: FontWeight.w700)),
                       subtitle: Text('${o.jours} jours de visibilité'),
-                      trailing: Text('$montant XAF',
-                          style: const TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w800)),
+                      trailing: isExternalActivationRequired
+                          ? const Icon(Icons.chevron_right,
+                              color: AppColors.primary)
+                          : Text('$montant XAF',
+                              style: const TextStyle(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w800)),
                       onTap: () => Navigator.pop(ctx, (
                         montant: montant,
                         jours: o.jours,
@@ -535,6 +540,13 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
             succesMessage: _isVisibiliteType
                 ? 'Votre fiche est maintenant visible pendant 1 an sur Horem+.'
                 : 'Votre annonce est publiée et visible pendant 1 mois sur Horem+.',
+            activationType: _isVisibiliteType
+                ? ActivationType.visibilite
+                : ActivationType.publication,
+            activationParams: {
+              'montant': montant,
+              if (_isVisibiliteType) 'typeBien': _typeBien,
+            },
           ),
         ),
       );
@@ -1882,7 +1894,7 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
           children: [
             Text(loc.t('reactivation_confirm_body')),
             const SizedBox(height: 12),
-            Container(
+            if (!isExternalActivationRequired) Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: AppColors.primary.withValues(alpha: 0.08),
@@ -1936,6 +1948,8 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
           ),
           boutonLabel: loc.t('reactivation_pay_button'),
           succesMessage: loc.t('reactivation_success'),
+          activationType: ActivationType.publication,
+          activationParams: {'montant': montant},
         ),
       ),
     );
@@ -3575,6 +3589,7 @@ class _MesPublicitesTabState extends State<_MesPublicitesTab> {
               channel: operateur,
             );
           },
+          activationType: ActivationType.publicite,
         ),
       ),
     );

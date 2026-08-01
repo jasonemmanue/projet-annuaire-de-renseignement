@@ -807,4 +807,20 @@ const Map<String, String> frStrings = {
   'perm_open_settings': 'Ouvrir les paramètres',
   'perm_cancel': 'Annuler',
   'perm_allow': 'Autoriser',
+
+  // Activation par email (iOS)
+  'ios_activation_title': 'Activation du service',
+  'ios_activation_heading': 'Activation par email',
+  'ios_activation_description':
+      'Renseignez votre adresse email. Nous vous enverrons un lien pour finaliser l\'activation.',
+  'ios_activation_email_label': 'Adresse email',
+  'ios_activation_email_required': 'Veuillez saisir votre email',
+  'ios_activation_email_invalid': 'Adresse email invalide',
+  'ios_activation_send_button': 'Recevoir le lien d\'activation',
+  'ios_activation_footer':
+      'Le lien vous permettra de finaliser l\'activation depuis votre navigateur.',
+  'ios_activation_success_title': 'Vérifiez votre boîte mail',
+  'ios_activation_success_body':
+      'Nous avons envoyé un lien d\'activation à {email}. Ouvrez-le sur n\'importe quel appareil pour finaliser.',
+  'ios_activation_success_done': 'J\'ai compris',
 };

@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../services/activation_email_service.dart';
 import '../services/auth_service.dart';
 import '../services/paiement_service.dart';
 import '../widgets/operateur_selector.dart';
 import '../widgets/silent_payment_webview.dart';
 import '../l10n/app_localizations.dart';
+import 'ios_activation_email_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/sponsorisation_screen.dart
@@ -128,6 +130,24 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
   }
 
   Future<void> _payer() async {
+    // iOS : bascule vers activation par email (App Store 3.1.1).
+    // La durée choisie (1s/2s/1m) est propagée au flow email.
+    if (isExternalActivationRequired) {
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => IosActivationEmailScreen(
+            type: ActivationType.sponsorisation,
+            serviceLabel: 'Mise en avant de votre annonce',
+            targetId: widget.logementId,
+            params: {
+              'duree': _dureeCode,
+              if (widget.titre.isNotEmpty) 'titre': widget.titre,
+            },
+          ),
+        ),
+      );
+      return;
+    }
     if (_operateur == null) {
       setState(() => _erreurForm = _loc.t('urgence_operator_hint'));
       return;
@@ -398,13 +418,15 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
         ),
         const SizedBox(height: 20),
 
-        OperateurSelector(
-          telephoneInitial: _telephoneInitial,
-          onChanged: (op, tel) => setState(() {
-            _operateur = op;
-            _telephoneComplet = tel;
-          }),
-        ),
+        // Opérateur + numéro — masqué sur iOS (paiement via page web).
+        if (!isExternalActivationRequired)
+          OperateurSelector(
+            telephoneInitial: _telephoneInitial,
+            onChanged: (op, tel) => setState(() {
+              _operateur = op;
+              _telephoneComplet = tel;
+            }),
+          ),
         if (_erreurForm != null) ...[
           const SizedBox(height: 8),
           Text(_erreurForm!,
@@ -426,7 +448,9 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
                   child: CircularProgressIndicator(
                       color: Colors.white, strokeWidth: 2))
               : Text(
-                  '${_loc.t('sponsor_pay_prefix')} $_montant XAF via ${_labelOperateur(_operateur)}',
+                  isExternalActivationRequired
+                      ? 'Recevoir le lien d\'activation'
+                      : '${_loc.t('sponsor_pay_prefix')} $_montant XAF via ${_labelOperateur(_operateur)}',
                   style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w700)),
         ),
@@ -527,11 +551,13 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
                 ),
             ]),
           ),
-          Text('${offre.montant} XAF',
-              style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: selected ? AppColors.primary : context.appTextPrimary)),
+          if (!isExternalActivationRequired)
+            Text('${offre.montant} XAF',
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color:
+                        selected ? AppColors.primary : context.appTextPrimary)),
         ]),
       ),
     );

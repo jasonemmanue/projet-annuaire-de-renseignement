@@ -12,6 +12,7 @@ import '../services/auth_service.dart';
 import '../services/publicite_service.dart';
 import '../services/paiement_service.dart';
 import 'paiement_publication_screen.dart';
+import '../services/activation_email_service.dart';
 
 // ============================================================
 // ÉCRAN : PublierPubliciteScreen
@@ -271,7 +272,7 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
             logementId: pubId,
             titreAnnonce: _titreCtrl.text.trim(),
             montant: PubliciteService.montantParPeriode,
-            titreEcran: 'Paiement publicité',
+            titreEcran: 'Diffusion de votre publicité',
             dureeLabel:
                 'Diffusion pendant ${PubliciteService.dureeJours} jours. La pub sera automatiquement désactivée à l\'échéance.',
             boutonLabel: 'Payer et diffuser',
@@ -284,6 +285,7 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
                 channel: operateur,
               );
             },
+            activationType: ActivationType.publicite,
           ),
         ),
       );

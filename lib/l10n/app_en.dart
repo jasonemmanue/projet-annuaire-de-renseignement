@@ -806,4 +806,20 @@ const Map<String, String> enStrings = {
   'perm_open_settings': 'Open settings',
   'perm_cancel': 'Cancel',
   'perm_allow': 'Allow',
+
+  // Email activation (iOS)
+  'ios_activation_title': 'Service activation',
+  'ios_activation_heading': 'Email activation',
+  'ios_activation_description':
+      'Enter your email address. We will send you a link to complete the activation.',
+  'ios_activation_email_label': 'Email address',
+  'ios_activation_email_required': 'Please enter your email',
+  'ios_activation_email_invalid': 'Invalid email address',
+  'ios_activation_send_button': 'Send activation link',
+  'ios_activation_footer':
+      'The link will let you complete activation from your browser.',
+  'ios_activation_success_title': 'Check your inbox',
+  'ios_activation_success_body':
+      'We sent an activation link to {email}. Open it on any device to complete the process.',
+  'ios_activation_success_done': 'Got it',
 };

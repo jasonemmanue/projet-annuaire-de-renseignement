@@ -926,9 +926,9 @@ exports.initierPublication = onRequest(
 
 // ================================================================
 // CLOUD FUNCTION : initierUrgence (HTTP)
-// Visiteur : paie un accès prioritaire 48 H sur une annonce.
-// Montant = grille URGENCES (selon grade + type), planché à 200.
-// Body : { logementId, telephone, operateur? }
+// Visiteur : paie une alerte prioritaire 48 H — notifié en premier
+// quand un bien correspondant est publié. Montant fixe 200 XAF.
+// Body : { logementId (= alerteId dans urgences), telephone, operateur? }
 // ================================================================
 exports.initierUrgence = onRequest(
   {
@@ -942,7 +942,6 @@ exports.initierUrgence = onRequest(
       return;
     }
     try {
-      // 1. Auth (le visiteur doit être connecté — auth Firebase, même anonyme)
       const authHeader = req.headers.authorization || "";
       const idToken = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null;
       if (!idToken) {
@@ -964,26 +963,27 @@ exports.initierUrgence = onRequest(
         return;
       }
 
-      // 2. Charger l'annonce pour le tarif (grade + type)
-      const logSnap = await admin.firestore().collection("logements").doc(logementId).get();
-      if (!logSnap.exists) {
-        res.status(404).json({ success: false, error: "Annonce introuvable" });
-        return;
-      }
-      const log = logSnap.data();
-      const grade = log.grade || "standards";
-      const montant = fraisUrgence(grade, log.typeBien);
+      const alerteId = logementId;
+      const montant = 200;
 
-      // 3. Infos client (email facultatif)
+      // Charger l'alerte pour la description
+      let alerteDesc = "alerte prioritaire";
+      try {
+        const alerteSnap = await admin.firestore().collection("urgences").doc(alerteId).get();
+        if (alerteSnap.exists) {
+          const a = alerteSnap.data();
+          alerteDesc = `${a.typeBien || "Bien"} — ${a.description || ""}`.substring(0, 80);
+        }
+      } catch (_) { /* pas bloquant */ }
+
       let email = "";
       try {
         const uDoc = await admin.firestore().collection("users").doc(uid).get();
         if (uDoc.exists) email = uDoc.data().email || "";
       } catch (_) { /* visiteur sans profil */ }
 
-      const internalRef = `urgence_${uid}_${logementId}_${Date.now()}`;
+      const internalRef = `urgence_${uid}_${alerteId}_${Date.now()}`;
 
-      // 4. Paiement GeniusPay
       const paiement = await geniuspay.createPayment({
         reference: internalRef,
         amount: montant,
@@ -991,10 +991,10 @@ exports.initierUrgence = onRequest(
         paymentMethod: "pawapay",
         mmoProvider: mmoProviderCM(operateur),
         customerCountry: "CM",
-        description: `Accès prioritaire 48H — ${log.titre || "annonce"}`,
+        description: `Alerte prioritaire 48H — ${alerteDesc}`,
         customerEmail: email,
         customerPhone: telephone,
-        metadata: { uid, type: "urgence", logementId },
+        metadata: { uid, type: "urgence", logementId: alerteId },
         callbackUrl: GENIUSPAY_WEBHOOK_URL,
         returnUrl: PAIEMENT_SUCCESS_URL,
         errorUrl: PAIEMENT_ERROR_URL,
@@ -1002,11 +1002,10 @@ exports.initierUrgence = onRequest(
 
       const reference = paiement.reference;
 
-      // 5. Transaction en attente
       await admin.firestore().collection("transactions").doc(reference).set({
         uid,
         type: "urgence",
-        logementId,
+        logementId: alerteId,
         montant,
         devise: DEVISE,
         statut: "en_attente",
@@ -1158,6 +1157,18 @@ exports.geniuspayWebhook = onRequest(
           confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
           dernierStatutBrut: status,
         });
+        // Flow iOS : signaler l'échec à la page web
+        if (tx.paymentToken) {
+          try {
+            await db.collection("paiements_web").doc(String(tx.paymentToken)).set(
+              {
+                statut: "echoue",
+                confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          } catch (_) {}
+        }
         await notifierPrestataire(
           tx.uid,
           "Paiement échoué",
@@ -1630,6 +1641,23 @@ async function appliquerTransactionReussie(tx) {
       { type: "urgence", alerteId, reference: tx.reference }
     );
   }
+
+  // ── Flow iOS : marquer paiements_web/<token> comme réussi pour que la page
+  // web /pay/[token] affiche la confirmation à l'utilisateur.
+  if (tx.paymentToken) {
+    try {
+      await db.collection("paiements_web").doc(String(tx.paymentToken)).set(
+        {
+          statut: "reussi",
+          reference: tx.reference,
+          confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn("MAJ paiements_web échouée:", e.message);
+    }
+  }
 }
 
 // Notification push à un prestataire (silencieuse si pas de token).
@@ -2017,3 +2045,437 @@ exports.creerCompteGratuit = onRequest({ cors: true }, async (req, res) => {
     res.status(500).json({ success: false, error: e.message });
   }
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// FLOW iOS : activation par email + page web de paiement
+// ────────────────────────────────────────────────────────────────────────────
+// Objectif : conformité App Store 3.1.1 — aucun paiement dans l'app iOS.
+//
+// Étape 1 : l'app iOS appelle envoyerLienPaiementEmail avec { type, targetId,
+//           params, email }. On crée un doc paiements_web/<token> et on envoie
+//           un email HTML avec un lien vers la page web dashboard admin.
+// Étape 2 : l'utilisateur ouvre l'email, clique le lien, arrive sur la page
+//           web /pay/[token]. Il saisit opérateur + numéro et paie via
+//           GeniusPay comme dans le flow Flutter Android.
+// Étape 3 : le webhook GeniusPay existant marque la transaction "reussi",
+//           appliquerTransactionReussie() active le service et met à jour
+//           paiements_web/<token> pour que la page web affiche la confirmation.
+//
+// Le flow Android reste inchangé : il continue à utiliser les CF
+// initierSponsorisation, initierPublication, initierPublicite, etc.
+// ════════════════════════════════════════════════════════════════════════════
+
+// URL publique du dashboard admin qui héberge /pay/[token].
+// Remplacer par l'URL de production Railway une fois déployée.
+const WEB_PAY_BASE_URL = process.env.WEB_PAY_BASE_URL
+  || "https://immoconnect-admin.up.railway.app/pay";
+
+// Durée de validité d'un lien de paiement (24 h).
+const PAIEMENT_WEB_TOKEN_TTL_H = 24;
+
+// Types acceptés par la CF envoyerLienPaiementEmail.
+const TYPES_ACTIVATION = [
+  "premium",
+  "publication",
+  "sponsorisation",
+  "publicite",
+  "urgence",
+  "visibilite",
+];
+
+// Génère un token aléatoire (32 caractères hexa) pour le lien de paiement.
+function genererTokenPaiement() {
+  const bytes = require("crypto").randomBytes(16);
+  return bytes.toString("hex");
+}
+
+// Calcule le montant et le libellé lisible pour un service à activer.
+// Utilisé par le mail et par initierPaiementDepuisWeb.
+function calculerMontantEtLibelle(type, params = {}) {
+  const p = params || {};
+  switch (type) {
+    case "premium":
+      return {
+        montant: PREMIUM_MONTANT,
+        libelle: "Pack Premium (30 jours)",
+        description: "Accès aux avantages Premium pendant 30 jours",
+      };
+    case "sponsorisation": {
+      const duree = p.duree || "1m";
+      const montant = SPONSOR_TARIFS[duree] || SPONSOR_TARIFS["1m"];
+      const label = { "1s": "1 semaine", "2s": "2 semaines", "1m": "1 mois" }[duree] || "1 mois";
+      return {
+        montant,
+        libelle: `Mise en avant (${label})`,
+        description: p.titre ? `Mise en avant de « ${p.titre} » pendant ${label}` : `Mise en avant pendant ${label}`,
+        duree,
+      };
+    }
+    case "publication": {
+      const montant = Number(p.montant) > 0 ? Number(p.montant) : 500;
+      const dureeJours = Number(p.dureeJours) > 0 ? Number(p.dureeJours) : PUBLICATION_DUREE_JOURS;
+      return {
+        montant: planche(montant),
+        libelle: "Publication d'annonce",
+        description: p.titre ? `Publication de « ${p.titre} » pendant ${dureeJours} jours` : `Publication d'annonce pendant ${dureeJours} jours`,
+        dureeJours,
+      };
+    }
+    case "publicite":
+      return {
+        montant: PUBLICITE_MONTANT,
+        libelle: `Diffusion publicitaire (${PUBLICITE_DUREE_JOURS} jours)`,
+        description: p.titre ? `Diffusion de « ${p.titre} » pendant ${PUBLICITE_DUREE_JOURS} jours` : `Diffusion publicitaire pendant ${PUBLICITE_DUREE_JOURS} jours`,
+      };
+    case "urgence":
+      return {
+        montant: MIN_PAIEMENT,
+        libelle: `Alerte prioritaire (${URGENCE_DUREE_HEURES}h)`,
+        description: `Alerte prioritaire pendant ${URGENCE_DUREE_HEURES} heures`,
+      };
+    case "visibilite": {
+      const key = String(p.typeBien || "entreprise").toLowerCase();
+      const montant = VISIBILITE_TARIFS[key] || 2000;
+      return {
+        montant,
+        libelle: `Visibilité annuelle (${p.typeBien || "service"})`,
+        description: p.titre ? `Visibilité annuelle pour « ${p.titre} »` : "Visibilité annuelle",
+      };
+    }
+    default:
+      throw new Error(`Type d'activation inconnu : ${type}`);
+  }
+}
+
+// Template email HTML sobre pour le lien de paiement.
+function buildPaymentLinkEmailHtml({ token, service, prenom }) {
+  const url = `${WEB_PAY_BASE_URL}/${token}`;
+  const bonjour = prenom ? `Bonjour ${prenom},` : "Bonjour,";
+  return `
+  <!DOCTYPE html>
+  <html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Horem+ — Activation de votre service</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f4f4f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1a18;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f2;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.04);">
+            <tr>
+              <td style="background:#1e3a8a;padding:32px 32px 24px;text-align:center;">
+                <div style="color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Horem+</div>
+                <div style="color:#c7d2fe;font-size:13px;margin-top:4px;">Activation de votre service</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:32px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">${bonjour}</p>
+                <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#4a4a45;">
+                  Pour finaliser l'activation de votre service <strong>${service.libelle}</strong>,
+                  merci de cliquer sur le bouton ci-dessous.
+                </p>
+                <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#4a4a45;">
+                  ${service.description}
+                </p>
+                <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px auto;">
+                  <tr>
+                    <td align="center" style="background:#d4622b;border-radius:8px;">
+                      <a href="${url}" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;">Finaliser l'activation →</a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#8a877e;text-align:center;">
+                  Ce lien est valable pendant ${PAIEMENT_WEB_TOKEN_TTL_H} heures.<br>
+                  Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :<br>
+                  <a href="${url}" style="color:#d4622b;word-break:break-all;">${url}</a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#faf9f6;padding:20px 32px;border-top:1px solid #e2dfd8;text-align:center;">
+                <p style="margin:0;font-size:12px;color:#8a877e;line-height:1.5;">
+                  Horem+ — Petites annonces immobilières Cameroun<br>
+                  Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+  </html>`;
+}
+
+// Envoi de l'email de lien de paiement via Gmail SMTP.
+async function envoyerEmailLienPaiement({ email, token, service, prenom }) {
+  const senderEmail = process.env.GMAIL_SENDER_EMAIL;
+  const appPassword = process.env.GMAIL_APP_PASSWORD;
+  if (!senderEmail || !appPassword) {
+    console.warn("envoyerEmailLienPaiement : GMAIL_SENDER_EMAIL / GMAIL_APP_PASSWORD non configurés.");
+    throw new Error("Service email indisponible");
+  }
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: senderEmail, pass: appPassword },
+  });
+  const html = buildPaymentLinkEmailHtml({ token, service, prenom });
+  await transporter.sendMail({
+    from: `"Horem+" <${senderEmail}>`,
+    to: email,
+    subject: `Horem+ — Finalisez l'activation de votre service`,
+    html,
+    text: `Bonjour,\n\nPour finaliser l'activation de votre service ${service.libelle}, ouvrez ce lien :\n${WEB_PAY_BASE_URL}/${token}\n\nCe lien est valable ${PAIEMENT_WEB_TOKEN_TTL_H} heures.\n\nHorem+`,
+  });
+}
+
+// ─── CF envoyerLienPaiementEmail ─────────────────────────────────────────────
+// Appelée par l'app iOS. Crée un token, un doc paiements_web/<token>, et
+// envoie l'email avec le lien.
+// Auth : Bearer ID token Firebase (l'utilisateur doit être connecté).
+// Body : { type, email, targetId?, params? }
+//   - type : "premium" | "publication" | "sponsorisation" | "publicite" | "urgence" | "visibilite"
+//   - email : adresse où envoyer le lien
+//   - targetId : id du logement / publicité / alerte (selon le type)
+//   - params : données spécifiques (duree, dureeJours, titre, typeBien, montant…)
+// Retour : { success, token, expiresAt }
+// ────────────────────────────────────────────────────────────────────────────
+exports.envoyerLienPaiementEmail = onRequest(
+  { cors: true, secrets: ["GMAIL_SENDER_EMAIL", "GMAIL_APP_PASSWORD"] },
+  async (req, res) => {
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    if (req.method !== "POST") {
+      res.status(405).json({ success: false, error: "Méthode non autorisée" });
+      return;
+    }
+    try {
+      // Auth
+      const authHeader = req.headers.authorization || "";
+      const idToken = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null;
+      if (!idToken) {
+        res.status(401).json({ success: false, error: "Authentification requise" });
+        return;
+      }
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (_) {
+        res.status(401).json({ success: false, error: "Session invalide" });
+        return;
+      }
+      const uid = decoded.uid;
+
+      const { type, email, targetId, params } = req.body || {};
+      if (!type || !TYPES_ACTIVATION.includes(type)) {
+        res.status(400).json({ success: false, error: "Type de service invalide" });
+        return;
+      }
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        res.status(400).json({ success: false, error: "Email invalide" });
+        return;
+      }
+
+      // Calcul du montant + libellé lisible (ne sont pas montrés dans l'app iOS).
+      let service;
+      try {
+        service = calculerMontantEtLibelle(type, params || {});
+      } catch (e) {
+        res.status(400).json({ success: false, error: e.message });
+        return;
+      }
+
+      // Prénom (personnalisation du mail)
+      let prenom = "";
+      try {
+        const uSnap = await admin.firestore().collection("users").doc(uid).get();
+        if (uSnap.exists) {
+          const u = uSnap.data();
+          prenom = u.prenom || u.nom || "";
+        }
+      } catch (_) {}
+
+      // Création du doc paiements_web/<token>
+      const token = genererTokenPaiement();
+      const expiresAt = new Date(Date.now() + PAIEMENT_WEB_TOKEN_TTL_H * 60 * 60 * 1000);
+      await admin.firestore().collection("paiements_web").doc(token).set({
+        token,
+        uid,
+        type,
+        targetId: targetId || null,
+        params: params || {},
+        montant: service.montant,
+        libelle: service.libelle,
+        description: service.description,
+        email,
+        statut: "en_attente",   // en_attente | initie | reussi | echoue | expire
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+      });
+
+      // Envoi de l'email
+      try {
+        await envoyerEmailLienPaiement({ email, token, service, prenom });
+      } catch (e) {
+        console.error("Email envoyer erreur:", e.message);
+        // On garde le doc — le lien reste valide via URL directe.
+        res.status(500).json({ success: false, error: "Impossible d'envoyer l'email" });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        token,
+        expiresAt: expiresAt.toISOString(),
+      });
+    } catch (error) {
+      console.error("envoyerLienPaiementEmail :", error.message, error.stack);
+      res.status(500).json({ success: false, error: "Erreur serveur" });
+    }
+  }
+);
+
+// ─── CF initierPaiementDepuisWeb ─────────────────────────────────────────────
+// Appelée par la page web /pay/[token] (Immoconnect_admin).
+// Pas d'auth Firebase : le token dans paiements_web sert de "clé porteur" —
+// il est aléatoire (128 bits) et lié à un doc précis.
+// Body : { token, telephone, operateur }
+// Retour : { success, reference, checkoutUrl }
+// Effet : crée le doc transactions/<reference> comme les autres CF, appelle
+// GeniusPay, met à jour paiements_web/<token>.statut = "initie".
+// ────────────────────────────────────────────────────────────────────────────
+exports.initierPaiementDepuisWeb = onRequest(
+  { cors: true, secrets: ["GENIUSPAY_API_KEY", "GENIUSPAY_SECRET_KEY", "GENIUSPAY_WEBHOOK_SECRET"] },
+  async (req, res) => {
+    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    if (req.method !== "POST") {
+      res.status(405).json({ success: false, error: "Méthode non autorisée" });
+      return;
+    }
+    try {
+      const { token, telephone, operateur } = req.body || {};
+      if (!token || !telephone) {
+        res.status(400).json({ success: false, error: "Paramètres manquants" });
+        return;
+      }
+      if (!/^[a-f0-9]{32}$/.test(String(token))) {
+        res.status(400).json({ success: false, error: "Token invalide" });
+        return;
+      }
+
+      const db = admin.firestore();
+      const tokenRef = db.collection("paiements_web").doc(token);
+      const tokenSnap = await tokenRef.get();
+      if (!tokenSnap.exists) {
+        res.status(404).json({ success: false, error: "Lien introuvable" });
+        return;
+      }
+      const t = tokenSnap.data();
+
+      // Expiration
+      const expMs = t.expiresAt && t.expiresAt.toDate ? t.expiresAt.toDate().getTime() : 0;
+      if (expMs && expMs < Date.now()) {
+        await tokenRef.update({ statut: "expire" });
+        res.status(410).json({ success: false, error: "Lien expiré" });
+        return;
+      }
+
+      // Idempotence : si déjà réussi, on renvoie l'info
+      if (t.statut === "reussi") {
+        res.status(200).json({ success: true, alreadyPaid: true });
+        return;
+      }
+
+      const uid = t.uid;
+      const type = t.type;
+      const params = t.params || {};
+      const montant = Number(t.montant) || 0;
+      if (!montant) {
+        res.status(500).json({ success: false, error: "Montant invalide" });
+        return;
+      }
+
+      // Récupère les infos du prestataire (customer GeniusPay)
+      let u = {};
+      try {
+        const uSnap = await db.collection("users").doc(uid).get();
+        if (uSnap.exists) u = uSnap.data();
+      } catch (_) {}
+
+      const internalRef = `web_${type}_${token.substring(0, 8)}_${Date.now()}`;
+
+      // Métadonnées à propager dans la transaction (utilisées par
+      // appliquerTransactionReussie() selon le type).
+      const meta = {
+        uid,
+        type,
+        paymentToken: token,
+      };
+      if (params.duree) meta.duree = params.duree;
+      if (params.dureeJours) meta.dureeJours = params.dureeJours;
+      if (t.targetId) {
+        if (type === "publicite") meta.publiciteId = t.targetId;
+        else meta.logementId = t.targetId;
+      }
+
+      const paiement = await geniuspay.createPayment({
+        reference: internalRef,
+        amount: montant,
+        currency: DEVISE,
+        paymentMethod: "pawapay",
+        mmoProvider: mmoProviderCM(operateur),
+        customerCountry: "CM",
+        description: `Horem+ — ${t.libelle || type}`,
+        customerEmail: t.email || u.email || "",
+        customerPhone: telephone,
+        metadata: meta,
+        callbackUrl: GENIUSPAY_WEBHOOK_URL,
+        returnUrl: PAIEMENT_SUCCESS_URL,
+        errorUrl: PAIEMENT_ERROR_URL,
+      });
+
+      const reference = paiement.reference;
+
+      // Doc transaction (même schéma que les autres flows Android)
+      const txDoc = {
+        uid,
+        type,
+        montant,
+        devise: DEVISE,
+        statut: "en_attente",
+        reference,
+        internalRef,
+        telephone,
+        checkoutUrl: paiement.paymentUrl,
+        geniuspayTransactionId: paiement.transactionId,
+        source: "ios_web",
+        paymentToken: token,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (meta.logementId) txDoc.logementId = meta.logementId;
+      if (meta.publiciteId) txDoc.publiciteId = meta.publiciteId;
+      if (meta.duree) txDoc.duree = meta.duree;
+      if (meta.dureeJours) txDoc.dureeJours = meta.dureeJours;
+
+      await db.collection("transactions").doc(reference).set(txDoc);
+
+      await tokenRef.update({
+        statut: "initie",
+        reference,
+        checkoutUrl: paiement.paymentUrl,
+        initieAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      res.status(200).json({
+        success: true,
+        reference,
+        checkoutUrl: paiement.paymentUrl,
+      });
+    } catch (error) {
+      console.error("initierPaiementDepuisWeb :", error.message, error.stack);
+      res.status(500).json({ success: false, error: "Erreur lors de l'initiation du paiement.", geniuspayError: error.message });
+    }
+  }
+);

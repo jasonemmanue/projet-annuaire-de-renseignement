@@ -6,12 +6,14 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/activation_email_service.dart';
 import '../services/auth_service.dart';
 import '../services/paiement_service.dart';
 import '../widgets/operateur_selector.dart';
 import '../widgets/silent_payment_webview.dart';
 import '../widgets/shared_widgets.dart' as sw;
 import '../l10n/app_localizations.dart';
+import 'ios_activation_email_screen.dart';
 
 // ============================================================
 // FICHIER : lib/screens/urgence_screen.dart
@@ -496,13 +498,16 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
       setState(() => _erreurForm = _loc.t('urgence_prix_error'));
       return;
     }
-    if (_operateur == null) {
-      setState(() => _erreurForm = _loc.t('urgence_operator_hint'));
-      return;
-    }
-    if (_telephoneComplet == null) {
-      setState(() => _erreurForm = _loc.t('urgence_invalid_number'));
-      return;
+    // iOS : opérateur/téléphone sont saisis sur la page web de paiement.
+    if (!isExternalActivationRequired) {
+      if (_operateur == null) {
+        setState(() => _erreurForm = _loc.t('urgence_operator_hint'));
+        return;
+      }
+      if (_telephoneComplet == null) {
+        setState(() => _erreurForm = _loc.t('urgence_invalid_number'));
+        return;
+      }
     }
     setState(() {
       _erreurForm = null;
@@ -534,6 +539,22 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
       'paymentPending': true,
       'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+
+    // iOS : bascule vers activation par email (App Store 3.1.1)
+    if (isExternalActivationRequired) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => IosActivationEmailScreen(
+            type: ActivationType.urgence,
+            serviceLabel: 'Alerte prioritaire (48 h)',
+            targetId: _alerteDocId,
+          ),
+        ),
+      );
+      return;
+    }
 
     // Initier le paiement
     final result = await _service.initierUrgence(
@@ -762,13 +783,14 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
                 ),
               ]),
               const SizedBox(height: 20),
-              // Opérateur + numéro
-              OperateurSelector(
-                onChanged: (op, tel) => setState(() {
-                  _operateur = op;
-                  _telephoneComplet = tel;
-                }),
-              ),
+              // Opérateur + numéro — masqué sur iOS (paiement via page web).
+              if (!isExternalActivationRequired)
+                OperateurSelector(
+                  onChanged: (op, tel) => setState(() {
+                    _operateur = op;
+                    _telephoneComplet = tel;
+                  }),
+                ),
               if (_erreurForm != null) ...[
                 const SizedBox(height: 8),
                 Text(_erreurForm!,
@@ -792,9 +814,11 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
                         child: CircularProgressIndicator(
                             color: Colors.white, strokeWidth: 2))
                     : Text(
-                        widget.alerte != null
-                            ? '${_loc.t('common_pay_prefix')} $_kMontantAlerte XAF via ${_labelOperateur(_operateur)}'
-                            : _loc.t('urgence_submit'),
+                        isExternalActivationRequired
+                            ? 'Recevoir le lien d\'activation'
+                            : widget.alerte != null
+                                ? '${_loc.t('common_pay_prefix')} $_kMontantAlerte XAF via ${_labelOperateur(_operateur)}'
+                                : _loc.t('urgence_submit'),
                         style: const TextStyle(
                             fontSize: 15, fontWeight: FontWeight.w700)),
               ),

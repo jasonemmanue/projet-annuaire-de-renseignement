@@ -140,7 +140,95 @@ Pharmacie : **gratuite** (pas de prix). `_isPharmacieType` masque le champ prix 
 
 ---
 
-## Paiements — Architecture complète
+## Paiements iOS — flow email + page web (App Store 3.1.1)
+
+> ⚠️ **CRITIQUE** : sur iOS, **aucun paiement dans l'app**. Aucun prix, aucune mention "XAF", aucun sélecteur opérateur. Sinon rejet App Store guideline 3.1.1 (external payment methods for digital goods).
+
+### Séparation par plateforme
+
+| Plateforme | Flux |
+|------------|------|
+| **Android** | Paiement intégré via WebView silencieux + GeniusPay (inchangé) |
+| **iOS** | 1) L'app demande l'email · 2) Backend envoie un lien HTML · 3) L'utilisateur paie sur la page web `sgk-home.web.app/pay/<token>` · 4) Le webhook active le service |
+
+### Détection dans le code Flutter
+`isExternalActivationRequired` (dans `lib/screens/ios_activation_email_screen.dart`) → `Platform.isIOS`.
+Chaque écran de paiement contient un branchement `if (isExternalActivationRequired) { push IosActivationEmailScreen }` :
+- `SponsorisationScreen._payer()` : après choix durée
+- `PaiementPublicationScreen.initState()` : avant tout affichage
+- `PaiementPremiumScreen.initState()` : avant tout affichage
+- `UrgenceScreen._FormulaireAlerteScreen._validerEtPayer()` : après validation formulaire
+- `PublierPubliciteScreen` → délègue à `PaiementPublicationScreen` (intercepté)
+
+### Sélecteur opérateur + prix affichés
+Wrapper avec `if (!isExternalActivationRequired)` dans :
+- `SponsorisationScreen` : sélecteur durée (prix XAF), sélecteur opérateur, bouton "Payer X XAF"
+- `UrgenceScreen` : sélecteur opérateur, bouton "Payer 200 XAF"
+- `dashboard_prestataire_screen.dart` : sélecteur durée hébergement, dialog réactivation
+
+### Écran unique iOS
+`lib/screens/ios_activation_email_screen.dart` — formulaire email + confirmation "Vérifiez votre boîte mail". Ne mentionne jamais prix, XAF, Mobile Money, MTN/Orange, GeniusPay.
+
+### Service Flutter
+`lib/services/activation_email_service.dart` :
+```dart
+ActivationEmailService.instance.envoyerLien(
+  type: ActivationType.sponsorisation,
+  email: 'user@example.com',
+  targetId: logementId,
+  params: {'duree': '1m', 'titre': 'Studio Bastos'},
+);
+```
+
+### Cloud Functions Firebase
+
+| Fonction | URL | Rôle |
+|---|---|---|
+| `envoyerLienPaiementEmail` | `https://envoyerlienpaiementemail-qhxw7o6nha-uc.a.run.app` | Génère token, crée doc Firestore, envoie email HTML |
+| `initierPaiementDepuisWeb` | `https://initierpaiementdepuisweb-qhxw7o6nha-uc.a.run.app` | Appelée par la page web /pay/[token] pour lancer GeniusPay |
+
+Le webhook `geniuspayWebhook` détecte la transaction par son `paymentToken` et met à jour `paiements_web/<token>.statut` = `reussi` / `echoue` en plus de l'activation métier normale.
+
+### Collection Firestore `paiements_web`
+
+```json
+{
+  "token": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  // 128 bits hex
+  "uid": "prestataire_uid",
+  "type": "sponsorisation",   // premium | publication | sponsorisation | publicite | urgence | visibilite
+  "targetId": "logement_id",
+  "params": { "duree": "1m", "titre": "..." },
+  "montant": 2000,
+  "libelle": "Mise en avant (1 mois)",
+  "description": "Mise en avant de « Studio Bastos » pendant 1 mois",
+  "email": "user@example.com",
+  "statut": "en_attente",     // en_attente | initie | reussi | echoue | expire
+  "createdAt": "Timestamp",
+  "expiresAt": "Timestamp",   // now + 24h
+  "reference": "MTX-...",     // rempli quand initie
+  "checkoutUrl": "https://...",
+  "confirmedAt": "Timestamp"  // rempli quand reussi/echoue
+}
+```
+
+### Page web `/pay/[token]` (Immoconnect_admin)
+- Fichier : `Immoconnect_admin/app/pay/[token]/page.tsx`
+- Route publique (pas dans `/dashboard/`, pas d'auth admin)
+- Charge Firestore `paiements_web/<token>` en snapshot temps réel
+- Formulaire : opérateur (Orange/MTN) + numéro +237
+- Appelle `initierPaiementDepuisWeb` → GeniusPay → USSD PIN
+- Détecte succès/échec via le snapshot Firestore (webhook backend)
+- URL prod : `https://immoconnect-admin.up.railway.app/pay/<token>` (variable env `WEB_PAY_BASE_URL` côté functions)
+
+### Template email Nodemailer
+Fonction `buildPaymentLinkEmailHtml()` dans `functions/index.js` — HTML sobre : en-tête bleu Horem+, description du service, bouton d'action orange, footer légal, lien fallback.
+
+### Comptes gratuits (compteGratuit)
+Le flow iOS s'applique à tous les prestataires SAUF les comptes gratuits. `SponsorisationScreen` teste `widget.compteGratuit` avant redirect email (bypass total).
+
+---
+
+## Paiements — Architecture complète (Android)
 
 ### Acteurs de la chaîne de paiement
 
@@ -362,6 +450,8 @@ Déployées sur `us-central1`, projet `sgk-home`. URLs Cloud Run :
 | `geniuspayWebhook` | `https://geniuspaywebhook-qhxw7o6nha-uc.a.run.app` | Webhook GeniusPay (paiements reçus) |
 | `verifierPaiement` | `https://verifierpaiement-qhxw7o6nha-uc.a.run.app` | Polling statut paiement |
 | `envoyerNotifGlobale` | `https://envoyernotifglobale-qhxw7o6nha-uc.a.run.app` | Notif push tous les users |
+| `envoyerLienPaiementEmail` | `https://envoyerlienpaiementemail-qhxw7o6nha-uc.a.run.app` | iOS : envoie email avec lien de paiement web |
+| `initierPaiementDepuisWeb` | `https://initierpaiementdepuisweb-qhxw7o6nha-uc.a.run.app` | iOS : appelée par la page web /pay/[token] |
 
 ### Secrets Firebase (Secret Manager)
 - `GENIUSPAY_API_KEY` / `GENIUSPAY_SECRET_KEY` / `GENIUSPAY_WEBHOOK_SECRET` — sur toutes les fonctions paiement
@@ -706,22 +796,54 @@ Cherche les alertes actives dont `typeBien` correspond et `prixMin <= prix <= pr
 
 Guide complet : `IPAD_DEBUG_GUIDE.md`
 
-### Résumé du processus
-1. **Mac obligatoire** — Xcode 15+ ne tourne que sur macOS
-2. Configurer le signing avec un Apple ID (gratuit pour dev, 99$/an pour App Store)
-3. Ajouter `GoogleService-Info.plist` dans `ios/Runner/` (Firebase Console)
-4. Vérifier `ios/Runner/Info.plist` : descriptions de permissions (caméra, galerie, localisation, micro)
-5. iPad en **mode développeur**, connecté par câble USB, confiance accordée
-6. `cd ios && pod install && cd ..`
-7. `flutter run -d <ipad_id>`
+### Résumé du processus (VM macOS sur VMware Workstation)
+1. **macOS requis** — Xcode 15+ ne tourne que sur macOS. Utiliser une **VM macOS Ventura/Sonoma** dans VMware Workstation sur Windows (16 Go RAM, SSD recommandé)
+2. Dans la VM : installer Xcode 15+ depuis le Mac App Store + `xcode-select --install`
+3. Cloner le repo : `git clone https://github.com/<user>/app_renseignement.git`
+4. Installer Flutter dans la VM : `git clone https://github.com/flutter/flutter.git -b stable`
+5. `flutter doctor` → vérifier Xcode, CocoaPods (`sudo gem install cocoapods`)
+6. Ajouter `GoogleService-Info.plist` dans `ios/Runner/` (Firebase Console → projet iOS)
+7. Configurer le signing dans Xcode : Apple ID (gratuit pour dev, 99$/an pour App Store/TestFlight)
+8. `cd ios && pod install && cd ..`
+9. **USB passthrough** : connecter l'iPad au PC → VMware le redirige vers la VM (`.vmx` : `usb.quirks.device0 = "0x05ac:0x12a8 allowApple2"`)
+10. iPad en **mode développeur** (Réglages → Confidentialité → Mode développeur), confiance accordée
+11. `flutter run -d <ipad_id>` ou build via Xcode (Product → Run)
+
+### Permissions iOS — Info.plist
+
+| Clé | Valeur | Pourquoi |
+|-----|--------|----------|
+| `NSCameraUsageDescription` | Photos annonces/pubs | Caméra pour les photos |
+| `NSPhotoLibraryUsageDescription` | Illustrer annonces/pubs | Accès galerie photos |
+| `NSMicrophoneUsageDescription` | Enregistrer vidéos | Micro pour les vidéos |
+| `NSLocationWhenInUseUsageDescription` | Annonces proches | Géolocalisation foreground |
+| `NSLocationAlwaysAndWhenInUseUsageDescription` | Notifier proximité | Géolocalisation background |
+| `LSApplicationQueriesSchemes` | `tel, mailto, https, http, whatsapp, sms` | `canLaunchUrl()` vérifie ces schémas |
+| `UIBackgroundModes` | `fetch, remote-notification` | FCM notifications push en arrière-plan |
+| `FirebaseAppDelegateProxyEnabled` | `false` | Contrôle manuel FCM (évite conflit swizzling) |
+| `ITSAppUsesNonExemptEncryption` | `false` | Évite le formulaire export compliance App Store |
+
+### Macros Podfile (permission_handler)
+
+```ruby
+# ios/Podfile — post_install > GCC_PREPROCESSOR_DEFINITIONS
+'PERMISSION_CAMERA=1',
+'PERMISSION_PHOTOS=1',
+'PERMISSION_MICROPHONE=1',
+'PERMISSION_LOCATION=1',
+'PERMISSION_LOCATION_ALWAYS=1',
+'PERMISSION_NOTIFICATIONS=1',
+```
+
+> ⚠️ Chaque permission utilisée via `permission_handler` **doit** avoir sa macro activée dans le Podfile, sinon le code compile mais la permission retourne toujours `denied` sur iOS.
 
 ### Fichiers iOS à surveiller
 | Fichier | Rôle |
 |---------|------|
-| `ios/Runner/Info.plist` | Permissions iOS (caméra, galerie, localisation) |
-| `ios/Runner/AppDelegate.swift` | Clé Google Maps iOS, config Firebase |
+| `ios/Runner/Info.plist` | Permissions iOS, schemes URL, background modes |
+| `ios/Runner/AppDelegate.swift` | Clé Google Maps iOS, config Firebase, delegate notifications |
 | `ios/Runner/GoogleService-Info.plist` | Config Firebase iOS (à ajouter manuellement) |
-| `ios/Podfile` | Dépendances CocoaPods |
+| `ios/Podfile` | Dépendances CocoaPods + macros permissions |
 
 ### Différences clés Android ↔ iPad
 - Permissions : déclaratif dans `Info.plist` (pas de runtime request sauf localisation)

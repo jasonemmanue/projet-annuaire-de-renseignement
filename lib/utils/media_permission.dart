@@ -28,37 +28,38 @@ Future<bool> _demanderPermissionAndroid(
   final granulaire =
       type == MediaType.videos ? Permission.videos : Permission.photos;
 
-  var status = await granulaire.status;
-  if (status.isGranted || status.isLimited) return true;
+  // Vérifier si déjà accordée (granulaire API 33+ ou storage API < 33)
+  final granStatus = await granulaire.status;
+  if (granStatus.isGranted || granStatus.isLimited) return true;
 
   final storageStatus = await Permission.storage.status;
   if (storageStatus.isGranted || storageStatus.isLimited) return true;
 
-  if (status.isPermanentlyDenied && storageStatus.isPermanentlyDenied) {
+  // Tout est bloqué définitivement → ouvrir les paramètres
+  if (granStatus.isPermanentlyDenied && storageStatus.isPermanentlyDenied) {
     if (!context.mounted) return false;
     await _afficherDialogParametres(context, type);
     return false;
   }
 
+  // Demander confirmation à l'utilisateur
   if (!context.mounted) return false;
   final accepted = await _afficherDialogDemande(context, type);
   if (!accepted) return false;
 
-  // API 33+ : permission granulaire
-  if (!status.isPermanentlyDenied) {
-    status = await granulaire.request();
-    if (status.isGranted || status.isLimited) return true;
+  // Tenter la permission granulaire (API 33+)
+  if (!granStatus.isPermanentlyDenied) {
+    final result = await granulaire.request();
+    if (result.isGranted || result.isLimited) return true;
   }
 
-  // API < 33 : fallback vers storage
+  // Fallback vers storage (API < 33)
   if (!storageStatus.isPermanentlyDenied) {
-    final sResult = await Permission.storage.request();
-    if (sResult.isGranted || sResult.isLimited) return true;
+    final result = await Permission.storage.request();
+    if (result.isGranted || result.isLimited) return true;
   }
 
-  if (context.mounted) {
-    await _afficherDialogParametres(context, type);
-  }
+  if (context.mounted) await _afficherDialogParametres(context, type);
   return false;
 }
 
