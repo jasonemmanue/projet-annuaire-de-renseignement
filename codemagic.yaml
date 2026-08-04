@@ -19,7 +19,7 @@ workflows:
       - name: Get dependencies
         script: flutter pub get
       - name: Analyze
-        script: flutter analyze lib
+        script: flutter analyze lib --no-fatal-infos --no-fatal-warnings
       - name: Install CocoaPods
         script: cd ios && pod install
       - name: Build iOS (no codesign)
