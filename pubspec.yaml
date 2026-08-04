@@ -16,8 +16,6 @@ dependencies:
   # Charts
   fl_chart: ^0.68.0
 
-  # Publicités
-  google_mobile_ads: ^5.1.0
 
   # UI & Icons
   cupertino_icons: ^1.0.6
