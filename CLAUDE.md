@@ -37,8 +37,8 @@
 `analytics_service`, `cache_service`, `tarification_service`,
 `publicite_service`, `rating_service`
 
-> ⚠️ `ads_service` existe encore dans le code mais est **désactivé côté visiteur** (AdMob retiré).
-> `shared_widgets.dart` → `PubliciteBanner` retourne `SizedBox.shrink()`.
+> `ads_service` existe encore dans le code comme stub (AdMob retiré).
+> `shared_widgets.dart` → `PubliciteBanner` affiche une publicité prestataire inline (remplace AdMob).
 > `main.dart` → `AdsService.instance.initialize()` commenté.
 
 ### Écrans existants
@@ -132,11 +132,30 @@ Pharmacie : **gratuite** (pas de prix). `_isPharmacieType` masque le champ prix 
    `actif: true, paymentPending: false, expiresAt: now + 4 jours`.
 5. Le prestataire peut modifier le texte (gratuit) ou re-diffuser (nouveau paiement requis).
 
-### Côté visiteur (`main.dart` + `stories_publicites_overlay.dart`)
-- Au démarrage de l'app (après auth), `ouvrirStoriesPublicites()` est appelé automatiquement.
-- `PubliciteService.watchPublicitesDiffusables()` retourne les pubs où `actif: true` et `expiresAt > now`.
-- `StoriesPublicitesOverlay` les affiche en plein écran, style stories Instagram.
-- Le visiteur peut appuyer pour contacter le prestataire directement depuis l'overlay.
+### Côté visiteur — 3 formats d'affichage
+
+| Format | Widget | Emplacement | Déclenchement |
+|--------|--------|-------------|---------------|
+| **Stories plein écran** | `StoriesPublicitesOverlay` | Overlay modal | Auto (toutes les 3 nav / 4 reprises), tap sur bannière |
+| **Carrousel horizontal** | `PublicitePrestataireBanner` | Accueil (sliver unique) | Toujours visible si pubs actives |
+| **Cartes inline** | `PubliciteBanner` | Intercalées dans les listes (tous les 5-6 logements) | Automatique, rotation des pubs |
+
+#### `StoriesPublicitesOverlay` (stories_publicites_overlay.dart)
+- `ouvrirStoriesPublicites()` appelé automatiquement + au tap sur les autres formats.
+- `PubliciteService.watchPublicitesDiffusables()` retourne les pubs `actif: true` et `expiresAt > now`.
+- Affichage plein écran, style stories Instagram. Bouton "Contacter" ouvre le chat.
+
+#### `PublicitePrestataireBanner` (shared_widgets.dart)
+- Carrousel horizontal auto-scroll (5s) avec jusqu'à 6 previews photo/vidéo.
+- Header "Services en vedette" + lien "Voir tout".
+
+#### `PubliciteBanner` (shared_widgets.dart) — remplace AdMob
+- Carte compacte avec photo (72px), titre, description (2 lignes), avatar prestataire, bouton "Voir".
+- Label "SPONSORISE" en haut pour identifier clairement comme contenu payant.
+- Cache global statique : un seul stream Firestore partagé entre toutes les instances.
+- Rotation round-robin : chaque instance affiche une pub differente via `_nextIndex`.
+- Tap ouvre `StoriesPublicitesOverlay`.
+- Rend `SizedBox.shrink()` si aucune pub active (pas d'espace vide).
 
 ---
 

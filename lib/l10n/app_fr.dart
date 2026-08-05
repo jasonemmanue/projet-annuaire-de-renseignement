@@ -782,6 +782,8 @@ const Map<String, String> frStrings = {
   'pub_banner_title': 'Services en vedette',
   'pub_banner_contact': 'Contacter',
   'pub_banner_see_all': 'Voir tout',
+  'pub_inline_sponsored': 'SPONSORISE',
+  'pub_inline_discover': 'Voir',
   'notif_bell_title': 'Notifications',
   'notif_bell_empty': 'Aucune notification',
   'notif_bell_empty_hint': 'Les notifications de vos annonces apparaîtront ici',

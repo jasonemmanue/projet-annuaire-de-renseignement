@@ -781,6 +781,8 @@ const Map<String, String> enStrings = {
   'pub_banner_title': 'Featured services',
   'pub_banner_contact': 'Contact',
   'pub_banner_see_all': 'See all',
+  'pub_inline_sponsored': 'SPONSORED',
+  'pub_inline_discover': 'View',
   'notif_bell_title': 'Notifications',
   'notif_bell_empty': 'No notifications',
   'notif_bell_empty_hint': 'Notifications about your listings will appear here',
