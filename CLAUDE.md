@@ -513,7 +513,6 @@ Accessible uniquement aux utilisateurs avec `role == 'admin'` dans Firestore.
 ## Dashboard Admin Web (Next.js)
 
 **Repo :** `https://github.com/jasonemmanue/Horem-a-ADMIN.git`  
-**Chemin local :** `C:\Users\hp\StudioProjects\Immoconnect_admin`  
 **Stack :** Next.js 14 + TypeScript + Tailwind + Firebase Firestore/Auth  
 **Déploiement cible :** Railway (`railway.app`)
 
@@ -568,27 +567,23 @@ functions/index.js                    # Toutes les Cloud Functions (déployer av
 ## Commandes utiles
 
 ```bash
-# Déployer les Cloud Functions (depuis le dossier racine)
-$env:NODE_TLS_REJECT_UNAUTHORIZED = "0"   # si proxy corporate
-firebase deploy --only functions
-
-# Mettre à jour un secret
-echo "valeur" | firebase functions:secrets:set NOM_SECRET
-
 # Analyser le code Flutter
 flutter analyze lib
 
 # Build APK release
 flutter build apk --release
-# APK : build/app/outputs/flutter-apk/app-release.apk
 
-# Push admin vers GitHub
-cd C:\Users\hp\StudioProjects\Immoconnect_admin
-git add -A && git commit -m "..." && git push
+# Build iOS (sans signing, vérification locale)
+flutter build ios --release --no-codesign
 
-# Déployer admin sur Railway (depuis le dossier admin)
-cd C:\Users\hp\StudioProjects\Immoconnect_admin
-railway up
+# Déployer les Cloud Functions
+firebase deploy --only functions
+
+# Mettre à jour un secret Firebase
+echo "valeur" | firebase functions:secrets:set NOM_SECRET
+
+# Déployer admin Next.js sur Railway
+cd Immoconnect_admin && railway up
 ```
 
 ---
@@ -792,22 +787,28 @@ Cherche les alertes actives dont `typeBien` correspond et `prixMin <= prix <= pr
 
 ---
 
-## Débogage iPad / iOS
+## Build & déploiement iOS — Codemagic
 
-Guide complet : `IPAD_DEBUG_GUIDE.md`
+**Plateforme CI/CD :** Codemagic (`codemagic.io`) — Mac mini M2, Xcode latest, Flutter stable.
+**Configuration :** `codemagic.yaml` à la racine du projet (mode YAML, pas Workflow Editor GUI).
 
-### Résumé du processus (VM macOS sur VMware Workstation)
-1. **macOS requis** — Xcode 15+ ne tourne que sur macOS. Utiliser une **VM macOS Ventura/Sonoma** dans VMware Workstation sur Windows (16 Go RAM, SSD recommandé)
-2. Dans la VM : installer Xcode 15+ depuis le Mac App Store + `xcode-select --install`
-3. Cloner le repo : `git clone https://github.com/<user>/app_renseignement.git`
-4. Installer Flutter dans la VM : `git clone https://github.com/flutter/flutter.git -b stable`
-5. `flutter doctor` → vérifier Xcode, CocoaPods (`sudo gem install cocoapods`)
-6. Ajouter `GoogleService-Info.plist` dans `ios/Runner/` (Firebase Console → projet iOS)
-7. Configurer le signing dans Xcode : Apple ID (gratuit pour dev, 99$/an pour App Store/TestFlight)
-8. `cd ios && pod install && cd ..`
-9. **USB passthrough** : connecter l'iPad au PC → VMware le redirige vers la VM (`.vmx` : `usb.quirks.device0 = "0x05ac:0x12a8 allowApple2"`)
-10. iPad en **mode développeur** (Réglages → Confidentialité → Mode développeur), confiance accordée
-11. `flutter run -d <ipad_id>` ou build via Xcode (Product → Run)
+### Workflow actuel : `ios-build-check`
+Build iOS sans signing (vérification que le projet compile). Déclenché sur push `main`.
+
+```yaml
+# codemagic.yaml — résumé
+scripts:
+  - flutter pub get
+  - flutter analyze lib --no-fatal-infos --no-fatal-warnings
+  - cd ios && pod install
+  - flutter build ios --release --no-codesign
+```
+
+### Prochaine étape : TestFlight (quand compte Apple Developer disponible)
+Ajouter un workflow `ios-testflight` avec :
+- Code signing automatique Codemagic (certificat + provisioning profile via intégration App Store Connect)
+- `flutter build ipa --release`
+- Publication automatique sur TestFlight
 
 ### Permissions iOS — Info.plist
 
@@ -835,20 +836,24 @@ Guide complet : `IPAD_DEBUG_GUIDE.md`
 'PERMISSION_NOTIFICATIONS=1',
 ```
 
-> ⚠️ Chaque permission utilisée via `permission_handler` **doit** avoir sa macro activée dans le Podfile, sinon le code compile mais la permission retourne toujours `denied` sur iOS.
+> Chaque permission utilisée via `permission_handler` **doit** avoir sa macro activée dans le Podfile, sinon le code compile mais la permission retourne toujours `denied` sur iOS.
 
-### Fichiers iOS à surveiller
+### Fichiers iOS
 | Fichier | Rôle |
 |---------|------|
 | `ios/Runner/Info.plist` | Permissions iOS, schemes URL, background modes |
 | `ios/Runner/AppDelegate.swift` | Clé Google Maps iOS, config Firebase, delegate notifications |
-| `ios/Runner/GoogleService-Info.plist` | Config Firebase iOS (à ajouter manuellement) |
-| `ios/Podfile` | Dépendances CocoaPods + macros permissions |
+| `ios/Runner/GoogleService-Info.plist` | Config Firebase iOS (dans le repo) |
+| `ios/Runner/Runner.entitlements` | APNs push notifications |
+| `ios/Runner/PrivacyInfo.xcprivacy` | Privacy Manifest (Xcode 16+) |
+| `ios/Podfile` | CocoaPods, platform 15.0, macros permissions |
+| `codemagic.yaml` | Configuration CI/CD Codemagic |
 
-### Différences clés Android ↔ iPad
-- Permissions : déclaratif dans `Info.plist` (pas de runtime request sauf localisation)
-- WebView paiement : WKWebView au lieu de Android WebView
-- Notifications : APNs + FCM (certificat Apple Push requis)
+### iOS deployment target : 15.0
+Requis par Firebase iOS SDK 11+. Configuré dans `Podfile` (`platform :ios, '15.0'`) et `project.pbxproj` (`IPHONEOS_DEPLOYMENT_TARGET = 15.0`).
+
+### Cibles : iPhone + iPad
+`TARGETED_DEVICE_FAMILY = "1,2"` dans `project.pbxproj` (1 = iPhone, 2 = iPad).
 
 ---
 
