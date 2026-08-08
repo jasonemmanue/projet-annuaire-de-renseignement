@@ -41,10 +41,6 @@ dependencies:
   firebase_analytics: ^11.5.0
   firebase_app_check: ^0.3.2+1
 
-  # Google Sign-In & Facebook
-  google_sign_in: ^6.2.2
-  flutter_facebook_auth: ^7.1.1
-
   # Maps
   google_maps_flutter: ^2.9.0
   geolocator: ^13.0.2
