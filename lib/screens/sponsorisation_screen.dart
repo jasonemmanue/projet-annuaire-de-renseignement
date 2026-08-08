@@ -449,7 +449,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
                       color: Colors.white, strokeWidth: 2))
               : Text(
                   isExternalActivationRequired
-                      ? 'Recevoir le lien d\'activation'
+                      ? _loc.t('ios_activation_send_button')
                       : '${_loc.t('sponsor_pay_prefix')} $_montant XAF via ${_labelOperateur(_operateur)}',
                   style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w700)),
