@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>API_KEY</key>
-	<string>AIzaSyAcrJifIBgmqVxBDdW5YJFgJbMx0V3eZzo</string>
+	<string>AIzaSyAO78D6gFAunMlI-Fj18m5_G83-Q4j2_4c</string>
 	<key>GCM_SENDER_ID</key>
 	<string>623906779506</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.example.appRenseignement</string>
+	<string>com.horemplus.app</string>
 	<key>PROJECT_ID</key>
 	<string>sgk-home</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:623906779506:ios:cb47be0b09793a96a52deb</string>
+	<string>1:623906779506:ios:6bd706ad7a17c126a52deb</string>
 </dict>
 </plist>
