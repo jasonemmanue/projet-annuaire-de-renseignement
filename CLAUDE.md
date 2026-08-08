@@ -9,7 +9,13 @@
 **App :** horem_plus (titre affiché « Horem+ »)  
 **Domaine :** Petites annonces immobilières + services au Cameroun  
 **Stack :** Flutter + Firebase (Auth, Firestore, Storage, Messaging, Analytics) + Google Maps + Provider  
-**Package ID Android :** `com.example.horemplus`
+**Bundle ID (iOS + Android) :** `com.horemplus.app`
+
+> ⚠️ L'ancien identifiant `com.example.*` a été abandonné : Google Play **refuse l'upload**
+> de tout package commençant par `com.example`, et Apple rejette le bundle correspondant.
+> Les deux plateformes utilisent désormais le même identifiant `com.horemplus.app`.
+> Toute modification impose de réenregistrer les apps dans la console Firebase
+> (`google-services.json` + `GoogleService-Info.plist`) — voir « Identité de l'app ».
 
 ---
 
@@ -867,6 +873,64 @@ Ajouter un workflow `ios-testflight` avec :
 | `ios/Runner/PrivacyInfo.xcprivacy` | Privacy Manifest (Xcode 16+) |
 | `ios/Podfile` | CocoaPods, platform 15.0, macros permissions |
 | `codemagic.yaml` | Configuration CI/CD Codemagic |
+
+### Identité de l'app (bundle ID) — `com.horemplus.app`
+
+Un seul identifiant partagé par les deux plateformes. Les endroits où il apparaît :
+
+| Fichier | Clé |
+|---|---|
+| `ios/Runner.xcodeproj/project.pbxproj` | `PRODUCT_BUNDLE_IDENTIFIER` (Debug / Release / Profile) |
+| `android/app/build.gradle.kts` | `namespace` + `applicationId` |
+| `android/app/src/main/kotlin/com/horemplus/app/MainActivity.kt` | `package` |
+| `lib/firebase_options.dart` | `iosBundleId` (ios + macos) |
+| `lib/screens/auth/diag_otp_screen.dart` | `packageName` |
+| `ios/Runner/GoogleService-Info.plist` | `BUNDLE_ID` — **généré par Firebase** |
+| `android/app/google-services.json` | `package_name` — **généré par Firebase** |
+
+Les deux derniers ne se modifient **jamais à la main** : ils sont téléchargés depuis la
+console Firebase. Changer le bundle ID sans les regénérer casse le build Android
+(`No matching client found for package name`) et l'auth iOS.
+
+```bash
+# Réenregistre les apps dans le projet Firebase existant (sgk-home)
+# et réécrit les 3 fichiers de config d'un coup.
+flutterfire configure --project=sgk-home \
+  --ios-bundle-id=com.horemplus.app \
+  --android-package-name=com.horemplus.app
+```
+
+À refaire côté consoles après tout changement d'identifiant :
+- **Firebase → Android** : réenregistrer les empreintes **SHA-1 et SHA-256** du keystore
+  de release, sinon Phone Auth (OTP) échoue sur Android.
+- **Firebase → Cloud Messaging** : réuploader la clé d'authentification **APNs (.p8)**
+  pour la nouvelle app iOS, sinon push et Phone Auth échouent sur iOS.
+- **Google Cloud → API Maps iOS** : la clé de `AppDelegate.swift` est restreinte par
+  bundle ID ; ajouter `com.horemplus.app` sinon la carte reste grise.
+
+### Phone Auth iOS — transmission manuelle des push
+
+`Info.plist` fixe `FirebaseAppDelegateProxyEnabled = false`, donc le swizzling Firebase
+est désactivé. `AppDelegate.swift` **doit** transmettre lui-même :
+
+```swift
+Auth.auth().setAPNSToken(deviceToken, type: .sandbox / .prod)  // didRegisterForRemoteNotifications
+Auth.auth().canHandleNotification(userInfo)                     // didReceiveRemoteNotification
+```
+
+Sans ces deux appels, le push silencieux de vérification n'atteint jamais FirebaseAuth :
+l'OTP SMS n'est **jamais envoyé** sur iOS et l'app est inutilisable → rejet App Store
+guideline 2.1 (App Completeness). Ne pas retirer ces overrides.
+
+### Entitlements APNs séparés par configuration
+
+| Configuration | Fichier | `aps-environment` |
+|---|---|---|
+| Debug / Profile | `ios/Runner/Runner.entitlements` | `development` |
+| Release | `ios/Runner/RunnerRelease.entitlements` | `production` |
+
+Une seule entitlement `development` pour tout casse les push en TestFlight / App Store.
+À l'inverse, forcer `production` en Debug fait échouer la signature avec un profil de dev.
 
 ### iOS deployment target : 15.0
 Requis par Firebase iOS SDK 11+. Configuré dans `Podfile` (`platform :ios, '15.0'`) et `project.pbxproj` (`IPHONEOS_DEPLOYMENT_TARGET = 15.0`).

@@ -64,7 +64,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '623906779506',
     projectId: 'sgk-home',
     storageBucket: 'sgk-home.firebasestorage.app',
-    iosBundleId: 'com.example.appRenseignement',
+    iosBundleId: 'com.horemplus.app',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -73,7 +73,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '623906779506',
     projectId: 'sgk-home',
     storageBucket: 'sgk-home.firebasestorage.app',
-    iosBundleId: 'com.example.appRenseignement',
+    iosBundleId: 'com.horemplus.app',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

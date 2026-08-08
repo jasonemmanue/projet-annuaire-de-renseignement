@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.app_renseignement"
+    namespace = "com.horemplus.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.app_renseignement"
+        applicationId = "com.horemplus.app"
         minSdk = maxOf(flutter.minSdkVersion, 23)                             // ← valeur fixe au lieu de flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

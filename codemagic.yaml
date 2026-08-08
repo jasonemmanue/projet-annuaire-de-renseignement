@@ -15,6 +15,10 @@ workflows:
       branch_patterns:
         - pattern: main
           include: true
+        # Les branches de travail doivent aussi déclencher la vérification,
+        # sinon un push hors `main` ne compile jamais côté iOS.
+        - pattern: 'claude/*'
+          include: true
     scripts:
       - name: Get dependencies
         script: flutter pub get
@@ -26,3 +30,48 @@ workflows:
         script: flutter build ios --release --no-codesign
     artifacts:
       - build/ios/iphoneos/Runner.app
+
+  # ── Build signé + publication TestFlight ─────────────────────
+  # PRÉREQUIS (une seule fois, dans l'interface Codemagic) :
+  #   1. Teams > Integrations > App Store Connect : ajouter une clé API
+  #      et la nommer exactement « Horem Plus ASC » (ou changer le nom ci-dessous).
+  #   2. L'App ID com.horemplus.app doit exister dans App Store Connect.
+  # Déclenchement : pousser un tag `v1.0.0`, ou lancer le workflow à la main.
+  ios-testflight:
+    name: iOS TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Horem Plus ASC
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.horemplus.app
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'v*'
+          include: true
+    scripts:
+      - name: Get dependencies
+        script: flutter pub get
+      - name: Install CocoaPods
+        script: cd ios && pod install
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --build-number=$PROJECT_BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

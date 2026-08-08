@@ -65,7 +65,7 @@ class _DiagOtpScreenState extends State<DiagOtpScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final fb = Firebase.app().options;
-    const packageName = 'com.example.app_renseignement';
+    const packageName = 'com.horemplus.app';
     final diag = AuthService.lastOtpDiag;
 
     return Scaffold(
