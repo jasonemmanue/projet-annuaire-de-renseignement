@@ -107,13 +107,19 @@ Remplace l'ancienne commission variable. Sélectionné dans `sponsorisation_scre
 | `2s` | 2 semaines | **1 000 XAF** |
 | `1m` | 1 mois | **2 000 XAF** |
 
-> ⚠️ **Cette grille est dupliquée.** Les prix réellement appliqués viennent de la liste
-> `_offres` (`sponsorisation_screen.dart`, ~ligne 31) et de la table de durées
-> `{'1s': 7, '2s': 14, '1m': 30}` (~ligne 105). `TarificationService.tarifsSponsoring`
-> et `optionsSponsoring` contiennent les mêmes valeurs mais **ne sont appelés par
-> personne** : les modifier n'a aucun effet sur l'app. Pour changer un prix de
-> sponsoring, éditer `sponsorisation_screen.dart` — ou mieux, brancher l'écran sur le
-> service pour supprimer la duplication.
+Défini dans `TarificationService` (`lib/services/tarification_service.dart`) —
+**source unique**, consommée par `sponsorisation_screen.dart` :
+
+| Constante | Usage |
+|---|---|
+| `tarifsSponsoring` | montant facturé (`_montant`) |
+| `dureeJoursSponsoring` | durée appliquée en compte gratuit |
+| `optionsSponsoring` | liste affichée dans le sélecteur |
+
+> Les badges « Recommandé » / « Meilleure valeur » restent dans l'écran
+> (`_badgesSponsoring`, clés i18n) : c'est de la décoration, pas de la tarification.
+> Ne jamais recopier la grille dans un écran — une copie locale se désynchronise
+> sans erreur, et c'est l'ancien prix qui continue d'être facturé.
 
 ### ② Visibilité annuelle (services uniquement)
 Payant UNE FOIS par an. Types éligibles :

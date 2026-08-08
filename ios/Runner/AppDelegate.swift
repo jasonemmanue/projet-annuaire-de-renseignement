@@ -12,7 +12,10 @@ import FirebaseMessaging
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     FirebaseApp.configure()
-    GMSServices.provideAPIKey("AIzaSyCiaCA-3EazbF-Ekh3D3GcdtHDZVMko9_Q")
+    // Clé restreinte au bundle com.horemplus.app + Maps SDK for iOS.
+    // Android utilise une clé distincte (AndroidManifest.xml) : une clé Google
+    // ne peut porter qu'un seul type de restriction applicative à la fois.
+    GMSServices.provideAPIKey("AIzaSyAO78D6gFAunMlI-Fj18m5_G83-Q4j2_4c")
     GeneratedPluginRegistrant.register(with: self)
 
     UNUserNotificationCenter.current().delegate = self
