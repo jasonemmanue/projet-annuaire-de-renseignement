@@ -99,7 +99,7 @@ uid_prestataire                                  ← id Firebase Auth du prestat
 ## Tarification des annonces
 
 ### ① Sponsoring immobilier — tarif FIXE par durée
-Remplace l'ancienne commission variable. Sélectionné via `_DureeSponsoringSheet` dans `dashboard_prestataire_screen.dart`.
+Remplace l'ancienne commission variable. Sélectionné dans `sponsorisation_screen.dart`.
 
 | Code | Durée | Prix |
 |------|-------|------|
@@ -107,7 +107,13 @@ Remplace l'ancienne commission variable. Sélectionné via `_DureeSponsoringShee
 | `2s` | 2 semaines | **1 000 XAF** |
 | `1m` | 1 mois | **2 000 XAF** |
 
-Défini dans `TarificationService.optionsSponsoring` (`lib/services/tarification_service.dart`).
+> ⚠️ **Cette grille est dupliquée.** Les prix réellement appliqués viennent de la liste
+> `_offres` (`sponsorisation_screen.dart`, ~ligne 31) et de la table de durées
+> `{'1s': 7, '2s': 14, '1m': 30}` (~ligne 105). `TarificationService.tarifsSponsoring`
+> et `optionsSponsoring` contiennent les mêmes valeurs mais **ne sont appelés par
+> personne** : les modifier n'a aucun effet sur l'app. Pour changer un prix de
+> sponsoring, éditer `sponsorisation_screen.dart` — ou mieux, brancher l'écran sur le
+> service pour supprimer la duplication.
 
 ### ② Visibilité annuelle (services uniquement)
 Payant UNE FOIS par an. Types éligibles :
@@ -123,8 +129,17 @@ Pharmacie : **gratuite** (pas de prix). `_isPharmacieType` masque le champ prix 
 ### ③ Publicités prestataires
 500 XAF / 4 jours de diffusion (`PubliciteService.montantParPeriode` = 500, `dureeJours` = 4).
 
-### ④ Ancienne grille commission (OBSOLÈTE, conservée dans le code pour référence)
-`TarificationService.montantSponsorisation()` existe encore mais n'est plus utilisé pour les nouvelles publications.
+### ④ Ancienne grille commission (SUPPRIMÉE)
+La commission variable par grade a été retirée du code : `enum GradeBien`,
+`extension GradeBienLabel`, `pourcentageCommission()`, `montantSponsorisation()`
+et `fraisUrgence()` n'avaient plus aucun appelant depuis le passage aux forfaits fixes.
+
+Le champ Firestore `grade` reste un `String` libre sur `Logement`
+(`'standards' | 'haut_standing' | 'meubles' | 'a_louer'`) — il n'a jamais été typé
+par l'enum côté Dart, donc rien à migrer.
+
+> `functions/index.js` conserve sa **propre** fonction `fraisUrgence(grade, typeBien)`,
+> indépendante du Dart. La suppression côté app ne l'affecte pas.
 
 ---
 
