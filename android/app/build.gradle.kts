@@ -43,10 +43,33 @@ android {
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
-                storeFile = file(keystoreProperties.getProperty("storeFile"))
-                storePassword = keystoreProperties.getProperty("storePassword")
+                // Une propriete absente laisserait le champ a null, et l'echec ne
+                // surviendrait qu'a la tache signReleaseBundle — apres tout le
+                // build — sous la forme d'un NullPointerException sans message.
+                // On echoue donc ici, avec le nom de la cle fautive.
+                fun requis(cle: String): String =
+                    keystoreProperties.getProperty(cle)
+                        ?: throw GradleException(
+                            "android/key.properties : propriete « $cle » absente ou vide. " +
+                            "Les quatre cles attendues sont storePassword, keyPassword, " +
+                            "keyAlias et storeFile (voir key.properties.example)."
+                        )
+
+                keyAlias = requis("keyAlias")
+                keyPassword = requis("keyPassword")
+                storePassword = requis("storePassword")
+
+                val chemin = requis("storeFile")
+                val fichier = file(chemin)
+                if (!fichier.exists()) {
+                    throw GradleException(
+                        "Keystore introuvable : $chemin\n" +
+                        "Verifiez storeFile dans android/key.properties. Le chemin doit " +
+                        "utiliser des barres obliques (C:/Users/...), l'antislash etant " +
+                        "un caractere d'echappement dans un fichier .properties."
+                    )
+                }
+                storeFile = fichier
             }
         }
     }
