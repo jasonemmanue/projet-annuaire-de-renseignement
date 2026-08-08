@@ -1,0 +1,20 @@
+# Modèle de configuration de signature Android.
+#
+# 1. Générer le keystore de release (UNE SEULE FOIS — ne jamais le regénérer,
+#    sinon Google Play refuse les mises à jour futures) :
+#
+#      keytool -genkey -v -keystore %USERPROFILE%\horemplus-release.jks ^
+#        -keyalg RSA -keysize 2048 -validity 10000 -alias horemplus
+#
+# 2. Copier ce fichier en `android/key.properties` et renseigner les valeurs.
+# 3. Sauvegarder le .jks ET les mots de passe hors du projet (gestionnaire de
+#    mots de passe, disque chiffré). Perdre le keystore = perdre la capacité de
+#    publier une mise à jour de l'app.
+#
+# `key.properties` et les fichiers .jks/.keystore sont ignorés par git
+# (voir android/.gitignore) : ils ne doivent JAMAIS être versionnés.
+
+storePassword=votre_mot_de_passe_keystore
+keyPassword=votre_mot_de_passe_cle
+keyAlias=horemplus
+storeFile=C:/Users/hp/horemplus-release.jks
