@@ -22,7 +22,6 @@ import 'screens/legal/consentement_screen.dart';
 import 'services/auth_service.dart';
 import 'widgets/stories_publicites_overlay.dart';
 import 'services/notification_service.dart';
-// import 'services/ads_service.dart'; // AdMob désactivé
 import 'widgets/shared_widgets.dart' as sw;
 import 'models/models.dart';
 
@@ -54,8 +53,6 @@ void main() async {
   await AppController.instance.loadPrefs();
   await AuthService.instance.init();
   await NotificationService.init();
-  // AdMob désactivé — publicités prestataires via StoriesPublicitesOverlay
-  // await AdsService.instance.initialize();
 
   if (AuthService.instance.isLoggedIn) {
     await NotificationService.saveToken(AuthService.instance.currentUser!.id);

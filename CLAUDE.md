@@ -43,9 +43,9 @@
 `analytics_service`, `cache_service`, `tarification_service`,
 `publicite_service`, `rating_service`
 
-> `ads_service` existe encore dans le code comme stub (AdMob retiré).
+> AdMob a été entièrement retiré : plus de dépendance `google_mobile_ads`, plus de
+> service `ads_service`, plus d'appel dans `main.dart`.
 > `shared_widgets.dart` → `PubliciteBanner` affiche une publicité prestataire inline (remplace AdMob).
-> `main.dart` → `AdsService.instance.initialize()` commenté.
 
 ### Écrans existants
 `splash`, `accueil`, `carte`, `favoris`, `messagerie`, `profil`, `detail_logement`,
