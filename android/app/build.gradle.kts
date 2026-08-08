@@ -1,4 +1,3 @@
-import java.io.FileInputStream
 import java.util.Properties
 
 plugins {
@@ -13,7 +12,13 @@ plugins {
 val keystorePropertiesFile = rootProject.file("key.properties")
 val hasReleaseKeystore = keystorePropertiesFile.exists()
 val keystoreProperties = Properties().apply {
-    if (hasReleaseKeystore) FileInputStream(keystorePropertiesFile).use { load(it) }
+    if (hasReleaseKeystore) {
+        // PowerShell (Set-Content -Encoding UTF8) prefixe le fichier d'un BOM
+        // que Properties.load() agrege a la premiere cle : `storePassword`
+        // devient introuvable alors que le fichier parait correct a l'oeil.
+        // On le retire avant lecture.
+        load(keystorePropertiesFile.readText(Charsets.UTF_8).removePrefix("\uFEFF").reader())
+    }
 }
 
 android {
