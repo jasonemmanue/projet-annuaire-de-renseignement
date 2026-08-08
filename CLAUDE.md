@@ -883,8 +883,8 @@ Un seul identifiant partagé par les deux plateformes. Les endroits où il appar
 | `ios/Runner.xcodeproj/project.pbxproj` | `PRODUCT_BUNDLE_IDENTIFIER` (Debug / Release / Profile) |
 | `android/app/build.gradle.kts` | `namespace` + `applicationId` |
 | `android/app/src/main/kotlin/com/horemplus/app/MainActivity.kt` | `package` |
+| `lib/app_identity.dart` | `AppIdentity.bundleId` — **source de vérité côté Dart** |
 | `lib/firebase_options.dart` | `iosBundleId` (ios + macos) |
-| `lib/screens/auth/diag_otp_screen.dart` | `packageName` |
 | `ios/Runner/GoogleService-Info.plist` | `BUNDLE_ID` — **généré par Firebase** |
 | `android/app/google-services.json` | `package_name` — **généré par Firebase** |
 
@@ -899,6 +899,14 @@ flutterfire configure --project=sgk-home \
   --ios-bundle-id=com.horemplus.app \
   --android-package-name=com.horemplus.app
 ```
+
+#### `AppIdentity.appStoreId` — à renseigner après création de la fiche
+
+`openStoreListing` (plugin `in_app_review`) attend sur iOS l'identifiant
+**numérique** attribué par App Store Connect (ex. `6742891234`), pas le bundle ID.
+Tant que `AppIdentity.appStoreId` vaut `''`, `RatingService.ouvrirFicheStore()`
+ne tente rien sur iOS plutôt que d'ouvrir une URL invalide. Renseigner la
+constante dès que la fiche existe — c'est le seul endroit à modifier.
 
 À refaire côté consoles après tout changement d'identifiant :
 - **Firebase → Android** : réenregistrer les empreintes **SHA-1 et SHA-256** du keystore

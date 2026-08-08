@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:in_app_review/in_app_review.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../app_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/notification_service.dart';
+import '../services/rating_service.dart';
 import '../widgets/shared_widgets.dart' as sw;
 import 'auth/login_screen.dart';
 import 'aide_faq_screen.dart';
@@ -244,7 +243,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
                   _OptionTile(
                     icon: Icons.star_outline,
                     label: l.t('profil_rate'),
-                    onTap: () => _ouvrirStoreListing(context),
+                    onTap: () => RatingService.ouvrirFicheStore(),
                   ),
                   ListTile(
                     leading: Container(
@@ -319,19 +318,6 @@ class _ProfilScreenState extends State<ProfilScreen> {
         ),
       ),
     );
-  }
-
-  Future<void> _ouvrirStoreListing(BuildContext context) async {
-    final review = InAppReview.instance;
-    if (await review.isAvailable()) {
-      await review.openStoreListing(appStoreId: 'com.horemplus.app');
-    } else {
-      final uri = Uri.parse(
-          'https://play.google.com/store/apps/details?id=com.horemplus.app');
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    }
   }
 
   void _choisirLangue(BuildContext context) {

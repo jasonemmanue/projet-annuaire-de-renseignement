@@ -226,6 +226,12 @@ class _PaiementPremiumScreenState extends State<PaiementPremiumScreen> {
   // ─── BUILD ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    // iOS : `initState` remplace cet écran via un post-frame callback, donc
+    // `build` s'exécute une fois avant. On ne rend jamais le formulaire de
+    // paiement, même une seule frame — App Store guideline 3.1.1.
+    if (isExternalActivationRequired) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     return Scaffold(
       appBar: AppBar(
         title: Text(_loc.t('premium_title')),

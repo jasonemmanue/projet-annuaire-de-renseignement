@@ -267,6 +267,13 @@ class _PaiementPublicationScreenState extends State<PaiementPublicationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // iOS : `initState` remplace cet écran par IosActivationEmailScreen, mais
+    // via un post-frame callback — donc `build` s'exécute une fois avant. On ne
+    // rend jamais le formulaire (prix, XAF, sélecteur opérateur), même une seule
+    // frame, sinon App Store guideline 3.1.1.
+    if (isExternalActivationRequired) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     return WillPopScope(
       onWillPop: () async {
         if (_etape == _Etape.attente) {

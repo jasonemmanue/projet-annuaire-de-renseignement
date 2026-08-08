@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:in_app_review/in_app_review.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../app_identity.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 
@@ -20,6 +22,30 @@ class RatingService {
   static const _kDeclined    = 'rating_declined';
   static const _kMinOpens    = 5;
   static const _kDaysBetween = 30;
+
+  // ── Ouvre la fiche de l'app sur le store de la plateforme ────
+  // `openStoreListing` attend l'identifiant **numérique** App Store sur iOS
+  // (pas le bundle ID) : tant que `AppIdentity.appStoreId` est vide, on ne
+  // tente rien plutôt que d'ouvrir une URL invalide. Sur Android le plugin
+  // résout la fiche via le package, avec repli navigateur.
+  static Future<void> ouvrirFicheStore() async {
+    final review = InAppReview.instance;
+
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      if (!AppIdentity.hasAppStoreId) return;
+      await review.openStoreListing(appStoreId: AppIdentity.appStoreId);
+      return;
+    }
+
+    try {
+      await review.openStoreListing();
+    } catch (_) {
+      final uri = AppIdentity.playStoreUri;
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    }
+  }
 
   // ── Incrémente le compteur d'ouvertures ──────────────────
   Future<void> incrementOpenCount() async {
@@ -92,8 +118,7 @@ class RatingService {
                 if (await review.isAvailable()) {
                   await review.requestReview();
                 } else {
-                  await review.openStoreListing(
-                      appStoreId: 'com.horemplus.app');
+                  await ouvrirFicheStore();
                 }
               },
               icon: const Icon(Icons.star_outline),
