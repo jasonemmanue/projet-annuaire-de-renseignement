@@ -41,9 +41,21 @@ void main() async {
   // ⚠️ Avant publication Play Store :
   //   1. Remplacer AndroidProvider.debug par AndroidProvider.playIntegrity
   //   2. Enregistrer les SHA-1/SHA-256 release dans Firebase Console
-  await FirebaseAppCheck.instance.activate(
-    androidProvider: AndroidProvider.debug,
-  );
+  //
+  // `appleProvider` vaut DeviceCheck par défaut, qui exige du vrai matériel et
+  // n'existe pas sur le simulateur iOS : activate() y lève une exception. Rien
+  // ici n'étant rattrapé, cette seule exception fermait l'app avant runApp().
+  // On prend donc le provider de debug hors release, et on n'autorise plus
+  // App Check à empêcher le démarrage : sans attestation, l'app tourne, ce
+  // sont les requêtes protégées qui seront refusées — pas l'app entière.
+  try {
+    await FirebaseAppCheck.instance.activate(
+      androidProvider: AndroidProvider.debug,
+      appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
+    );
+  } catch (e) {
+    debugPrint('⚠️ App Check indisponible, démarrage sans : $e');
+  }
 
   // Émulateurs désactivés — mode production (vrais SMS Firebase)
   // Pour réactiver les émulateurs en local :
@@ -52,10 +64,19 @@ void main() async {
 
   await AppController.instance.loadPrefs();
   await AuthService.instance.init();
-  await NotificationService.init();
 
-  if (AuthService.instance.isLoggedIn) {
-    await NotificationService.saveToken(AuthService.instance.currentUser!.id);
+  // Les notifications sont un service optionnel : l'enregistrement APNs échoue
+  // sur simulateur (pas d'APNs) et sur un appareil dont l'utilisateur refuse la
+  // permission. Ni l'un ni l'autre ne doit empêcher l'app de démarrer — sans ce
+  // filet, un refus de permission suffisait à la rendre inutilisable.
+  try {
+    await NotificationService.init();
+
+    if (AuthService.instance.isLoggedIn) {
+      await NotificationService.saveToken(AuthService.instance.currentUser!.id);
+    }
+  } catch (e) {
+    debugPrint('⚠️ Notifications indisponibles, démarrage sans : $e');
   }
 
   runApp(const HoremPlusApp());

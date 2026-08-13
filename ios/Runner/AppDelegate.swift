@@ -11,7 +11,20 @@ import FirebaseMessaging
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    FirebaseApp.configure()
+    // FirebaseApp.configure() reads GoogleService-Info.plist from the app
+    // bundle and raises a fatal exception when it is absent. It was absent:
+    // the file is committed under ios/Runner/ but is not referenced by
+    // Runner.xcodeproj, so it never gets copied into the .app. The app died
+    // here, on every iOS launch, before drawing a single frame — invisible
+    // until now because building never needed the file, only running does.
+    //
+    // It is not needed anyway: Dart calls Firebase.initializeApp with
+    // DefaultFirebaseOptions.ios (lib/firebase_options.dart), which configures
+    // the native default app just the same. Configuring here stays conditional
+    // so that adding the plist to the Xcode project later changes nothing.
+    if Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil {
+      FirebaseApp.configure()
+    }
     // Clé restreinte au bundle com.horemplus.app + Maps SDK for iOS.
     // Android utilise une clé distincte (AndroidManifest.xml) : une clé Google
     // ne peut porter qu'un seul type de restriction applicative à la fois.
