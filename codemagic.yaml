@@ -1,3 +1,17 @@
+# Version de Flutter FIGÉE partout, jamais `stable`.
+#
+# `stable` résout vers ce que Flutter publie le jour du build. Un rebuild à
+# l'identique peut donc échouer sans qu'une ligne ait changé : c'est arrivé sur
+# un dépôt voisin, où `pod install` s'est mis à exiger une cible de déploiement
+# iOS plus haute que celle déclarée, sur un commit qui ne touchait pas à iOS.
+#
+# 3.38.4 est le SDK de développement du projet (contrainte pubspec :
+# >=3.0.0 <4.0.0, donc large). On monte de version délibérément, après test —
+# pas au gré du calendrier de Google.
+#
+# NOTE : `xcode: latest` reste une cible mouvante du même type. Voir le log d'un
+# build vert pour savoir quelle version a réellement fonctionné, puis la figer.
+
 workflows:
 
   # ── Build iOS sans signing (vérification que ça compile) ──────
@@ -6,7 +20,7 @@ workflows:
     max_build_duration: 30
     instance_type: mac_mini_m2
     environment:
-      flutter: stable
+      flutter: 3.38.4
       xcode: latest
       cocoapods: default
     triggering:
@@ -39,7 +53,7 @@ workflows:
     max_build_duration: 30
     instance_type: mac_mini_m2
     environment:
-      flutter: stable
+      flutter: 3.38.4
       xcode: latest
       cocoapods: default
     scripts:
@@ -64,7 +78,7 @@ workflows:
     max_build_duration: 30
     instance_type: linux_x2
     environment:
-      flutter: stable
+      flutter: 3.38.4
       java: 21
     scripts:
       - name: Get dependencies
@@ -87,7 +101,7 @@ workflows:
     integrations:
       app_store_connect: Horem Plus ASC
     environment:
-      flutter: stable
+      flutter: 3.38.4
       xcode: latest
       cocoapods: default
       ios_signing:
