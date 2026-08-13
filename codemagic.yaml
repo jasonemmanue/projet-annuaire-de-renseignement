@@ -27,6 +27,53 @@ workflows:
     artifacts:
       - build/ios/iphoneos/Runner.app
 
+  # ── App Preview : simulateur iOS dans le navigateur ───────────
+  # AUCUN déclencheur automatique : à lancer à la main depuis Codemagic
+  # (Start new build > preview-ios). Rien ne part sur un push.
+  #
+  # Le binaire DOIT être un paquet simulateur : c'est --simulator qui le produit.
+  # Un build `flutter build ios` normal donne un binaire device, que le
+  # simulateur refuse de lancer (mauvaise architecture).
+  preview-ios:
+    name: App Preview - iOS Simulator
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Get dependencies
+        script: flutter pub get
+      - name: Install CocoaPods
+        script: cd ios && pod install
+      - name: Build for iOS Simulator
+        script: flutter build ios --simulator --debug
+    artifacts:
+      - build/ios/iphonesimulator/Runner.app
+
+  # ── App Preview : émulateur Android dans le navigateur ────────
+  # AUCUN déclencheur automatique. Instance Linux : bien moins chère
+  # en minutes qu'un Mac mini.
+  #
+  # Build debug volontaire : pas besoin du keystore de release
+  # (android/app/build.gradle.kts ne crée la config `release` que si
+  # key.properties existe, absent du dépôt).
+  preview-android:
+    name: App Preview - Android Emulator
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      flutter: stable
+      java: 21
+    scripts:
+      - name: Get dependencies
+        script: flutter pub get
+      - name: Build debug APK
+        script: flutter build apk --debug
+    artifacts:
+      - build/app/outputs/flutter-apk/app-debug.apk
+
   # ── Build signé + publication TestFlight ─────────────────────
   # PRÉREQUIS (une seule fois, dans l'interface Codemagic) :
   #   1. Teams > Integrations > App Store Connect : ajouter une clé API
