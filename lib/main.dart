@@ -37,20 +37,27 @@ void main() async {
     // Firebase déjà initialisé par FirebaseInitProvider Android — on continue.
   }
 
-  // App Check — Debug provider pour les tests internes (avant publication Play Store).
-  // ⚠️ Avant publication Play Store :
-  //   1. Remplacer AndroidProvider.debug par AndroidProvider.playIntegrity
-  //   2. Enregistrer les SHA-1/SHA-256 release dans Firebase Console
+  // App Check — le provider dépend du mode de compilation.
   //
-  // `appleProvider` vaut DeviceCheck par défaut, qui exige du vrai matériel et
-  // n'existe pas sur le simulateur iOS : activate() y lève une exception. Rien
-  // ici n'étant rattrapé, cette seule exception fermait l'app avant runApp().
-  // On prend donc le provider de debug hors release, et on n'autorise plus
-  // App Check à empêcher le démarrage : sans attestation, l'app tourne, ce
-  // sont les requêtes protégées qui seront refusées — pas l'app entière.
+  // Android : le provider de debug demande un jeton local qu'il faut avoir
+  // enregistré à la main dans la console Firebase. Sur un build distribué par
+  // le Play Store (testeurs internes/fermés compris) ce jeton n'existe pas :
+  // App Check ne renvoie rien, et Firebase Auth refuse l'envoi du SMS avec
+  // `app-check-token-invalid`. En release il faut donc Play Integrity, qui
+  // atteste l'app à partir de sa signature — d'où la double exigence côté
+  // console rappelée dans CLAUDE.md (SHA-256 de la clé de signature Play
+  // enregistrée dans Firebase + API Play Integrity activée).
+  //
+  // iOS : `appleProvider` vaut DeviceCheck par défaut, qui exige du vrai
+  // matériel et n'existe pas sur le simulateur : activate() y lève une
+  // exception. Rien ici n'étant rattrapé, cette seule exception fermait l'app
+  // avant runApp(). On n'autorise donc plus App Check à empêcher le démarrage :
+  // sans attestation, l'app tourne, ce sont les requêtes protégées qui seront
+  // refusées — pas l'app entière.
   try {
     await FirebaseAppCheck.instance.activate(
-      androidProvider: AndroidProvider.debug,
+      androidProvider:
+          kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
       appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
     );
   } catch (e) {

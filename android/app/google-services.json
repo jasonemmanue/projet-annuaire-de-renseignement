@@ -7,25 +7,6 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:623906779506:android:25c3875728d2a668a52deb",
-        "android_client_info": {
-          "package_name": "com.example.app_renseignement"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyDX7WhRXy09q0x8uGR3STEJ4XgTEcq7NIE"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    },
-    {
-      "client_info": {
         "mobilesdk_app_id": "1:623906779506:android:4b5d3d86674fe7f4a52deb",
         "android_client_info": {
           "package_name": "com.horemplus.app"

@@ -141,6 +141,27 @@ service cloud.firestore {
     }
 
     // ================================================================
+    // COLLECTION : paiements_web (liens de paiement email — flow iOS)
+    // ================================================================
+    // La page publique /pay/<token> du dashboard admin lit ce document SANS
+    // authentification : l'utilisateur arrive depuis un lien reçu par email.
+    // Le token (128 bits, id du document) fait office de clé porteur — qui
+    // connaît l'URL peut lire, personne ne peut énumérer la collection.
+    //
+    // ⚠️ `allow read` couvrirait aussi `list`, ce qui exposerait toutes les
+    // adresses email de la collection à n'importe qui. On n'ouvre que `get`.
+    match /paiements_web/{token} {
+      allow get: if true;
+      allow list: if false;
+
+      // Écriture INTERDITE côté client : seules les Cloud Functions
+      // (envoyerLienPaiementEmail, initierPaiementDepuisWeb, geniuspayWebhook)
+      // écrivent ici via l'Admin SDK, qui contourne ces règles.
+      // Sans ce verrou, n'importe qui pourrait passer statut = "reussi".
+      allow create, update, delete: if false;
+    }
+
+    // ================================================================
     // COLLECTION : admin_notifications
     // ================================================================
     match /admin_notifications/{notifId} {
