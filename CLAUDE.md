@@ -88,6 +88,14 @@ uid_prestataire                                  ← id Firebase Auth du prestat
 5. **i18n bilingue** : toujours ajouter la traduction anglaise dans `enStrings`
    en même temps que la clé dans `frStrings`.
 
+6. **Ne JAMAIS versionner `.claude/skills/`** (outillage Claude Code). Ces
+   chemins profonds dépassent la limite Windows des 260 caractères et cassent
+   `git checkout`/`git reset --hard` sur le PC de l'utilisateur
+   (`unable to create file … No such file or directory`). Le dossier est déjà
+   dans `.gitignore` — s'il réapparaît tracké, le retirer avec
+   `git rm -r --cached .claude/skills`. Idem pour les 2 repos web
+   (Horem-a-ADMIN, Site-web-de-publication-Horem-).
+
 ---
 
 ## Tarification des annonces
