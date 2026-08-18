@@ -88,6 +88,19 @@ uid_prestataire                                  ← id Firebase Auth du prestat
 5. **i18n bilingue** : toujours ajouter la traduction anglaise dans `enStrings`
    en même temps que la clé dans `frStrings`.
 
+6. **Ne JAMAIS versionner `.claude/skills/`** (outillage Claude Code). Ces
+   chemins profonds dépassent la limite Windows des 260 caractères et cassent
+   `git checkout`/`git reset --hard` sur le PC de l'utilisateur
+   (`unable to create file … No such file or directory`). Le dossier est déjà
+   dans `.gitignore` — s'il réapparaît tracké, le retirer avec
+   `git rm -r --cached .claude/skills`. Idem pour les 2 repos web
+   (Horem-a-ADMIN, Site-web-de-publication-Horem-).
+
+7. **Versions Flutter CI** : le projet exige **Flutter ≥ 3.38.4 / Dart ≥ 3.10.3**
+   (dépendance `flutter_chat_ui`). Ne jamais redescendre sous `3.38.x` dans
+   `codemagic.yaml` ni dans `.github/workflows/*` — sinon `flutter pub get`
+   échoue (« version solving failed »).
+
 ---
 
 ## Tarification des annonces
