@@ -499,9 +499,33 @@ Déployées sur `us-central1`, projet `sgk-home`. URLs Cloud Run :
 | `envoyerLienPaiementEmail` | `https://envoyerlienpaiementemail-qhxw7o6nha-uc.a.run.app` | iOS : envoie email avec lien de paiement web |
 | `initierPaiementDepuisWeb` | `https://initierpaiementdepuisweb-qhxw7o6nha-uc.a.run.app` | iOS : appelée par la page web /pay/[token] |
 
+### Cloud Functions — Authentification OTP (`functions/otp.js`)
+
+| Fonction | URL | Usage |
+|---|---|---|
+| `authOtpDemander` | `https://authotpdemander-qhxw7o6nha-uc.a.run.app` | Demande un code (entrée de la cascade) |
+| `authOtpRenvoyer` | `https://authotprenvoyer-qhxw7o6nha-uc.a.run.app` | Escalade vers le canal suivant |
+| `authOtpVerifier` | `https://authotpverifier-qhxw7o6nha-uc.a.run.app` | Vérifie le code → JWT + custom token |
+| `authTokenRefresh` | `https://authtokenrefresh-qhxw7o6nha-uc.a.run.app` | Rotation du refresh token |
+| `authRevoquer` | `https://authrevoquer-qhxw7o6nha-uc.a.run.app` | Déconnexion / révocation globale |
+| `authOtpDeliveryReport` | `https://authotpdeliveryreport-qhxw7o6nha-uc.a.run.app` | **Webhook AT** — escalade auto sur SMS non délivré |
+| `authOtpVoiceCallback` | `https://authotpvoicecallback-qhxw7o6nha-uc.a.run.app` | **Callback AT** — renvoie le XML qui dicte le code |
+| `authOtpStatistiques` | `https://authotpstatistiques-qhxw7o6nha-uc.a.run.app` | Taux de livraison par canal (admin) |
+| `purgerOtpExpires` | *(planifiée, toutes les 6 h)* | Purge sessions / jetons / journaux périmés |
+
+> Les deux URL en gras doivent être collées dans le dashboard Africa's Talking
+> (SMS → Delivery Reports · Voice → Callback URL du numéro). Sans le callback
+> vocal, l'appel aboutit mais reste **muet**.
+
 ### Secrets Firebase (Secret Manager)
 - `GENIUSPAY_API_KEY` / `GENIUSPAY_SECRET_KEY` / `GENIUSPAY_WEBHOOK_SECRET` — sur toutes les fonctions paiement
 - `GMAIL_SENDER_EMAIL` / `GMAIL_APP_PASSWORD` — sur `geniuspayWebhook` (pour emails admin)
+- `AT_USERNAME` / `AT_API_KEY` / `AT_SENDER_ID` / `AT_VOICE_NUMBER` — Africa's Talking
+- `JWT_SECRET` / `OTP_PEPPER` — session et hachage des codes (voir `OTP_AUTH.md` § 3)
+
+> ⚠️ `OTP_PEPPER` entre dans le hash des codes : le changer invalide toutes les
+> sessions OTP en cours. `JWT_SECRET` invalide tous les access tokens (les
+> refresh tokens survivent, les sessions se rétablissent seules dans l'heure).
 
 > ⚠️ Les secrets Gmail sont des **placeholders** à remplacer par un vrai compte Gmail + App Password Google.
 > Commande : `echo "adresse@gmail.com" | firebase functions:secrets:set GMAIL_SENDER_EMAIL`
@@ -542,11 +566,88 @@ Structure d'un document :
 
 ---
 
-## Authentification
+## Authentification — OTP maison (PLUS de Firebase Phone Auth)
 
-- Flux : Firebase Phone Auth (OTP SMS), 2 étapes (numéro → code à 6 chiffres).
-- Pas d'email ni de mot de passe dans l'UI.
-- Anti-brute-force via `SharedPreferences` (3 tentatives → 30 s, 5 → 5 min).
+> Guide complet : **`OTP_AUTH.md`** (secrets, config Africa's Talking, dépannage).
+
+Flux : 2 étapes (numéro → code à 6 chiffres). Pas d'email ni de mot de passe.
+
+### Cascade de canaux — fiabilité 99 %+
+
+| # | Canal | Transport | Déclencheur du suivant |
+|---|-------|-----------|------------------------|
+| 1 | `push` | FCM data-only vers un **appareil de confiance** | échec d'envoi, ou 8 s sans code |
+| 2 | `sms` | Africa's Talking, format **SMS Retriever** (autofill Android) | statut AT ≠ Success, rapport de livraison `Failed`, ou 25 s |
+| 3 | `sms_alt` | Africa's Talking **sans sender ID** (contourne un rejet de sender ID) | idem |
+| 4 | `voice` | Appel Africa's Talking qui **dicte le code** | — |
+
+L'escalade se produit sans action de l'utilisateur dans deux cas sur trois :
+refus immédiat de l'API AT (même requête HTTP) et rapport de livraison en
+échec (`authOtpDeliveryReport`). Le troisième est le bouton « Recevoir un appel ».
+
+> Chaque escalade **génère un code neuf**. Rediffuser le même code sur un second
+> canal doublerait sa fenêtre d'interception.
+
+### Session : JWT custom
+
+| Jeton | Durée | Nature |
+|---|---|---|
+| Access | **1 h** | JWT HS256 signé avec `JWT_SECRET` |
+| Refresh | **30 j** | 32 octets aléatoires, **stocké haché** en Firestore, **rotatif** |
+
+Rejeu d'un refresh déjà tourné = jeton volé → **révocation de toutes les
+sessions** de l'utilisateur (OAuth 2.1 refresh token reuse detection).
+Stockage côté app : `flutter_secure_storage` (Keystore / Keychain).
+
+### Pont d'identité Firebase — `PONT_FIREBASE`
+
+Firebase Auth n'authentifie plus personne, mais `admin.auth().createCustomToken`
+traduit une session déjà validée par notre backend en identité Firebase.
+**Sans ce pont, `firestore.rules` (tout entier bâti sur `request.auth.uid`) et
+toutes les Cloud Functions appelant `verifyIdToken` cessent de fonctionner** —
+plus de publication d'annonce ni de messagerie.
+
+Le couper : `PONT_FIREBASE = false` dans `functions/otp.js`, **après** avoir
+migré les règles et les fonctions (procédure dans `OTP_AUTH.md` § 8).
+
+### Ce qui n'est PLUS nécessaire pour l'authentification
+
+reCAPTCHA · App Check sur le chemin d'auth · empreintes SHA-1/SHA-256 côté
+Firebase · quota SMS Firebase · clé APNs pour Phone Auth iOS.
+(App Check et les SHA restent requis pour Firestore/Storage et le Play Store.)
+
+### Anti-abus
+
+| Niveau | Règle |
+|---|---|
+| Serveur — par numéro | 30 s entre 2 demandes · 5/h · 15/jour |
+| Serveur — par IP | 30 demandes/h |
+| Serveur — par session | 5 essais de code, **en transaction Firestore** |
+| App — `SharedPreferences` | 3 tentatives → 30 s · 5 → 5 min |
+
+### Fichiers
+
+| Fichier | Rôle |
+|---|---|
+| `functions/otp.js` | Moteur : cascade, rate limit, sessions, JWT, 9 Cloud Functions |
+| `functions/africastalking.js` | Client HTTP AT (SMS + Voice), XML `<Say>` du callback vocal |
+| `functions/jwt.js` | Signature/vérification HS256, refresh tokens opaques |
+| `lib/services/otp_auth_service.dart` | Client HTTP + stockage sécurisé + auto-refresh |
+| `lib/services/sms_retriever_service.dart` | Pont Dart ↔ SMS Retriever API |
+| `lib/services/auth_service.dart` | Orchestration, pont Firebase, anti-brute-force local |
+| `android/.../SmsRetrieverPlugin.kt` | BroadcastReceiver Play Services (aucune permission SMS) |
+| `android/.../AppSignatureHelper.kt` | Hash à 11 caractères de la signature de l'app |
+
+> ⚠️ Le hash SMS Retriever **change avec la clé de signature** (debug / release /
+> re-signature Play App Signing). Il est calculé à l'exécution et envoyé au
+> backend à chaque demande — ne jamais le figer côté serveur.
+
+### Collections Firestore (toutes `allow read, write: if false`)
+
+`otp_sessions` · `refresh_tokens` · `trusted_devices` · `otp_rate_limits` ·
+`otp_deliveries` — écrites uniquement par l'Admin SDK.
+Le code en clair n'est **jamais** persisté : seul `sha256(code:sel:poivre)`,
+le poivre vivant dans Secret Manager.
 
 ---
 
@@ -937,19 +1038,25 @@ constante dès que la fiche existe — c'est le seul endroit à modifier.
 - **Google Cloud → API Maps iOS** : la clé de `AppDelegate.swift` est restreinte par
   bundle ID ; ajouter `com.horemplus.app` sinon la carte reste grise.
 
-### Phone Auth iOS — transmission manuelle des push
+### iOS — transmission manuelle des push APNs
 
 `Info.plist` fixe `FirebaseAppDelegateProxyEnabled = false`, donc le swizzling Firebase
-est désactivé. `AppDelegate.swift` **doit** transmettre lui-même :
+est désactivé. `AppDelegate.swift` transmet lui-même le token APNs :
 
 ```swift
 Auth.auth().setAPNSToken(deviceToken, type: .sandbox / .prod)  // didRegisterForRemoteNotifications
 Auth.auth().canHandleNotification(userInfo)                     // didReceiveRemoteNotification
 ```
 
-Sans ces deux appels, le push silencieux de vérification n'atteint jamais FirebaseAuth :
-l'OTP SMS n'est **jamais envoyé** sur iOS et l'app est inutilisable → rejet App Store
-guideline 2.1 (App Completeness). Ne pas retirer ces overrides.
+> Depuis le passage à l'OTP maison, ces overrides ne conditionnent **plus l'envoi
+> du code** : celui-ci part par Africa's Talking sans passer par Firebase.
+> Ils restent nécessaires à **FCM** — donc au canal 1 de la cascade (push
+> silencieux sur appareil de confiance) et à toutes les notifications de l'app.
+> Les retirer dégrade la cascade (le canal push disparaît, on démarre
+> directement sur le SMS) et casse les notifications. Les conserver.
+
+L'autofill du code sur iOS ne demande aucun code natif : `AutofillHints.oneTimeCode`
+sur le champ de saisie suffit, le système propose le code au-dessus du clavier.
 
 ### Entitlements APNs séparés par configuration
 

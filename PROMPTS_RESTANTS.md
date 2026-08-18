@@ -24,6 +24,7 @@ Coche chaque bloc une fois la fonctionnalité validée (critères ✅ satisfaits
 | — | Messagerie : envoi photos/vidéos, tag messages, réponse | |
 | — | Dashboard admin web Next.js (pages + notifications) | Repo `Horem-a-ADMIN` sur GitHub |
 | — | Dialog « annonce non vérifiée » texte sans overflow | `Flexible` sur le titre |
+| — | **Authentification OTP maison (sortie de Firebase Phone Auth)** | Cascade `push → sms → sms_alt → voice` (Africa's Talking + FCM), autofill SMS Retriever, JWT custom (access 1 h + refresh 30 j rotatif). Détail : `OTP_AUTH.md`. Reste à faire avant mise en service : créer les 6 secrets, coller les 2 URL de callback dans le dashboard Africa's Talking. |
 
 ---
 

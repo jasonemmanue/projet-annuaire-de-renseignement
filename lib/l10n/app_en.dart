@@ -334,55 +334,92 @@ const Map<String, String> enStrings = {
   'login_gallery': 'Gallery',
   'login_camera': 'Camera',
 
-  // Auth — OTP Phone Auth
+  // Auth — in-house OTP (SMS / voice call / push)
   'login_phone_enter': 'Enter your number',
   'login_phone_hint_otp': '6 XX XX XX XX',
   'login_send_code': 'Send code',
   'login_otp_title': 'Verification code',
   'login_otp_sent_to': 'Code sent to ',
-  'login_otp_enter': 'Enter the 6-digit code received by SMS',
+  'login_otp_enter': 'Enter the 6-digit code',
   'login_verify_code': 'Verify',
   'login_otp_resend_in': 'Resend in',
-  'login_otp_resend': 'Resend code',
+  'login_otp_resend': 'New code',
   'login_otp_change_number': 'Change number',
-  'login_otp_invalid': 'Invalid code. Check your SMS and try again.',
+  'login_otp_invalid': 'Invalid code. Check the code received and try again.',
   'login_otp_expired': 'Code expired. Request a new code.',
-  'login_sms_error': 'Unable to send SMS. Check the number entered.',
+  'login_sms_error': 'Unable to send the code. Check the number entered.',
   'login_phone_invalid': 'Invalid number. Format: +237 XXXXXXXXX (9 digits)',
-  'login_register_complete': 'Account created! Welcome to Immo Connect.',
-  'login_register_otp_info': 'A verification SMS will be sent to this number',
+  'login_register_complete': 'Account created! Welcome to Horem+.',
+  'login_register_otp_info': 'A verification code will be sent to this number',
   'login_locked_prefix': 'Too many attempts. Your account is temporarily locked.',
+
+  // OTP channel cascade
+  'otp_canal_push': 'secure notification',
+  'otp_canal_sms': 'SMS',
+  'otp_canal_smsAlt': 'SMS (2nd attempt)',
+  'otp_canal_voice': 'voice call',
+  'otp_canal_inconnu': 'channel unavailable',
+  'otp_envoye_par': 'Code sent by',
+  'otp_renvoye_par': 'New code sent by',
+  'otp_appareil_confiance': 'Recognised device — the code fills in by itself.',
+  'otp_voice_hint': 'Pick up: the code will be read out to you twice.',
+  'otp_patientez': 'Please wait',
+  'otp_rien_recu': 'Nothing received?',
+  'otp_essayer': 'Try by',
+  'otp_recevoir_appel': 'Get a call instead',
+  'otp_tentatives_restantes': 'Attempts left:',
+  'otp_cascade_info':
+      'If the SMS does not arrive, we call you automatically to read out the code.',
+
+  // Errors returned by the OTP backend
+  'otp_err_telephone_invalide': 'Invalid number. Format: +237 6XXXXXXXX.',
+  'otp_err_code_invalide': 'Wrong code. Check it and try again.',
+  'otp_err_session_expiree': 'Code expired. Request a new code.',
+  'otp_err_session_inconnue': 'Session expired. Start the verification again.',
+  'otp_err_session_consommee': 'This code has already been used.',
+  'otp_err_trop_de_tentatives': 'Too many wrong codes. Request a new code.',
+  'otp_err_cooldown': 'Please wait a few seconds before requesting a new code.',
+  'otp_err_limite_horaire': 'Limit reached for this number. Try again in an hour.',
+  'otp_err_limite_journaliere':
+      'Daily limit reached for this number. Try again tomorrow.',
+  'otp_err_limite_ip': 'Too many requests from this connection. Try again later.',
+  'otp_err_aucun_canal': 'Sending failed for now. Try again in a few minutes.',
+  'otp_err_canaux_epuises':
+      'Every delivery method has been tried. Check the number and start again.',
+  'otp_err_reseau': 'No internet connection.',
+  'otp_err_reseau_timeout': 'The server is not responding. Try again.',
+  'otp_err_reponse_illisible': 'Invalid server response. Try again.',
+  'otp_err_refresh_expire': 'Session expired. Please sign in again.',
+  'otp_err_refresh_rejoue': 'Session compromised. Please sign in again.',
 
   // OTP diagnostic (debug only) — display probable cause
   'otp_diag_banner_title': 'OTP diagnostic (debug)',
   'otp_diag_more': 'Technical details',
-  'otp_diag_reason_shaMissing': 'SHA-1/SHA-256 fingerprint missing in Firebase',
-  'otp_diag_hint_shaMissing':
-      'Add the debug keystore SHA-1 in Firebase Console → Settings → Android app, then re-download google-services.json.',
-  'otp_diag_reason_appCheckFailed': 'App Check could not deliver a token',
-  'otp_diag_hint_appCheckFailed':
-      'Enable Play Integrity API in Google Cloud Console and register the debug token shown in logcat.',
-  'otp_diag_reason_quotaExceeded': 'Firebase Phone Auth quota exceeded',
-  'otp_diag_hint_quotaExceeded':
-      'Wait until the next cycle or upgrade to the Blaze plan to raise the quota.',
-  'otp_diag_reason_billingDisabled': 'Firebase billing not enabled',
-  'otp_diag_hint_billingDisabled':
-      'Enable the Blaze plan on Firebase Console to allow international SMS.',
-  'otp_diag_reason_tooManyRequests': 'Too many attempts on this number',
-  'otp_diag_hint_tooManyRequests':
-      'Wait a few minutes or test with another number.',
-  'otp_diag_reason_recaptchaFailed': 'reCAPTCHA failed',
-  'otp_diag_hint_recaptchaFailed':
-      'Firebase did not recognise the SHA — fix Firebase Console config and reinstall the app.',
   'otp_diag_reason_invalidPhone': 'Invalid phone number',
-  'otp_diag_hint_invalidPhone': 'Check the E.164 format (e.g. +237 6XXXXXXXX).',
+  'otp_diag_hint_invalidPhone':
+      'Check the E.164 format (e.g. +237 6XXXXXXXX) and the normaliserTelephone regex in functions/otp.js.',
   'otp_diag_reason_invalidCode': 'Invalid or expired OTP code',
   'otp_diag_hint_invalidCode': 'Request a new code and enter it again.',
+  'otp_diag_reason_tooManyAttempts': 'Too many wrong codes on this session',
+  'otp_diag_hint_tooManyAttempts':
+      'The session closes after 5 attempts. Start again from the number.',
+  'otp_diag_reason_cooldown': 'Minimum delay between two requests not elapsed',
+  'otp_diag_hint_cooldown':
+      'LIMITES.cooldownNumeroS is 30 s in functions/otp.js.',
+  'otp_diag_reason_rateLimited': 'Hourly or daily cap reached',
+  'otp_diag_hint_rateLimited':
+      'See the LIMITES constant in functions/otp.js, or test with another number.',
+  'otp_diag_reason_aucunCanal': 'No channel accepted the delivery',
+  'otp_diag_hint_aucunCanal':
+      'Check the AT_USERNAME / AT_API_KEY secrets, the Africa\'s Talking balance and AT_VOICE_NUMBER.',
+  'otp_diag_reason_pontFirebase': 'The Firebase token was rejected',
+  'otp_diag_hint_pontFirebase':
+      'Device clock out of sync, or service account missing the "Service Account Token Creator" role.',
   'otp_diag_reason_network': 'Network error',
-  'otp_diag_hint_network': 'Check your internet connection.',
-  'otp_diag_reason_unknown': 'Unlisted Firebase error',
+  'otp_diag_hint_network': 'Check your internet connection and the Cloud Functions URLs.',
+  'otp_diag_reason_unknown': 'Unlisted error',
   'otp_diag_hint_unknown':
-      'Check the error code below and the Firebase documentation.',
+      'Check the error code below and the authOtpDemander function logs.',
 
   // OTP diagnostic screen
   'diag_otp_title': 'OTP diagnostic',
@@ -390,15 +427,18 @@ const Map<String, String> enStrings = {
   'diag_otp_project_id': 'Project ID',
   'diag_otp_app_id': 'App ID',
   'diag_otp_package_name': 'Package name',
-  'diag_otp_appcheck_section': 'App Check',
+  'diag_otp_appcheck_section': 'App Check (Firestore / Storage)',
   'diag_otp_appcheck_status': 'App Check token',
   'diag_otp_appcheck_ok': 'OK (token received)',
   'diag_otp_appcheck_ko': 'Failed — Play Integrity not enabled or debug token not registered',
   'diag_otp_appcheck_loading': 'Checking…',
-  'diag_otp_sha_section': 'SHA fingerprints',
-  'diag_otp_sha_info':
-      'SHA fingerprints are not accessible from Flutter. Run this command from the android/ folder:',
-  'diag_otp_sha_command': './gradlew signingReport',
+  'diag_otp_cascade_section': 'OTP cascade',
+  'diag_otp_cascade_info':
+      'Channel order: secure notification (trusted device) → SMS → SMS (2nd route) → voice call.',
+  'diag_otp_sms_signature': 'SMS Retriever hash',
+  'diag_otp_sms_signature_absente': 'missing — no Android autofill',
+  'diag_otp_device_id': 'Device ID',
+  'diag_otp_dernier_canal': 'Last channel used',
   'diag_otp_last_error_section': 'Last OTP error',
   'diag_otp_no_error': 'No error captured',
   'diag_otp_at': 'At',

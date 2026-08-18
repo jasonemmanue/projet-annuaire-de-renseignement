@@ -99,6 +99,12 @@ android {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")  // ← AJOUT
+
+    // SMS Retriever API — autofill du code OTP sans permission READ_SMS.
+    // Play Services ne transmet à l'app que le SMS terminé par le hash de sa
+    // propre signature ; c'est ce qui permet de se passer d'une permission
+    // sensible que Google Play refuserait à une app immobilière.
+    implementation("com.google.android.gms:play-services-auth-api-phone:18.2.0")
 }
 
 flutter {

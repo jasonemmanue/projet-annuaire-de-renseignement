@@ -269,56 +269,95 @@ const Map<String, String> frStrings = {
   'login_gallery': 'Galerie',
   'login_camera': 'Caméra',
 
-  // Authentification — OTP Phone Auth
+  // Authentification — OTP maison (SMS / appel vocal / push)
   'login_phone_enter': 'Entrez votre numéro',
   'login_phone_hint_otp': '6 XX XX XX XX',
   'login_send_code': 'Envoyer le code',
   'login_otp_title': 'Code de vérification',
   'login_otp_sent_to': 'Code envoyé au ',
-  'login_otp_enter': 'Saisissez le code à 6 chiffres reçu par SMS',
+  'login_otp_enter': 'Saisissez le code à 6 chiffres',
   'login_verify_code': 'Vérifier',
   'login_otp_resend_in': 'Renvoyer dans',
-  'login_otp_resend': 'Renvoyer le code',
+  'login_otp_resend': 'Nouveau code',
   'login_otp_change_number': 'Modifier le numéro',
-  'login_otp_invalid': 'Code invalide. Vérifiez le SMS et réessayez.',
+  'login_otp_invalid': 'Code invalide. Vérifiez le code reçu et réessayez.',
   'login_otp_expired': 'Code expiré. Demandez un nouveau code.',
-  'login_sms_error': 'Impossible d\'envoyer le SMS. Vérifiez le numéro.',
+  'login_sms_error': 'Impossible d\'envoyer le code. Vérifiez le numéro.',
   'login_phone_invalid': 'Numéro invalide. Format : +237 XXXXXXXXX (9 chiffres)',
   'login_register_complete': 'Compte créé ! Bienvenue sur Horem+.',
-  'login_register_otp_info': 'Un SMS de vérification sera envoyé à ce numéro',
+  'login_register_otp_info': 'Un code de vérification sera envoyé à ce numéro',
   'login_locked_prefix': 'Trop de tentatives. Votre compte est temporairement verrouillé.',
+
+  // Cascade de canaux OTP
+  'otp_canal_push': 'notification sécurisée',
+  'otp_canal_sms': 'SMS',
+  'otp_canal_smsAlt': 'SMS (2ᵉ tentative)',
+  'otp_canal_voice': 'appel vocal',
+  'otp_canal_inconnu': 'canal indisponible',
+  'otp_envoye_par': 'Code envoyé par',
+  'otp_renvoye_par': 'Nouveau code envoyé par',
+  'otp_appareil_confiance': 'Appareil reconnu — le code se remplit tout seul.',
+  'otp_voice_hint': 'Décrochez : le code vous sera dicté deux fois.',
+  'otp_patientez': 'Patientez encore',
+  'otp_rien_recu': 'Vous n\'avez rien reçu ?',
+  'otp_essayer': 'Essayer par',
+  'otp_recevoir_appel': 'Recevoir un appel',
+  'otp_tentatives_restantes': 'Tentatives restantes :',
+  'otp_cascade_info':
+      'Si le SMS n\'arrive pas, nous vous appelons automatiquement pour vous dicter le code.',
+
+  // Erreurs renvoyées par le backend OTP
+  'otp_err_telephone_invalide': 'Numéro invalide. Format : +237 6XXXXXXXX.',
+  'otp_err_code_invalide': 'Code incorrect. Vérifiez et réessayez.',
+  'otp_err_session_expiree': 'Code expiré. Demandez un nouveau code.',
+  'otp_err_session_inconnue': 'Session expirée. Recommencez la vérification.',
+  'otp_err_session_consommee': 'Ce code a déjà été utilisé.',
+  'otp_err_trop_de_tentatives':
+      'Trop de codes erronés. Demandez un nouveau code.',
+  'otp_err_cooldown': 'Patientez quelques secondes avant de redemander un code.',
+  'otp_err_limite_horaire':
+      'Limite atteinte pour ce numéro. Réessayez dans une heure.',
+  'otp_err_limite_journaliere':
+      'Limite quotidienne atteinte pour ce numéro. Réessayez demain.',
+  'otp_err_limite_ip': 'Trop de demandes depuis cette connexion. Réessayez plus tard.',
+  'otp_err_aucun_canal':
+      'Envoi impossible pour le moment. Réessayez dans quelques minutes.',
+  'otp_err_canaux_epuises':
+      'Tous les modes d\'envoi ont été essayés. Vérifiez le numéro et recommencez.',
+  'otp_err_reseau': 'Pas de connexion Internet.',
+  'otp_err_reseau_timeout': 'Le serveur ne répond pas. Réessayez.',
+  'otp_err_reponse_illisible': 'Réponse serveur invalide. Réessayez.',
+  'otp_err_refresh_expire': 'Session expirée. Reconnectez-vous.',
+  'otp_err_refresh_rejoue': 'Session compromise. Reconnectez-vous.',
 
   // Diagnostic OTP (debug only) — affichage de la cause probable
   'otp_diag_banner_title': 'Diagnostic OTP (debug)',
   'otp_diag_more': 'Détails techniques',
-  'otp_diag_reason_shaMissing': 'Empreinte SHA-1/SHA-256 absente dans Firebase',
-  'otp_diag_hint_shaMissing':
-      'Ajoute la SHA-1 du keystore debug dans Firebase Console → Paramètres → App Android, puis re-télécharge google-services.json.',
-  'otp_diag_reason_appCheckFailed': 'App Check n\'a pas pu fournir de token',
-  'otp_diag_hint_appCheckFailed':
-      'Active Play Integrity API dans Google Cloud Console et enregistre le token de debug affiché dans logcat.',
-  'otp_diag_reason_quotaExceeded': 'Quota Firebase Phone Auth dépassé',
-  'otp_diag_hint_quotaExceeded':
-      'Attends la fin du mois ou passe au plan Blaze pour augmenter le quota.',
-  'otp_diag_reason_billingDisabled': 'Facturation Firebase non activée',
-  'otp_diag_hint_billingDisabled':
-      'Active le plan Blaze sur Firebase Console pour autoriser les SMS internationaux.',
-  'otp_diag_reason_tooManyRequests': 'Trop de tentatives sur ce numéro',
-  'otp_diag_hint_tooManyRequests':
-      'Patiente quelques minutes ou teste avec un autre numéro.',
-  'otp_diag_reason_recaptchaFailed': 'reCAPTCHA a échoué',
-  'otp_diag_hint_recaptchaFailed':
-      'La SHA n\'est pas reconnue par Firebase — corrige la config Firebase Console et réinstalle l\'app.',
   'otp_diag_reason_invalidPhone': 'Numéro de téléphone invalide',
   'otp_diag_hint_invalidPhone':
-      'Vérifie le format E.164 (ex. +237 6XXXXXXXX).',
+      'Vérifie le format E.164 (ex. +237 6XXXXXXXX) et la regex normaliserTelephone dans functions/otp.js.',
   'otp_diag_reason_invalidCode': 'Code OTP invalide ou expiré',
   'otp_diag_hint_invalidCode': 'Demande un nouveau code et resaisis-le.',
+  'otp_diag_reason_tooManyAttempts': 'Trop de codes erronés sur cette session',
+  'otp_diag_hint_tooManyAttempts':
+      'La session est close après 5 essais. Repars du numéro.',
+  'otp_diag_reason_cooldown': 'Délai minimal entre deux demandes non écoulé',
+  'otp_diag_hint_cooldown':
+      'LIMITES.cooldownNumeroS vaut 30 s dans functions/otp.js.',
+  'otp_diag_reason_rateLimited': 'Plafond horaire ou journalier atteint',
+  'otp_diag_hint_rateLimited':
+      'Voir la constante LIMITES dans functions/otp.js, ou tester avec un autre numéro.',
+  'otp_diag_reason_aucunCanal': 'Aucun canal n\'a accepté l\'envoi',
+  'otp_diag_hint_aucunCanal':
+      'Vérifie les secrets AT_USERNAME / AT_API_KEY, le crédit Africa\'s Talking et AT_VOICE_NUMBER.',
+  'otp_diag_reason_pontFirebase': 'Le jeton Firebase a été refusé',
+  'otp_diag_hint_pontFirebase':
+      'Horloge de l\'appareil déréglée, ou compte de service sans le rôle « Créateur de jetons du compte de service ».',
   'otp_diag_reason_network': 'Erreur réseau',
-  'otp_diag_hint_network': 'Vérifie ta connexion internet.',
-  'otp_diag_reason_unknown': 'Erreur Firebase non répertoriée',
+  'otp_diag_hint_network': 'Vérifie ta connexion internet et l\'URL des Cloud Functions.',
+  'otp_diag_reason_unknown': 'Erreur non répertoriée',
   'otp_diag_hint_unknown':
-      'Consulte le code d\'erreur ci-dessous et la doc Firebase.',
+      'Consulte le code d\'erreur ci-dessous et les logs de la fonction authOtpDemander.',
 
   // Écran de diagnostic OTP
   'diag_otp_title': 'Diagnostic OTP',
@@ -326,15 +365,18 @@ const Map<String, String> frStrings = {
   'diag_otp_project_id': 'Project ID',
   'diag_otp_app_id': 'App ID',
   'diag_otp_package_name': 'Package name',
-  'diag_otp_appcheck_section': 'App Check',
+  'diag_otp_appcheck_section': 'App Check (Firestore / Storage)',
   'diag_otp_appcheck_status': 'Token App Check',
   'diag_otp_appcheck_ok': 'OK (token reçu)',
   'diag_otp_appcheck_ko': 'Échec — Play Integrity non activé ou debug token non enregistré',
   'diag_otp_appcheck_loading': 'Vérification…',
-  'diag_otp_sha_section': 'Empreintes SHA',
-  'diag_otp_sha_info':
-      'Les empreintes SHA ne sont pas accessibles depuis Flutter. Exécute cette commande dans le dossier android/ :',
-  'diag_otp_sha_command': './gradlew signingReport',
+  'diag_otp_cascade_section': 'Cascade OTP',
+  'diag_otp_cascade_info':
+      'Ordre des canaux : notification sécurisée (appareil de confiance) → SMS → SMS (2ᵉ route) → appel vocal.',
+  'diag_otp_sms_signature': 'Hash SMS Retriever',
+  'diag_otp_sms_signature_absente': 'absent — pas d\'autofill Android',
+  'diag_otp_device_id': 'ID appareil',
+  'diag_otp_dernier_canal': 'Dernier canal utilisé',
   'diag_otp_last_error_section': 'Dernière erreur OTP',
   'diag_otp_no_error': 'Aucune erreur capturée',
   'diag_otp_at': 'À',

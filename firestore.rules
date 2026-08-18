@@ -254,5 +254,57 @@ service cloud.firestore {
       }
     }
 
+    // ================================================================
+    // AUTHENTIFICATION OTP — collections 100 % serveur
+    // ================================================================
+    // Ces quatre collections sont écrites et lues EXCLUSIVEMENT par les Cloud
+    // Functions de functions/otp.js via l'Admin SDK, qui contourne ces règles.
+    // Rien ici n'est accessible depuis un client, et c'est indispensable :
+    //
+    //   • otp_sessions   — un `read` exposerait le sel de chaque session ;
+    //                      combiné à une fuite du poivre, il rendrait les
+    //                      hashes de codes cassables par force brute (10⁶).
+    //                      Un `write` permettrait de repasser `consomme` à
+    //                      false ou de remettre `tentatives` à zéro, ce qui
+    //                      annulerait toute la protection anti-force-brute.
+    //   • refresh_tokens — un `read` livrerait les hashes de session de tous
+    //                      les utilisateurs ; un `write` permettrait de
+    //                      dé-révoquer un jeton volé.
+    //   • trusted_devices — un `write` suffirait à s'inscrire comme appareil
+    //                      de confiance du numéro d'autrui et à recevoir ses
+    //                      codes par push silencieux.
+    //   • otp_rate_limits / otp_deliveries — un `write` remettrait les
+    //                      compteurs anti-abus à zéro.
+    //
+    // Le back-office consulte les statistiques via la Cloud Function
+    // authOtpStatistiques (contrôle du rôle admin côté serveur), pas en
+    // lecture directe.
+    match /otp_sessions/{sessionId} {
+      allow read, write: if false;
+    }
+
+    // Index inversé numéro → session pour le callback vocal Africa's Talking.
+    // Un `write` permettrait de rediriger l'appel vocal d'un numéro vers sa
+    // propre session, et donc de se faire dicter un code au nom d'autrui.
+    match /otp_voice_pending/{telephone} {
+      allow read, write: if false;
+    }
+
+    match /otp_rate_limits/{limiteId} {
+      allow read, write: if false;
+    }
+
+    match /otp_deliveries/{livraisonId} {
+      allow read, write: if false;
+    }
+
+    match /refresh_tokens/{jti} {
+      allow read, write: if false;
+    }
+
+    match /trusted_devices/{appareilId} {
+      allow read, write: if false;
+    }
+
   }
 }
