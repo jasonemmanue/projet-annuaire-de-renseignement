@@ -46,3 +46,6 @@ app.*.map.json
 *.json
 !pubspec.json
 /android/app/release
+
+# Outillage Claude Code (ne pas versionner)
+.claude/skills/
