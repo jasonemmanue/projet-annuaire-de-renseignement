@@ -26,6 +26,7 @@ import '../services/storage_service.dart';
 import '../app_controller.dart';
 import '../l10n/app_localizations.dart';
 import 'messagerie_screen.dart';
+import 'auth/login_screen.dart' show showEmailVerificationDialog;
 
 import 'paiement_publication_screen.dart';
 import '../services/activation_email_service.dart';
@@ -343,6 +344,29 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
 
   Future<void> _publier() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // ─── Vérification d'email obligatoire avant toute publication ───
+    // Exception : les comptes gratuits (créés/validés par un admin).
+    final authSvc = AuthService.instance;
+    final connecte = authSvc.currentUser;
+    if (connecte != null &&
+        connecte.compteGratuit != true &&
+        !authSvc.isEmailVerified) {
+      // L'utilisateur a peut-être cliqué le lien entre-temps → on rafraîchit.
+      await authSvc.reloadEmailVerifie();
+      if (!authSvc.isEmailVerified) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_loc.t('login_verify_required_publish')),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+        await showEmailVerificationDialog(
+            context, authSvc.currentEmail ?? connecte.email ?? '');
+        return;
+      }
+    }
+
     if (_positionSelectionnee == null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(_loc.t('form_no_position')),

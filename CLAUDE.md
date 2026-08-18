@@ -498,9 +498,26 @@ Structure d'un document :
 
 ## Authentification
 
-- Flux : Firebase Phone Auth (OTP SMS), 2 étapes (numéro → code à 6 chiffres).
-- Pas d'email ni de mot de passe dans l'UI.
+- **Flux : Firebase Email/Password** (méthode principale depuis la migration `email-password-auth`).
+  - Connexion : email + mot de passe (`AuthService.login`).
+  - Inscription : photo (option), prénom, nom, **téléphone** (conservé comme
+    coordonnée de contact affichée aux visiteurs, PAS pour l'auth), email,
+    mot de passe + confirmation, CGU (`AuthService.register`).
+  - Mot de passe oublié : `AuthService.sendPasswordReset` (feuille modale sur l'écran de login).
+- **Vérification d'email obligatoire** : un lien est envoyé à l'inscription
+  (`sendEmailVerification`). Un prestataire non vérifié peut se connecter mais
+  **ne peut pas publier** d'annonce (gate dans `_publier()` de
+  `dashboard_prestataire_screen.dart`). Exception : comptes `compteGratuit`
+  (créés/validés par un admin). Helpers : `AuthService.isEmailVerified`,
+  `renvoyerEmailVerification`, `reloadEmailVerifie`, + `showEmailVerificationDialog`
+  (login_screen.dart).
 - Anti-brute-force via `SharedPreferences` (3 tentatives → 30 s, 5 → 5 min).
+- ⚠️ **Action Firebase Console requise** : activer le provider
+  **Email/Password** (Authentication → Sign-in method). Sans ça, l'inscription
+  renvoie `operation-not-allowed`.
+- L'ancien flux **OTP SMS** (`envoyerOtp`/`verifierOtp`/`signInWithPhoneCredential`)
+  reste présent dans `auth_service.dart` et l'écran `diag_otp_screen.dart` mais
+  n'est plus utilisé par l'UI de connexion/inscription.
 
 ---
 

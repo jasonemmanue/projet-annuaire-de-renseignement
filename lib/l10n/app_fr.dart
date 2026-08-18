@@ -287,6 +287,28 @@ const Map<String, String> frStrings = {
   'login_register_complete': 'Compte créé ! Bienvenue sur Horem+.',
   'login_register_otp_info': 'Un SMS de vérification sera envoyé à ce numéro',
   'login_locked_prefix': 'Trop de tentatives. Votre compte est temporairement verrouillé.',
+  // ── Auth email / mot de passe ──
+  'login_email_hint': 'exemple@email.com',
+  'login_password_confirm': 'Confirmer le mot de passe *',
+  'login_password_mismatch': 'Les mots de passe ne correspondent pas.',
+  'login_email_invalid': 'Adresse email invalide.',
+  'login_password_too_short': 'Au moins 6 caractères.',
+  'login_wrong_credentials': 'Email ou mot de passe incorrect.',
+  'login_register_cta': 'Créer mon compte',
+  'login_register_email_info': 'Un email de vérification sera envoyé à cette adresse.',
+  // ── Vérification d'email ──
+  'login_verify_email_title': 'Vérifiez votre email',
+  'login_verify_email_intro': 'Un lien de vérification a été envoyé à',
+  'login_verify_email_instr': 'Ouvrez votre boîte mail, cliquez sur le lien pour activer votre compte, puis revenez dans l\'application.',
+  'login_verify_sent': 'Email de vérification envoyé.',
+  'login_verify_banner': 'Votre adresse email n\'est pas encore vérifiée.',
+  'login_verify_resend': 'Renvoyer l\'email',
+  'login_verify_resent': 'Email de vérification renvoyé. Vérifiez vos spams.',
+  'login_verify_check': 'J\'ai vérifié mon email',
+  'login_verify_not_yet': 'Email pas encore vérifié. Cliquez le lien reçu puis réessayez.',
+  'login_verify_required_publish': 'Vérifiez votre adresse email pour pouvoir publier.',
+  'login_verify_ok': 'Email vérifié. Merci !',
+  'login_close': 'Fermer',
 
   // Diagnostic OTP (debug only) — affichage de la cause probable
   'otp_diag_banner_title': 'Diagnostic OTP (debug)',

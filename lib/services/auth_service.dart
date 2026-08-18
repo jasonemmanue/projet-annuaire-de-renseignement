@@ -8,9 +8,13 @@ import 'analytics_service.dart';
 
 // ============================================================
 // FICHIER : lib/services/auth_service.dart
+// ✅ Authentification par EMAIL + MOT DE PASSE (méthode principale)
+// ✅ Vérification d'email obligatoire (lien de confirmation)
 // ✅ Anti-brute-force avec SharedPreferences (résistant aux redémarrages)
 // ✅ Seuils : 3 tentatives → 30s | 5 tentatives → 5min
 // ✅ Reset mot de passe via Firebase
+// ℹ️  Les méthodes OTP SMS restent disponibles (écran diag) mais ne sont
+//     plus utilisées par l'UI de connexion/inscription.
 // ============================================================
 
 /// Clés SharedPreferences pour la persistance du verrouillage
@@ -159,12 +163,10 @@ class AuthService extends ChangeNotifier {
     await AnalyticsService.instance.setUserRole(role);
   }
 
-  // ─── CONNEXION (EMAIL/MOT DE PASSE — DÉPRÉCIÉ) ────────────────────────
+  // ─── CONNEXION (EMAIL / MOT DE PASSE) ─────────────────────────────────
 
-  @Deprecated(
-    'Remplacé par envoyerOtp + verifierOtp. '
-    'Conservé uniquement pour les comptes email/password existants.',
-  )
+  /// Connexion par email + mot de passe.
+  /// Applique l'anti-brute-force et vérifie le rôle (prestataire ou admin).
   Future<AuthResult> login(String email, String password) async {
     // Recharger l'état persisté (cas redémarrage entre tentatives)
     await _loadBruteForceState();
@@ -218,9 +220,9 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // ─── RÉINITIALISATION MOT DE PASSE (DÉPRÉCIÉ) ─────────────────────────
+  // ─── RÉINITIALISATION MOT DE PASSE ────────────────────────────────────
 
-  @Deprecated('Sans objet avec l\'authentification OTP.')
+  /// Envoie un email de réinitialisation du mot de passe.
   Future<AuthResult> sendPasswordReset(String email) async {
     try {
       await FirebaseAuth.instance
@@ -236,12 +238,13 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // ─── INSCRIPTION (EMAIL/MOT DE PASSE — DÉPRÉCIÉ) ─────────────────────
+  // ─── INSCRIPTION (EMAIL / MOT DE PASSE) ───────────────────────────────
 
-  @Deprecated(
-    'Remplacé par envoyerOtp + verifierOtp + updateProfile. '
-    'L\'inscription nominale passe désormais par OTP.',
-  )
+  /// Crée un compte prestataire par email + mot de passe.
+  /// Le numéro de téléphone est conservé comme coordonnée de contact
+  /// (affichée aux visiteurs sur les annonces) mais ne sert PAS à
+  /// l'authentification.
+  /// Envoie automatiquement un email de vérification après la création.
   Future<AuthResult> register({
     required String email,
     required String password,
@@ -275,15 +278,70 @@ class AuthService extends ChangeNotifier {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
+      // Envoi du lien de vérification d'email (non bloquant).
+      try {
+        await cred.user!.sendEmailVerification();
+      } catch (_) {
+        // L'échec d'envoi ne doit pas bloquer l'inscription :
+        // l'utilisateur pourra renvoyer le lien depuis l'app.
+      }
+
       _setCurrentUser(user);
+      await AnalyticsService.instance.setUserRole('prestataire');
       return AuthResult.success;
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'email-already-in-use') {
-        return AuthResult.emailAlreadyUsed;
+      switch (e.code) {
+        case 'email-already-in-use':
+          return AuthResult.emailAlreadyUsed;
+        case 'invalid-email':
+          return AuthResult.invalidEmail;
+        case 'weak-password':
+          return AuthResult.weakPassword;
+        case 'operation-not-allowed':
+          // Le provider Email/Password n'est pas activé côté Firebase Console.
+          return AuthResult.networkError;
+        default:
+          return AuthResult.networkError;
       }
+    } catch (_) {
+      return AuthResult.networkError;
+    }
+  }
+
+  // ─── VÉRIFICATION D'EMAIL ─────────────────────────────────────────────
+
+  /// `true` si l'utilisateur Firebase courant a un email vérifié.
+  bool get isEmailVerified => _auth.currentUser?.emailVerified ?? false;
+
+  /// Email de l'utilisateur Firebase courant (source de vérité Auth).
+  String? get currentEmail => _auth.currentUser?.email;
+
+  /// Renvoie un nouveau lien de vérification d'email à l'utilisateur courant.
+  Future<AuthResult> renvoyerEmailVerification() async {
+    final user = _auth.currentUser;
+    if (user == null) return AuthResult.wrongCredentials;
+    try {
+      await user.sendEmailVerification();
+      return AuthResult.success;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'too-many-requests') return AuthResult.tooManyAttempts;
       return AuthResult.networkError;
     } catch (_) {
       return AuthResult.networkError;
+    }
+  }
+
+  /// Recharge l'utilisateur Firebase pour rafraîchir l'état `emailVerified`
+  /// (à appeler quand l'utilisateur revient dans l'app après avoir cliqué
+  /// le lien reçu par email). Retourne `true` si l'email est vérifié.
+  Future<bool> reloadEmailVerifie() async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+    try {
+      await user.reload();
+      return _auth.currentUser?.emailVerified ?? false;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -517,6 +575,10 @@ enum AuthResult {
   success,
   wrongCredentials,
   emailAlreadyUsed,
+  /// Email au format invalide.
+  invalidEmail,
+  /// Mot de passe trop faible (< 6 caractères côté Firebase).
+  weakPassword,
   networkError,
   /// Compte temporairement verrouillé (anti-brute-force)
   tooManyAttempts,

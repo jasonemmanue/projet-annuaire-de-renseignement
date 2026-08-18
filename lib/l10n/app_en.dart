@@ -352,6 +352,28 @@ const Map<String, String> enStrings = {
   'login_register_complete': 'Account created! Welcome to Immo Connect.',
   'login_register_otp_info': 'A verification SMS will be sent to this number',
   'login_locked_prefix': 'Too many attempts. Your account is temporarily locked.',
+  // ── Email / password auth ──
+  'login_email_hint': 'example@email.com',
+  'login_password_confirm': 'Confirm password *',
+  'login_password_mismatch': 'Passwords do not match.',
+  'login_email_invalid': 'Invalid email address.',
+  'login_password_too_short': 'At least 6 characters.',
+  'login_wrong_credentials': 'Incorrect email or password.',
+  'login_register_cta': 'Create my account',
+  'login_register_email_info': 'A verification email will be sent to this address.',
+  // ── Email verification ──
+  'login_verify_email_title': 'Verify your email',
+  'login_verify_email_intro': 'A verification link has been sent to',
+  'login_verify_email_instr': 'Open your inbox, click the link to activate your account, then come back to the app.',
+  'login_verify_sent': 'Verification email sent.',
+  'login_verify_banner': 'Your email address is not verified yet.',
+  'login_verify_resend': 'Resend email',
+  'login_verify_resent': 'Verification email resent. Check your spam folder.',
+  'login_verify_check': 'I have verified my email',
+  'login_verify_not_yet': 'Email not verified yet. Click the link you received, then try again.',
+  'login_verify_required_publish': 'Verify your email address to be able to publish.',
+  'login_verify_ok': 'Email verified. Thank you!',
+  'login_close': 'Close',
 
   // OTP diagnostic (debug only) — display probable cause
   'otp_diag_banner_title': 'OTP diagnostic (debug)',
