@@ -1997,25 +1997,40 @@ exports.creerCompteGratuit = onRequest({ cors: true }, async (req, res) => {
     return;
   }
 
-  const { telephone, nom, prenom } = req.body || {};
-  if (!telephone || !nom || !prenom) {
-    res.status(400).json({ success: false, error: "Paramètres manquants (telephone, nom, prenom)" });
+  // Auth par EMAIL + MOT DE PASSE (le téléphone reste une coordonnée de contact).
+  const { email, password, nom, prenom, telephone } = req.body || {};
+  if (!email || !password || !nom || !prenom) {
+    res.status(400).json({ success: false, error: "Paramètres manquants (email, password, nom, prenom)" });
+    return;
+  }
+  if (String(password).length < 6) {
+    res.status(400).json({ success: false, error: "Le mot de passe doit contenir au moins 6 caractères" });
     return;
   }
 
-  // Normalisation du numéro de téléphone
-  const phone = telephone.startsWith("+") ? telephone : `+237${telephone}`;
+  const emailNorm = String(email).trim().toLowerCase();
+  // Téléphone optionnel, conservé comme contact (préfixe +237 si absent).
+  const phone = telephone
+    ? (String(telephone).startsWith("+") ? String(telephone) : `+237${telephone}`)
+    : "";
 
   try {
     let uid;
     try {
-      // Recherche d'un compte existant avec ce numéro
-      const existing = await admin.auth().getUserByPhoneNumber(phone);
+      // Compte déjà existant avec cet email → on réutilise et on (re)définit le mot de passe.
+      const existing = await admin.auth().getUserByEmail(emailNorm);
       uid = existing.uid;
+      await admin.auth().updateUser(uid, {
+        password: String(password),
+        emailVerified: true,
+        displayName: `${prenom} ${nom}`.trim(),
+      });
     } catch (_) {
-      // Aucun compte → création
+      // Aucun compte → création. emailVerified:true car le compte est validé par l'admin.
       const newUser = await admin.auth().createUser({
-        phoneNumber: phone,
+        email: emailNorm,
+        password: String(password),
+        emailVerified: true,
         displayName: `${prenom} ${nom}`.trim(),
       });
       uid = newUser.uid;
@@ -2025,23 +2040,27 @@ exports.creerCompteGratuit = onRequest({ cors: true }, async (req, res) => {
     await admin.firestore().collection("users").doc(uid).set(
       {
         uid,
+        email: emailNorm,
         telephone: phone,
         nom: nom.trim(),
         prenom: prenom.trim(),
         role: "prestataire",
         compteGratuit: true,
         isVerifie: true,
-        phoneVerified: true,
         isPremium: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
 
-    console.log(`creerCompteGratuit: uid=${uid} phone=${phone} créé par admin=${decoded.uid}`);
-    res.json({ success: true, uid, telephone: phone });
+    console.log(`creerCompteGratuit: uid=${uid} email=${emailNorm} créé par admin=${decoded.uid}`);
+    res.json({ success: true, uid, email: emailNorm });
   } catch (e) {
     console.error("creerCompteGratuit error:", e);
+    if (e.code === "auth/email-already-exists") {
+      res.status(409).json({ success: false, error: "Cet email est déjà utilisé par un autre compte." });
+      return;
+    }
     res.status(500).json({ success: false, error: e.message });
   }
 });

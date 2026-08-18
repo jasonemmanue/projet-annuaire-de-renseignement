@@ -679,9 +679,12 @@ Quand `compteGratuit == true`, tous les paiements sont bypassés :
 ### Cloud Function `creerCompteGratuit`
 - URL : `https://creercomptegratuit-qhxw7o6nha-uc.a.run.app`
 - Auth : Bearer token Firebase Auth (caller must have `role == 'admin'`)
-- Body : `{ telephone, nom, prenom }` (tel sans + → préfixe +237 ajouté automatiquement)
-- Crée l'Auth Firebase + doc Firestore avec `compteGratuit: true`, `role: 'prestataire'`
-- Si le numéro existe déjà, met à jour le doc existant
+- Body : `{ email, password, nom, prenom, telephone? }` — auth par **email + mot de passe**
+  (password ≥ 6 car.). Le `telephone` est optionnel et sert de coordonnée de contact.
+- Crée l'Auth Firebase (`email`/`password`, `emailVerified: true` car validé par l'admin)
+  + doc Firestore avec `compteGratuit: true`, `role: 'prestataire'`
+- Si l'email existe déjà, met à jour le mot de passe + le doc existant
+- UI : dialog admin Flutter (`admin_panel_screen.dart`) et Next.js (`/dashboard/utilisateurs`)
 
 ---
 

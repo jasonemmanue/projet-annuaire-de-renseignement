@@ -41,7 +41,9 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.x'
+          # pubspec.lock exige Flutter >=3.38.4 / Dart >=3.10.3
+          # (dépendance flutter_chat_ui). Ne pas redescendre sous 3.38.x.
+          flutter-version: '3.38.x'
           channel: stable
           cache: true
 
