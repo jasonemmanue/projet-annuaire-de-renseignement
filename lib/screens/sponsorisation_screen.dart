@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../services/activation_email_service.dart';
 import '../services/auth_service.dart';
 import '../services/paiement_service.dart';
+import '../services/tarification_service.dart';
 import '../widgets/operateur_selector.dart';
 import '../widgets/silent_payment_webview.dart';
 import '../l10n/app_localizations.dart';
@@ -15,24 +16,20 @@ import 'ios_activation_email_screen.dart';
 // ============================================================
 // FICHIER : lib/screens/sponsorisation_screen.dart
 // Sponsorisation d'une annonce via Mobile Money (self-service).
-// 1 sem = 7 500 XAF · 2 sem = 12 000 XAF · 1 mois = 20 000 XAF.
+//
+// Prix et durées : TarificationService.optionsSponsoring — source unique.
+// Ne jamais redéclarer la grille ici : une copie locale se désynchronise
+// silencieusement du service (aucune erreur, juste l'ancien prix facturé).
 // ============================================================
 
 const int _kTimeoutSecondes = 120;
 
-class _Offre {
-  final String code; // '1s' | '2s' | '1m'
-  final String titre;
-  final int montant;
-  final String? badge;
-  const _Offre(this.code, this.titre, this.montant, [this.badge]);
-}
-
-const List<_Offre> _offres = [
-  _Offre('1s', '1 semaine', 500, 'Recommandé'),
-  _Offre('2s', '2 semaines', 1000),
-  _Offre('1m', '1 mois', 2000, 'Meilleure valeur'),
-];
+/// Badges purement décoratifs, indexés par code de durée → clé i18n.
+/// N'entrent pas dans le calcul du montant.
+const Map<String, String> _badgesSponsoring = {
+  '1s': 'sponsor_recommended',
+  '1m': 'sponsor_best_value',
+};
 
 enum _Etape { formulaire, attente, succes, echec, timeout }
 
@@ -73,8 +70,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
   Timer? _timer;
   StreamSubscription<PaiementStatut>? _sub;
 
-  int get _montant =>
-      _offres.firstWhere((o) => o.code == _dureeCode).montant;
+  int get _montant => TarificationService.tarifsSponsoring[_dureeCode] ?? 0;
 
   @override
   void didChangeDependencies() {
@@ -102,8 +98,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
   Future<void> _activerGratuitement() async {
     setState(() => _loading = true);
     try {
-      const durees = {'1s': 7, '2s': 14, '1m': 30};
-      final jours = durees[_dureeCode] ?? 7;
+      final jours = TarificationService.dureeJoursSponsoring[_dureeCode] ?? 7;
       final until = DateTime.now().add(Duration(days: jours));
       await FirebaseFirestore.instance
           .collection('logements')
@@ -312,7 +307,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
         Text(_loc.t('sponsor_choose_duration'),
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
         const SizedBox(height: 10),
-        ..._offres.map(_buildOffreCard),
+        ...TarificationService.optionsSponsoring.map(_buildOffreCard),
         const SizedBox(height: 20),
         Container(
           padding: const EdgeInsets.all(12),
@@ -396,7 +391,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
         Text(_loc.t('sponsor_choose_duration'),
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
         const SizedBox(height: 10),
-        ..._offres.map(_buildOffreCard),
+        ...TarificationService.optionsSponsoring.map(_buildOffreCard),
         const SizedBox(height: 20),
 
         // Avantages
@@ -449,7 +444,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
                       color: Colors.white, strokeWidth: 2))
               : Text(
                   isExternalActivationRequired
-                      ? 'Recevoir le lien d\'activation'
+                      ? _loc.t('ios_activation_send_button')
                       : '${_loc.t('sponsor_pay_prefix')} $_montant XAF via ${_labelOperateur(_operateur)}',
                   style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w700)),
@@ -493,16 +488,16 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
     ),
   );
 
-  Widget _buildOffreCard(_Offre offre) {
+  Widget _buildOffreCard(
+      ({String code, String label, int prix, int jours}) offre) {
     final selected = _dureeCode == offre.code;
     // Traduction du titre selon le code
     final titreLabel = offre.code == '1s' ? _loc.t('sponsor_dur_1w')
         : offre.code == '2s' ? _loc.t('sponsor_dur_2w')
         : _loc.t('sponsor_dur_1m');
-    // Traduction du badge
-    final badgeLabel = offre.badge == null ? null
-        : offre.badge == 'Recommandé' ? _loc.t('sponsor_recommended')
-        : _loc.t('sponsor_best_value');
+    // Badge décoratif éventuel
+    final badgeKey = _badgesSponsoring[offre.code];
+    final badgeLabel = badgeKey == null ? null : _loc.t(badgeKey);
 
     return GestureDetector(
       onTap: () => setState(() => _dureeCode = offre.code),
@@ -552,7 +547,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
             ]),
           ),
           if (!isExternalActivationRequired)
-            Text('${offre.montant} XAF',
+            Text('${offre.prix} XAF',
                 style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,

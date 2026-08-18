@@ -52,21 +52,19 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDX7WhRXy09q0x8uGR3STEJ4XgTEcq7NIE',
-    appId: '1:623906779506:android:25c3875728d2a668a52deb',
+    appId: '1:623906779506:android:4b5d3d86674fe7f4a52deb',
     messagingSenderId: '623906779506',
     projectId: 'sgk-home',
     storageBucket: 'sgk-home.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAcrJifIBgmqVxBDdW5YJFgJbMx0V3eZzo',
-    appId: '1:623906779506:ios:cb47be0b09793a96a52deb',
+    apiKey: 'AIzaSyAO78D6gFAunMlI-Fj18m5_G83-Q4j2_4c',
+    appId: '1:623906779506:ios:6bd706ad7a17c126a52deb',
     messagingSenderId: '623906779506',
     projectId: 'sgk-home',
     storageBucket: 'sgk-home.firebasestorage.app',
-    iosBundleId: 'com.example.appRenseignement',
+    iosBundleId: 'com.horemplus.app',
   );
-
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyAcrJifIBgmqVxBDdW5YJFgJbMx0V3eZzo',
     appId: '1:623906779506:ios:cb47be0b09793a96a52deb',
@@ -78,12 +76,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions windows = FirebaseOptions(
     apiKey: 'AIzaSyDcLEig21SAAgp_l98mIpYvBOFXkCP3Z20',
-    appId: '1:623906779506:web:e73b2a8877aa9146a52deb',
+    appId: '1:623906779506:web:8dc99e9413643a46a52deb',
     messagingSenderId: '623906779506',
     projectId: 'sgk-home',
     authDomain: 'sgk-home.firebaseapp.com',
     storageBucket: 'sgk-home.firebasestorage.app',
-    measurementId: 'G-M1F9Y8H3WT',
+    measurementId: 'G-J5LHV7M19Y',
   );
-
 }

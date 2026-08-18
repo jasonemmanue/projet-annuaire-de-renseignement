@@ -815,7 +815,7 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
                             color: Colors.white, strokeWidth: 2))
                     : Text(
                         isExternalActivationRequired
-                            ? 'Recevoir le lien d\'activation'
+                            ? _loc.t('ios_activation_send_button')
                             : widget.alerte != null
                                 ? '${_loc.t('common_pay_prefix')} $_kMontantAlerte XAF via ${_labelOperateur(_operateur)}'
                                 : _loc.t('urgence_submit'),

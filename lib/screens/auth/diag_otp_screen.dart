@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import '../../app_identity.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
@@ -9,8 +10,11 @@ import '../../services/auth_service.dart';
 // ============================================================
 // FICHIER : lib/screens/auth/diag_otp_screen.dart
 // Écran debug uniquement — accessible par long-press caché sur le titre
-// du login_screen. Affiche tout ce qu'il faut pour comprendre pourquoi
-// l'OTP Firebase échoue (SHA absente, App Check KO, etc.).
+// du login_screen.
+//
+// L'authentification est passée à email + mot de passe (Firebase Auth) : cet
+// écran affiche donc la config Firebase, l'état d'App Check (requis pour
+// Firestore/Storage) et le dernier code d'erreur d'authentification.
 // ============================================================
 
 class DiagOtpScreen extends StatefulWidget {
@@ -37,8 +41,7 @@ class _DiagOtpScreenState extends State<DiagOtpScreen> {
       _appCheckError = null;
     });
     try {
-      final token =
-          await FirebaseAppCheck.instance.getToken(true);
+      final token = await FirebaseAppCheck.instance.getToken(true);
       if (!mounted) return;
       setState(() => _appCheckOk = token != null && token.isNotEmpty);
     } catch (e) {
@@ -65,8 +68,8 @@ class _DiagOtpScreenState extends State<DiagOtpScreen> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final fb = Firebase.app().options;
-    const packageName = 'com.example.app_renseignement';
-    final diag = AuthService.lastOtpDiag;
+    const packageName = AppIdentity.bundleId;
+    final lastError = AuthService.lastAuthError;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -108,32 +111,48 @@ class _DiagOtpScreenState extends State<DiagOtpScreen> {
 
           const SizedBox(height: 20),
 
-          // ─── SHA ──────────────────────────────────────────
-          _Section(title: l.t('diag_otp_sha_section')),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            child: Text(l.t('diag_otp_sha_info'),
-                style: AppTextStyles.bodyMedium),
-          ),
-          _DiagRow(
-            label: 'cmd',
-            value: l.t('diag_otp_sha_command'),
-            onCopy: () => _copy(l.t('diag_otp_sha_command')),
-            monospace: true,
-          ),
-
-          const SizedBox(height: 20),
-
           // ─── DERNIÈRE ERREUR ─────────────────────────────
           _Section(title: l.t('diag_otp_last_error_section')),
-          if (diag == null)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(l.t('diag_otp_no_error'),
-                  style: AppTextStyles.bodyMedium),
-            )
-          else
-            _LastErrorCard(diag: diag),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: lastError == null ? Colors.green.shade50 : Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: lastError == null
+                      ? Colors.green.shade200
+                      : Colors.red.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  lastError == null ? Icons.check_circle_outline : Icons.error_outline,
+                  color: lastError == null ? Colors.green.shade700 : Colors.red.shade700,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    lastError == null ? l.t('diag_otp_no_error') : 'code: $lastError',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontFamily: lastError == null ? null : 'monospace',
+                      color: lastError == null
+                          ? Colors.green.shade800
+                          : Colors.red.shade800,
+                    ),
+                  ),
+                ),
+                if (lastError != null)
+                  TextButton.icon(
+                    onPressed: () => _copy(lastError),
+                    icon: const Icon(Icons.copy, size: 14),
+                    label: Text(l.t('diag_otp_copy'),
+                        style: const TextStyle(fontSize: 12)),
+                  ),
+              ],
+            ),
+          ),
 
           const SizedBox(height: 32),
         ],
@@ -276,9 +295,7 @@ class _AppCheckStatus extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                    color: color,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600),
+                    color: color, fontSize: 13, fontWeight: FontWeight.w600),
               ),
             ),
           ]),
@@ -301,55 +318,6 @@ class _AppCheckStatus extends StatelessWidget {
                 minimumSize: const Size(0, 32),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LastErrorCard extends StatelessWidget {
-  final OtpDiag diag;
-  const _LastErrorCard({required this.diag});
-
-  @override
-  Widget build(BuildContext context) {
-    final l = AppLocalizations.of(context);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.red.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l.t(diag.i18nReasonKey),
-              style: TextStyle(
-                  color: Colors.red.shade800,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13)),
-          const SizedBox(height: 6),
-          Text(l.t(diag.i18nHintKey),
-              style: TextStyle(
-                  color: Colors.red.shade700, fontSize: 12, height: 1.4)),
-          const SizedBox(height: 10),
-          Text('code: ${diag.code}',
-              style: const TextStyle(
-                  fontSize: 11, fontFamily: 'monospace')),
-          if (diag.message != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text('msg: ${diag.message}',
-                  style: const TextStyle(
-                      fontSize: 11, fontFamily: 'monospace')),
-            ),
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text('${l.t('diag_otp_at')} ${diag.at.toIso8601String()}',
-                style: const TextStyle(
-                    fontSize: 11, fontFamily: 'monospace')),
           ),
         ],
       ),

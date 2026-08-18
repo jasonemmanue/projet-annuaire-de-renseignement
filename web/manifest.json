@@ -1,11 +1,11 @@
 {
-    "name": "app_renseignement",
-    "short_name": "app_renseignement",
+    "name": "Horem+",
+    "short_name": "Horem+",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "Application de renseignement.",
+    "background_color": "#0071C2",
+    "theme_color": "#0071C2",
+    "description": "Petites annonces immobilieres et services au Cameroun.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

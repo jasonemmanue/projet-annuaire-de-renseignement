@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:623906779506:android:25c3875728d2a668a52deb",
+        "mobilesdk_app_id": "1:623906779506:android:4b5d3d86674fe7f4a52deb",
         "android_client_info": {
-          "package_name": "com.example.app_renseignement"
+          "package_name": "com.horemplus.app"
         }
       },
       "oauth_client": [],

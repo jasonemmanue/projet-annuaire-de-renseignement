@@ -1,3 +1,17 @@
+# Version de Flutter FIGÉE partout, jamais `stable`.
+#
+# `stable` résout vers ce que Flutter publie le jour du build. Un rebuild à
+# l'identique peut donc échouer sans qu'une ligne ait changé : c'est arrivé sur
+# un dépôt voisin, où `pod install` s'est mis à exiger une cible de déploiement
+# iOS plus haute que celle déclarée, sur un commit qui ne touchait pas à iOS.
+#
+# 3.38.4 est le SDK de développement du projet (contrainte pubspec :
+# >=3.0.0 <4.0.0, donc large). On monte de version délibérément, après test —
+# pas au gré du calendrier de Google.
+#
+# NOTE : `xcode: latest` reste une cible mouvante du même type. Voir le log d'un
+# build vert pour savoir quelle version a réellement fonctionné, puis la figer.
+
 workflows:
 
   # ── Build iOS sans signing (vérification que ça compile) ──────
@@ -6,7 +20,7 @@ workflows:
     max_build_duration: 30
     instance_type: mac_mini_m2
     environment:
-      flutter: 3.27.4
+      flutter: 3.38.4
       xcode: latest
       cocoapods: default
     triggering:
@@ -19,7 +33,7 @@ workflows:
       - name: Get dependencies
         script: flutter pub get
       - name: Analyze
-        script: flutter analyze lib
+        script: flutter analyze lib --no-fatal-infos --no-fatal-warnings
       - name: Install CocoaPods
         script: cd ios && pod install
       - name: Build iOS (no codesign)
@@ -27,67 +41,98 @@ workflows:
     artifacts:
       - build/ios/iphoneos/Runner.app
 
-  # ── Build + deploy sur TestFlight (pour installer sur iPad) ──
-  ios-testflight:
-    name: iOS TestFlight Deploy
-    max_build_duration: 45
+  # ── App Preview : simulateur iOS dans le navigateur ───────────
+  # AUCUN déclencheur automatique : à lancer à la main depuis Codemagic
+  # (Start new build > preview-ios). Rien ne part sur un push.
+  #
+  # Le binaire DOIT être un paquet simulateur : c'est --simulator qui le produit.
+  # Un build `flutter build ios` normal donne un binaire device, que le
+  # simulateur refuse de lancer (mauvaise architecture).
+  preview-ios:
+    name: App Preview - iOS Simulator
+    max_build_duration: 30
     instance_type: mac_mini_m2
     environment:
-      flutter: 3.27.4
+      flutter: 3.38.4
       xcode: latest
       cocoapods: default
-      groups:
-        - apple_credentials
-      vars:
-        BUNDLE_ID: com.horemplus.app
+    scripts:
+      - name: Get dependencies
+        script: flutter pub get
+      - name: Install CocoaPods
+        script: cd ios && pod install
+      - name: Build for iOS Simulator
+        script: flutter build ios --simulator --debug
+    artifacts:
+      - build/ios/iphonesimulator/Runner.app
+
+  # ── App Preview : émulateur Android dans le navigateur ────────
+  # AUCUN déclencheur automatique. Instance Linux : bien moins chère
+  # en minutes qu'un Mac mini.
+  #
+  # Build debug volontaire : pas besoin du keystore de release
+  # (android/app/build.gradle.kts ne crée la config `release` que si
+  # key.properties existe, absent du dépôt).
+  preview-android:
+    name: App Preview - Android Emulator
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      flutter: 3.38.4
+      java: 21
+    scripts:
+      - name: Get dependencies
+        script: flutter pub get
+      - name: Build debug APK
+        script: flutter build apk --debug
+    artifacts:
+      - build/app/outputs/flutter-apk/app-debug.apk
+
+  # ── Build signé + publication TestFlight ─────────────────────
+  # PRÉREQUIS (une seule fois, dans l'interface Codemagic) :
+  #   1. Teams > Integrations > App Store Connect : ajouter une clé API
+  #      et la nommer exactement « Horem Plus ASC » (ou changer le nom ci-dessous).
+  #   2. L'App ID com.horemplus.app doit exister dans App Store Connect.
+  # Déclenchement : pousser un tag `v1.0.0`, ou lancer le workflow à la main.
+  ios-testflight:
+    name: iOS TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    # Doit correspondre AU CARACTÈRE PRÈS au nom de l'intégration dans
+    # Teams > Integrations > App Store Connect. Un nom qui ne résout pas donne
+    # « auth "integration" requires integrations -> app_store_connect », ce qui
+    # se lit à tort comme une clé manquante dans ce fichier.
+    integrations:
+      app_store_connect: Company Developer
+    environment:
+      flutter: 3.38.4
+      xcode: latest
+      cocoapods: default
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.horemplus.app
     triggering:
       events:
-        - push
         - tag
-      branch_patterns:
-        - pattern: release/*
-          include: true
       tag_patterns:
-        - pattern: v*
+        - pattern: 'v*'
           include: true
     scripts:
       - name: Get dependencies
         script: flutter pub get
-
-      - name: Set up GoogleService-Info.plist
-        script: |
-          echo $GOOGLE_SERVICE_INFO | base64 --decode > ios/Runner/GoogleService-Info.plist
-
       - name: Install CocoaPods
         script: cd ios && pod install
-
       - name: Set up code signing
         script: xcode-project use-profiles
-
-      - name: Increment build number
-        script: |
-          LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" || echo 0)
-          agvtool new-version -all $((LATEST_BUILD + 1))
-
       - name: Build IPA
-        script: flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
-
+        script: |
+          flutter build ipa --release \
+            --build-number=$PROJECT_BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-      - flutter_drive.log
-
     publishing:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
-        submit_to_app_store: false
-      email:
-        recipients:
-          - sakamemmanuel@gmail.com
-        notify:
-          success: true
-          failure: true

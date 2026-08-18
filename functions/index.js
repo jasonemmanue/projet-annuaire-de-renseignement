@@ -4,6 +4,11 @@ const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const geniuspay = require("./geniuspay");
 const nodemailer = require("nodemailer");
+// Module OTP (Africa's Talking + JWT) DORMANT — non requis ni exporté depuis
+// que l'auth est passée à email/mot de passe. Les fichiers restent sur le disque
+// (functions/otp.js, africastalking.js, jwt.js). Voir le bloc en fin de fichier
+// et OTP_AUTH.md pour la procédure de réactivation.
+// const otp = require("./otp");
 
 // ── Email admin ──
 // Secrets à configurer AVANT le premier déploiement :
@@ -2479,3 +2484,31 @@ exports.initierPaiementDepuisWeb = onRequest(
     }
   }
 );
+
+// ════════════════════════════════════════════════════════════════════════════
+// AUTHENTIFICATION OTP — DORMANTE (non déployée)
+// ────────────────────────────────────────────────────────────────────────────
+// L'app est passée à l'authentification par email + mot de passe (Firebase
+// Auth) : voir AUTH.md. Le moteur OTP (Africa's Talking SMS/Voice + JWT maison)
+// reste sur le disque (functions/otp.js, africastalking.js, jwt.js) mais N'EST
+// PLUS exporté, donc pas déployé.
+//
+// ⚠️ Ne pas dé-commenter sans avoir d'abord créé les 6 secrets requis
+//    (AT_USERNAME · AT_API_KEY · AT_SENDER_ID · AT_VOICE_NUMBER · JWT_SECRET ·
+//    OTP_PEPPER) : chaque fonction OTP les déclare, et `firebase deploy` ÉCHOUE
+//    si un secret déclaré n'existe pas. Procédure complète : OTP_AUTH.md § 3.
+//
+// Pour réactiver l'OTP, dé-commenter le require en tête de fichier ET ce bloc
+// (puis rebrancher le client Flutter, cf. AUTH.md § « Revenir à l'OTP »).
+// ════════════════════════════════════════════════════════════════════════════
+
+// const otp = require("./otp");   // ← à dé-commenter en tête de fichier
+// exports.authOtpDemander = otp.authOtpDemander;
+// exports.authOtpRenvoyer = otp.authOtpRenvoyer;
+// exports.authOtpVerifier = otp.authOtpVerifier;
+// exports.authTokenRefresh = otp.authTokenRefresh;
+// exports.authRevoquer = otp.authRevoquer;
+// exports.authOtpDeliveryReport = otp.authOtpDeliveryReport;
+// exports.authOtpVoiceCallback = otp.authOtpVoiceCallback;
+// exports.authOtpStatistiques = otp.authOtpStatistiques;
+// exports.purgerOtpExpires = otp.purgerOtpExpires;

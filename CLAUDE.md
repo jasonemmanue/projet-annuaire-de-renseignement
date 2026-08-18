@@ -9,7 +9,13 @@
 **App :** horem_plus (titre affiché « Horem+ »)  
 **Domaine :** Petites annonces immobilières + services au Cameroun  
 **Stack :** Flutter + Firebase (Auth, Firestore, Storage, Messaging, Analytics) + Google Maps + Provider  
-**Package ID Android :** `com.example.horemplus`
+**Bundle ID (iOS + Android) :** `com.horemplus.app`
+
+> ⚠️ L'ancien identifiant `com.example.*` a été abandonné : Google Play **refuse l'upload**
+> de tout package commençant par `com.example`, et Apple rejette le bundle correspondant.
+> Les deux plateformes utilisent désormais le même identifiant `com.horemplus.app`.
+> Toute modification impose de réenregistrer les apps dans la console Firebase
+> (`google-services.json` + `GoogleService-Info.plist`) — voir « Identité de l'app ».
 
 ---
 
@@ -37,9 +43,9 @@
 `analytics_service`, `cache_service`, `tarification_service`,
 `publicite_service`, `rating_service`
 
-> ⚠️ `ads_service` existe encore dans le code mais est **désactivé côté visiteur** (AdMob retiré).
-> `shared_widgets.dart` → `PubliciteBanner` retourne `SizedBox.shrink()`.
-> `main.dart` → `AdsService.instance.initialize()` commenté.
+> AdMob a été entièrement retiré : plus de dépendance `google_mobile_ads`, plus de
+> service `ads_service`, plus d'appel dans `main.dart`.
+> `shared_widgets.dart` → `PubliciteBanner` affiche une publicité prestataire inline (remplace AdMob).
 
 ### Écrans existants
 `splash`, `accueil`, `carte`, `favoris`, `messagerie`, `profil`, `detail_logement`,
@@ -93,7 +99,7 @@ uid_prestataire                                  ← id Firebase Auth du prestat
 ## Tarification des annonces
 
 ### ① Sponsoring immobilier — tarif FIXE par durée
-Remplace l'ancienne commission variable. Sélectionné via `_DureeSponsoringSheet` dans `dashboard_prestataire_screen.dart`.
+Remplace l'ancienne commission variable. Sélectionné dans `sponsorisation_screen.dart`.
 
 | Code | Durée | Prix |
 |------|-------|------|
@@ -101,7 +107,19 @@ Remplace l'ancienne commission variable. Sélectionné via `_DureeSponsoringShee
 | `2s` | 2 semaines | **1 000 XAF** |
 | `1m` | 1 mois | **2 000 XAF** |
 
-Défini dans `TarificationService.optionsSponsoring` (`lib/services/tarification_service.dart`).
+Défini dans `TarificationService` (`lib/services/tarification_service.dart`) —
+**source unique**, consommée par `sponsorisation_screen.dart` :
+
+| Constante | Usage |
+|---|---|
+| `tarifsSponsoring` | montant facturé (`_montant`) |
+| `dureeJoursSponsoring` | durée appliquée en compte gratuit |
+| `optionsSponsoring` | liste affichée dans le sélecteur |
+
+> Les badges « Recommandé » / « Meilleure valeur » restent dans l'écran
+> (`_badgesSponsoring`, clés i18n) : c'est de la décoration, pas de la tarification.
+> Ne jamais recopier la grille dans un écran — une copie locale se désynchronise
+> sans erreur, et c'est l'ancien prix qui continue d'être facturé.
 
 ### ② Visibilité annuelle (services uniquement)
 Payant UNE FOIS par an. Types éligibles :
@@ -117,8 +135,17 @@ Pharmacie : **gratuite** (pas de prix). `_isPharmacieType` masque le champ prix 
 ### ③ Publicités prestataires
 500 XAF / 4 jours de diffusion (`PubliciteService.montantParPeriode` = 500, `dureeJours` = 4).
 
-### ④ Ancienne grille commission (OBSOLÈTE, conservée dans le code pour référence)
-`TarificationService.montantSponsorisation()` existe encore mais n'est plus utilisé pour les nouvelles publications.
+### ④ Ancienne grille commission (SUPPRIMÉE)
+La commission variable par grade a été retirée du code : `enum GradeBien`,
+`extension GradeBienLabel`, `pourcentageCommission()`, `montantSponsorisation()`
+et `fraisUrgence()` n'avaient plus aucun appelant depuis le passage aux forfaits fixes.
+
+Le champ Firestore `grade` reste un `String` libre sur `Logement`
+(`'standards' | 'haut_standing' | 'meubles' | 'a_louer'`) — il n'a jamais été typé
+par l'enum côté Dart, donc rien à migrer.
+
+> `functions/index.js` conserve sa **propre** fonction `fraisUrgence(grade, typeBien)`,
+> indépendante du Dart. La suppression côté app ne l'affecte pas.
 
 ---
 
@@ -132,11 +159,30 @@ Pharmacie : **gratuite** (pas de prix). `_isPharmacieType` masque le champ prix 
    `actif: true, paymentPending: false, expiresAt: now + 4 jours`.
 5. Le prestataire peut modifier le texte (gratuit) ou re-diffuser (nouveau paiement requis).
 
-### Côté visiteur (`main.dart` + `stories_publicites_overlay.dart`)
-- Au démarrage de l'app (après auth), `ouvrirStoriesPublicites()` est appelé automatiquement.
-- `PubliciteService.watchPublicitesDiffusables()` retourne les pubs où `actif: true` et `expiresAt > now`.
-- `StoriesPublicitesOverlay` les affiche en plein écran, style stories Instagram.
-- Le visiteur peut appuyer pour contacter le prestataire directement depuis l'overlay.
+### Côté visiteur — 3 formats d'affichage
+
+| Format | Widget | Emplacement | Déclenchement |
+|--------|--------|-------------|---------------|
+| **Stories plein écran** | `StoriesPublicitesOverlay` | Overlay modal | Auto (toutes les 3 nav / 4 reprises), tap sur bannière |
+| **Carrousel horizontal** | `PublicitePrestataireBanner` | Accueil (sliver unique) | Toujours visible si pubs actives |
+| **Cartes inline** | `PubliciteBanner` | Intercalées dans les listes (tous les 5-6 logements) | Automatique, rotation des pubs |
+
+#### `StoriesPublicitesOverlay` (stories_publicites_overlay.dart)
+- `ouvrirStoriesPublicites()` appelé automatiquement + au tap sur les autres formats.
+- `PubliciteService.watchPublicitesDiffusables()` retourne les pubs `actif: true` et `expiresAt > now`.
+- Affichage plein écran, style stories Instagram. Bouton "Contacter" ouvre le chat.
+
+#### `PublicitePrestataireBanner` (shared_widgets.dart)
+- Carrousel horizontal auto-scroll (5s) avec jusqu'à 6 previews photo/vidéo.
+- Header "Services en vedette" + lien "Voir tout".
+
+#### `PubliciteBanner` (shared_widgets.dart) — remplace AdMob
+- Carte compacte avec photo (72px), titre, description (2 lignes), avatar prestataire, bouton "Voir".
+- Label "SPONSORISE" en haut pour identifier clairement comme contenu payant.
+- Cache global statique : un seul stream Firestore partagé entre toutes les instances.
+- Rotation round-robin : chaque instance affiche une pub differente via `_nextIndex`.
+- Tap ouvre `StoriesPublicitesOverlay`.
+- Rend `SizedBox.shrink()` si aucune pub active (pas d'espace vide).
 
 ---
 
@@ -453,9 +499,33 @@ Déployées sur `us-central1`, projet `sgk-home`. URLs Cloud Run :
 | `envoyerLienPaiementEmail` | `https://envoyerlienpaiementemail-qhxw7o6nha-uc.a.run.app` | iOS : envoie email avec lien de paiement web |
 | `initierPaiementDepuisWeb` | `https://initierpaiementdepuisweb-qhxw7o6nha-uc.a.run.app` | iOS : appelée par la page web /pay/[token] |
 
+### Cloud Functions — Authentification OTP (`functions/otp.js`)
+
+| Fonction | URL | Usage |
+|---|---|---|
+| `authOtpDemander` | `https://authotpdemander-qhxw7o6nha-uc.a.run.app` | Demande un code (entrée de la cascade) |
+| `authOtpRenvoyer` | `https://authotprenvoyer-qhxw7o6nha-uc.a.run.app` | Escalade vers le canal suivant |
+| `authOtpVerifier` | `https://authotpverifier-qhxw7o6nha-uc.a.run.app` | Vérifie le code → JWT + custom token |
+| `authTokenRefresh` | `https://authtokenrefresh-qhxw7o6nha-uc.a.run.app` | Rotation du refresh token |
+| `authRevoquer` | `https://authrevoquer-qhxw7o6nha-uc.a.run.app` | Déconnexion / révocation globale |
+| `authOtpDeliveryReport` | `https://authotpdeliveryreport-qhxw7o6nha-uc.a.run.app` | **Webhook AT** — escalade auto sur SMS non délivré |
+| `authOtpVoiceCallback` | `https://authotpvoicecallback-qhxw7o6nha-uc.a.run.app` | **Callback AT** — renvoie le XML qui dicte le code |
+| `authOtpStatistiques` | `https://authotpstatistiques-qhxw7o6nha-uc.a.run.app` | Taux de livraison par canal (admin) |
+| `purgerOtpExpires` | *(planifiée, toutes les 6 h)* | Purge sessions / jetons / journaux périmés |
+
+> Les deux URL en gras doivent être collées dans le dashboard Africa's Talking
+> (SMS → Delivery Reports · Voice → Callback URL du numéro). Sans le callback
+> vocal, l'appel aboutit mais reste **muet**.
+
 ### Secrets Firebase (Secret Manager)
 - `GENIUSPAY_API_KEY` / `GENIUSPAY_SECRET_KEY` / `GENIUSPAY_WEBHOOK_SECRET` — sur toutes les fonctions paiement
 - `GMAIL_SENDER_EMAIL` / `GMAIL_APP_PASSWORD` — sur `geniuspayWebhook` (pour emails admin)
+- `AT_USERNAME` / `AT_API_KEY` / `AT_SENDER_ID` / `AT_VOICE_NUMBER` — Africa's Talking
+- `JWT_SECRET` / `OTP_PEPPER` — session et hachage des codes (voir `OTP_AUTH.md` § 3)
+
+> ⚠️ `OTP_PEPPER` entre dans le hash des codes : le changer invalide toutes les
+> sessions OTP en cours. `JWT_SECRET` invalide tous les access tokens (les
+> refresh tokens survivent, les sessions se rétablissent seules dans l'heure).
 
 > ⚠️ Les secrets Gmail sont des **placeholders** à remplacer par un vrai compte Gmail + App Password Google.
 > Commande : `echo "adresse@gmail.com" | firebase functions:secrets:set GMAIL_SENDER_EMAIL`
@@ -496,11 +566,88 @@ Structure d'un document :
 
 ---
 
-## Authentification
+## Authentification — OTP maison (PLUS de Firebase Phone Auth)
 
-- Flux : Firebase Phone Auth (OTP SMS), 2 étapes (numéro → code à 6 chiffres).
-- Pas d'email ni de mot de passe dans l'UI.
-- Anti-brute-force via `SharedPreferences` (3 tentatives → 30 s, 5 → 5 min).
+> Guide complet : **`OTP_AUTH.md`** (secrets, config Africa's Talking, dépannage).
+
+Flux : 2 étapes (numéro → code à 6 chiffres). Pas d'email ni de mot de passe.
+
+### Cascade de canaux — fiabilité 99 %+
+
+| # | Canal | Transport | Déclencheur du suivant |
+|---|-------|-----------|------------------------|
+| 1 | `push` | FCM data-only vers un **appareil de confiance** | échec d'envoi, ou 8 s sans code |
+| 2 | `sms` | Africa's Talking, format **SMS Retriever** (autofill Android) | statut AT ≠ Success, rapport de livraison `Failed`, ou 25 s |
+| 3 | `sms_alt` | Africa's Talking **sans sender ID** (contourne un rejet de sender ID) | idem |
+| 4 | `voice` | Appel Africa's Talking qui **dicte le code** | — |
+
+L'escalade se produit sans action de l'utilisateur dans deux cas sur trois :
+refus immédiat de l'API AT (même requête HTTP) et rapport de livraison en
+échec (`authOtpDeliveryReport`). Le troisième est le bouton « Recevoir un appel ».
+
+> Chaque escalade **génère un code neuf**. Rediffuser le même code sur un second
+> canal doublerait sa fenêtre d'interception.
+
+### Session : JWT custom
+
+| Jeton | Durée | Nature |
+|---|---|---|
+| Access | **1 h** | JWT HS256 signé avec `JWT_SECRET` |
+| Refresh | **30 j** | 32 octets aléatoires, **stocké haché** en Firestore, **rotatif** |
+
+Rejeu d'un refresh déjà tourné = jeton volé → **révocation de toutes les
+sessions** de l'utilisateur (OAuth 2.1 refresh token reuse detection).
+Stockage côté app : `flutter_secure_storage` (Keystore / Keychain).
+
+### Pont d'identité Firebase — `PONT_FIREBASE`
+
+Firebase Auth n'authentifie plus personne, mais `admin.auth().createCustomToken`
+traduit une session déjà validée par notre backend en identité Firebase.
+**Sans ce pont, `firestore.rules` (tout entier bâti sur `request.auth.uid`) et
+toutes les Cloud Functions appelant `verifyIdToken` cessent de fonctionner** —
+plus de publication d'annonce ni de messagerie.
+
+Le couper : `PONT_FIREBASE = false` dans `functions/otp.js`, **après** avoir
+migré les règles et les fonctions (procédure dans `OTP_AUTH.md` § 8).
+
+### Ce qui n'est PLUS nécessaire pour l'authentification
+
+reCAPTCHA · App Check sur le chemin d'auth · empreintes SHA-1/SHA-256 côté
+Firebase · quota SMS Firebase · clé APNs pour Phone Auth iOS.
+(App Check et les SHA restent requis pour Firestore/Storage et le Play Store.)
+
+### Anti-abus
+
+| Niveau | Règle |
+|---|---|
+| Serveur — par numéro | 30 s entre 2 demandes · 5/h · 15/jour |
+| Serveur — par IP | 30 demandes/h |
+| Serveur — par session | 5 essais de code, **en transaction Firestore** |
+| App — `SharedPreferences` | 3 tentatives → 30 s · 5 → 5 min |
+
+### Fichiers
+
+| Fichier | Rôle |
+|---|---|
+| `functions/otp.js` | Moteur : cascade, rate limit, sessions, JWT, 9 Cloud Functions |
+| `functions/africastalking.js` | Client HTTP AT (SMS + Voice), XML `<Say>` du callback vocal |
+| `functions/jwt.js` | Signature/vérification HS256, refresh tokens opaques |
+| `lib/services/otp_auth_service.dart` | Client HTTP + stockage sécurisé + auto-refresh |
+| `lib/services/sms_retriever_service.dart` | Pont Dart ↔ SMS Retriever API |
+| `lib/services/auth_service.dart` | Orchestration, pont Firebase, anti-brute-force local |
+| `android/.../SmsRetrieverPlugin.kt` | BroadcastReceiver Play Services (aucune permission SMS) |
+| `android/.../AppSignatureHelper.kt` | Hash à 11 caractères de la signature de l'app |
+
+> ⚠️ Le hash SMS Retriever **change avec la clé de signature** (debug / release /
+> re-signature Play App Signing). Il est calculé à l'exécution et envoyé au
+> backend à chaque demande — ne jamais le figer côté serveur.
+
+### Collections Firestore (toutes `allow read, write: if false`)
+
+`otp_sessions` · `refresh_tokens` · `trusted_devices` · `otp_rate_limits` ·
+`otp_deliveries` — écrites uniquement par l'Admin SDK.
+Le code en clair n'est **jamais** persisté : seul `sha256(code:sel:poivre)`,
+le poivre vivant dans Secret Manager.
 
 ---
 
@@ -513,7 +660,6 @@ Accessible uniquement aux utilisateurs avec `role == 'admin'` dans Firestore.
 ## Dashboard Admin Web (Next.js)
 
 **Repo :** `https://github.com/jasonemmanue/Horem-a-ADMIN.git`  
-**Chemin local :** `C:\Users\hp\StudioProjects\Immoconnect_admin`  
 **Stack :** Next.js 14 + TypeScript + Tailwind + Firebase Firestore/Auth  
 **Déploiement cible :** Railway (`railway.app`)
 
@@ -568,27 +714,23 @@ functions/index.js                    # Toutes les Cloud Functions (déployer av
 ## Commandes utiles
 
 ```bash
-# Déployer les Cloud Functions (depuis le dossier racine)
-$env:NODE_TLS_REJECT_UNAUTHORIZED = "0"   # si proxy corporate
-firebase deploy --only functions
-
-# Mettre à jour un secret
-echo "valeur" | firebase functions:secrets:set NOM_SECRET
-
 # Analyser le code Flutter
 flutter analyze lib
 
 # Build APK release
 flutter build apk --release
-# APK : build/app/outputs/flutter-apk/app-release.apk
 
-# Push admin vers GitHub
-cd C:\Users\hp\StudioProjects\Immoconnect_admin
-git add -A && git commit -m "..." && git push
+# Build iOS (sans signing, vérification locale)
+flutter build ios --release --no-codesign
 
-# Déployer admin sur Railway (depuis le dossier admin)
-cd C:\Users\hp\StudioProjects\Immoconnect_admin
-railway up
+# Déployer les Cloud Functions
+firebase deploy --only functions
+
+# Mettre à jour un secret Firebase
+echo "valeur" | firebase functions:secrets:set NOM_SECRET
+
+# Déployer admin Next.js sur Railway
+cd Immoconnect_admin && railway up
 ```
 
 ---
@@ -792,22 +934,28 @@ Cherche les alertes actives dont `typeBien` correspond et `prixMin <= prix <= pr
 
 ---
 
-## Débogage iPad / iOS
+## Build & déploiement iOS — Codemagic
 
-Guide complet : `IPAD_DEBUG_GUIDE.md`
+**Plateforme CI/CD :** Codemagic (`codemagic.io`) — Mac mini M2, Xcode latest, Flutter stable.
+**Configuration :** `codemagic.yaml` à la racine du projet (mode YAML, pas Workflow Editor GUI).
 
-### Résumé du processus (VM macOS sur VMware Workstation)
-1. **macOS requis** — Xcode 15+ ne tourne que sur macOS. Utiliser une **VM macOS Ventura/Sonoma** dans VMware Workstation sur Windows (16 Go RAM, SSD recommandé)
-2. Dans la VM : installer Xcode 15+ depuis le Mac App Store + `xcode-select --install`
-3. Cloner le repo : `git clone https://github.com/<user>/app_renseignement.git`
-4. Installer Flutter dans la VM : `git clone https://github.com/flutter/flutter.git -b stable`
-5. `flutter doctor` → vérifier Xcode, CocoaPods (`sudo gem install cocoapods`)
-6. Ajouter `GoogleService-Info.plist` dans `ios/Runner/` (Firebase Console → projet iOS)
-7. Configurer le signing dans Xcode : Apple ID (gratuit pour dev, 99$/an pour App Store/TestFlight)
-8. `cd ios && pod install && cd ..`
-9. **USB passthrough** : connecter l'iPad au PC → VMware le redirige vers la VM (`.vmx` : `usb.quirks.device0 = "0x05ac:0x12a8 allowApple2"`)
-10. iPad en **mode développeur** (Réglages → Confidentialité → Mode développeur), confiance accordée
-11. `flutter run -d <ipad_id>` ou build via Xcode (Product → Run)
+### Workflow actuel : `ios-build-check`
+Build iOS sans signing (vérification que le projet compile). Déclenché sur push `main`.
+
+```yaml
+# codemagic.yaml — résumé
+scripts:
+  - flutter pub get
+  - flutter analyze lib --no-fatal-infos --no-fatal-warnings
+  - cd ios && pod install
+  - flutter build ios --release --no-codesign
+```
+
+### Prochaine étape : TestFlight (quand compte Apple Developer disponible)
+Ajouter un workflow `ios-testflight` avec :
+- Code signing automatique Codemagic (certificat + provisioning profile via intégration App Store Connect)
+- `flutter build ipa --release`
+- Publication automatique sur TestFlight
 
 ### Permissions iOS — Info.plist
 
@@ -835,20 +983,96 @@ Guide complet : `IPAD_DEBUG_GUIDE.md`
 'PERMISSION_NOTIFICATIONS=1',
 ```
 
-> ⚠️ Chaque permission utilisée via `permission_handler` **doit** avoir sa macro activée dans le Podfile, sinon le code compile mais la permission retourne toujours `denied` sur iOS.
+> Chaque permission utilisée via `permission_handler` **doit** avoir sa macro activée dans le Podfile, sinon le code compile mais la permission retourne toujours `denied` sur iOS.
 
-### Fichiers iOS à surveiller
+### Fichiers iOS
 | Fichier | Rôle |
 |---------|------|
 | `ios/Runner/Info.plist` | Permissions iOS, schemes URL, background modes |
 | `ios/Runner/AppDelegate.swift` | Clé Google Maps iOS, config Firebase, delegate notifications |
-| `ios/Runner/GoogleService-Info.plist` | Config Firebase iOS (à ajouter manuellement) |
-| `ios/Podfile` | Dépendances CocoaPods + macros permissions |
+| `ios/Runner/GoogleService-Info.plist` | Config Firebase iOS (dans le repo) |
+| `ios/Runner/Runner.entitlements` | APNs push notifications |
+| `ios/Runner/PrivacyInfo.xcprivacy` | Privacy Manifest (Xcode 16+) |
+| `ios/Podfile` | CocoaPods, platform 15.0, macros permissions |
+| `codemagic.yaml` | Configuration CI/CD Codemagic |
 
-### Différences clés Android ↔ iPad
-- Permissions : déclaratif dans `Info.plist` (pas de runtime request sauf localisation)
-- WebView paiement : WKWebView au lieu de Android WebView
-- Notifications : APNs + FCM (certificat Apple Push requis)
+### Identité de l'app (bundle ID) — `com.horemplus.app`
+
+Un seul identifiant partagé par les deux plateformes. Les endroits où il apparaît :
+
+| Fichier | Clé |
+|---|---|
+| `ios/Runner.xcodeproj/project.pbxproj` | `PRODUCT_BUNDLE_IDENTIFIER` (Debug / Release / Profile) |
+| `android/app/build.gradle.kts` | `namespace` + `applicationId` |
+| `android/app/src/main/kotlin/com/horemplus/app/MainActivity.kt` | `package` |
+| `lib/app_identity.dart` | `AppIdentity.bundleId` — **source de vérité côté Dart** |
+| `lib/firebase_options.dart` | `iosBundleId` (ios + macos) |
+| `ios/Runner/GoogleService-Info.plist` | `BUNDLE_ID` — **généré par Firebase** |
+| `android/app/google-services.json` | `package_name` — **généré par Firebase** |
+
+Les deux derniers ne se modifient **jamais à la main** : ils sont téléchargés depuis la
+console Firebase. Changer le bundle ID sans les regénérer casse le build Android
+(`No matching client found for package name`) et l'auth iOS.
+
+```bash
+# Réenregistre les apps dans le projet Firebase existant (sgk-home)
+# et réécrit les 3 fichiers de config d'un coup.
+flutterfire configure --project=sgk-home \
+  --ios-bundle-id=com.horemplus.app \
+  --android-package-name=com.horemplus.app
+```
+
+#### `AppIdentity.appStoreId` — à renseigner après création de la fiche
+
+`openStoreListing` (plugin `in_app_review`) attend sur iOS l'identifiant
+**numérique** attribué par App Store Connect (ex. `6742891234`), pas le bundle ID.
+Tant que `AppIdentity.appStoreId` vaut `''`, `RatingService.ouvrirFicheStore()`
+ne tente rien sur iOS plutôt que d'ouvrir une URL invalide. Renseigner la
+constante dès que la fiche existe — c'est le seul endroit à modifier.
+
+À refaire côté consoles après tout changement d'identifiant :
+- **Firebase → Android** : réenregistrer les empreintes **SHA-1 et SHA-256** du keystore
+  de release, sinon Phone Auth (OTP) échoue sur Android.
+- **Firebase → Cloud Messaging** : réuploader la clé d'authentification **APNs (.p8)**
+  pour la nouvelle app iOS, sinon push et Phone Auth échouent sur iOS.
+- **Google Cloud → API Maps iOS** : la clé de `AppDelegate.swift` est restreinte par
+  bundle ID ; ajouter `com.horemplus.app` sinon la carte reste grise.
+
+### iOS — transmission manuelle des push APNs
+
+`Info.plist` fixe `FirebaseAppDelegateProxyEnabled = false`, donc le swizzling Firebase
+est désactivé. `AppDelegate.swift` transmet lui-même le token APNs :
+
+```swift
+Auth.auth().setAPNSToken(deviceToken, type: .sandbox / .prod)  // didRegisterForRemoteNotifications
+Auth.auth().canHandleNotification(userInfo)                     // didReceiveRemoteNotification
+```
+
+> Depuis le passage à l'OTP maison, ces overrides ne conditionnent **plus l'envoi
+> du code** : celui-ci part par Africa's Talking sans passer par Firebase.
+> Ils restent nécessaires à **FCM** — donc au canal 1 de la cascade (push
+> silencieux sur appareil de confiance) et à toutes les notifications de l'app.
+> Les retirer dégrade la cascade (le canal push disparaît, on démarre
+> directement sur le SMS) et casse les notifications. Les conserver.
+
+L'autofill du code sur iOS ne demande aucun code natif : `AutofillHints.oneTimeCode`
+sur le champ de saisie suffit, le système propose le code au-dessus du clavier.
+
+### Entitlements APNs séparés par configuration
+
+| Configuration | Fichier | `aps-environment` |
+|---|---|---|
+| Debug / Profile | `ios/Runner/Runner.entitlements` | `development` |
+| Release | `ios/Runner/RunnerRelease.entitlements` | `production` |
+
+Une seule entitlement `development` pour tout casse les push en TestFlight / App Store.
+À l'inverse, forcer `production` en Debug fait échouer la signature avec un profil de dev.
+
+### iOS deployment target : 15.0
+Requis par Firebase iOS SDK 11+. Configuré dans `Podfile` (`platform :ios, '15.0'`) et `project.pbxproj` (`IPHONEOS_DEPLOYMENT_TARGET = 15.0`).
+
+### Cibles : iPhone + iPad
+`TARGETED_DEVICE_FAMILY = "1,2"` dans `project.pbxproj` (1 = iPhone, 2 = iPad).
 
 ---
 

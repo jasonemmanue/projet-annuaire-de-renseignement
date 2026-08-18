@@ -22,7 +22,6 @@ import 'screens/legal/consentement_screen.dart';
 import 'services/auth_service.dart';
 import 'widgets/stories_publicites_overlay.dart';
 import 'services/notification_service.dart';
-// import 'services/ads_service.dart'; // AdMob désactivé
 import 'widgets/shared_widgets.dart' as sw;
 import 'models/models.dart';
 
@@ -38,13 +37,32 @@ void main() async {
     // Firebase déjà initialisé par FirebaseInitProvider Android — on continue.
   }
 
-  // App Check — Debug provider pour les tests internes (avant publication Play Store).
-  // ⚠️ Avant publication Play Store :
-  //   1. Remplacer AndroidProvider.debug par AndroidProvider.playIntegrity
-  //   2. Enregistrer les SHA-1/SHA-256 release dans Firebase Console
-  await FirebaseAppCheck.instance.activate(
-    androidProvider: AndroidProvider.debug,
-  );
+  // App Check — le provider dépend du mode de compilation.
+  //
+  // Android : le provider de debug demande un jeton local qu'il faut avoir
+  // enregistré à la main dans la console Firebase. Sur un build distribué par
+  // le Play Store (testeurs internes/fermés compris) ce jeton n'existe pas :
+  // App Check ne renvoie rien, et Firebase Auth refuse l'envoi du SMS avec
+  // `app-check-token-invalid`. En release il faut donc Play Integrity, qui
+  // atteste l'app à partir de sa signature — d'où la double exigence côté
+  // console rappelée dans CLAUDE.md (SHA-256 de la clé de signature Play
+  // enregistrée dans Firebase + API Play Integrity activée).
+  //
+  // iOS : `appleProvider` vaut DeviceCheck par défaut, qui exige du vrai
+  // matériel et n'existe pas sur le simulateur : activate() y lève une
+  // exception. Rien ici n'étant rattrapé, cette seule exception fermait l'app
+  // avant runApp(). On n'autorise donc plus App Check à empêcher le démarrage :
+  // sans attestation, l'app tourne, ce sont les requêtes protégées qui seront
+  // refusées — pas l'app entière.
+  try {
+    await FirebaseAppCheck.instance.activate(
+      androidProvider:
+          kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+      appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
+    );
+  } catch (e) {
+    debugPrint('⚠️ App Check indisponible, démarrage sans : $e');
+  }
 
   // Émulateurs désactivés — mode production (vrais SMS Firebase)
   // Pour réactiver les émulateurs en local :
@@ -53,12 +71,19 @@ void main() async {
 
   await AppController.instance.loadPrefs();
   await AuthService.instance.init();
-  await NotificationService.init();
-  // AdMob désactivé — publicités prestataires via StoriesPublicitesOverlay
-  // await AdsService.instance.initialize();
 
-  if (AuthService.instance.isLoggedIn) {
-    await NotificationService.saveToken(AuthService.instance.currentUser!.id);
+  // Les notifications sont un service optionnel : l'enregistrement APNs échoue
+  // sur simulateur (pas d'APNs) et sur un appareil dont l'utilisateur refuse la
+  // permission. Ni l'un ni l'autre ne doit empêcher l'app de démarrer — sans ce
+  // filet, un refus de permission suffisait à la rendre inutilisable.
+  try {
+    await NotificationService.init();
+
+    if (AuthService.instance.isLoggedIn) {
+      await NotificationService.saveToken(AuthService.instance.currentUser!.id);
+    }
+  } catch (e) {
+    debugPrint('⚠️ Notifications indisponibles, démarrage sans : $e');
   }
 
   runApp(const HoremPlusApp());

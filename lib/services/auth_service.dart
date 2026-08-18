@@ -8,9 +8,22 @@ import 'analytics_service.dart';
 
 // ============================================================
 // FICHIER : lib/services/auth_service.dart
-// ✅ Anti-brute-force avec SharedPreferences (résistant aux redémarrages)
-// ✅ Seuils : 3 tentatives → 30s | 5 tentatives → 5min
-// ✅ Reset mot de passe via Firebase
+//
+// AUTHENTIFICATION : email + mot de passe (Firebase Auth).
+//
+// Le numéro de téléphone est demandé à l'inscription mais N'EST PAS vérifié :
+// il sert de numéro Mobile Money par défaut pour les paiements (pré-rempli dans
+// OperateurSelector). Aucun SMS/OTP n'est envoyé — le module OTP maison
+// (functions/otp.js, lib/services/otp_auth_service.dart) reste sur le disque
+// mais n'est plus branché sur ce chemin d'authentification.
+//
+// Firebase Auth email/password fournit directement une identité Firebase :
+// `request.auth.uid` est renseigné nativement, sans pont ni custom token — les
+// règles Firestore/Storage et les Cloud Functions (`verifyIdToken`) fonctionnent
+// telles quelles.
+//
+// ✅ Anti-brute-force local (SharedPreferences, résistant aux redémarrages) :
+//    3 tentatives → 30s | 5 tentatives → 5min
 // ============================================================
 
 /// Clés SharedPreferences pour la persistance du verrouillage
@@ -27,6 +40,10 @@ class AuthService extends ChangeNotifier {
   UserModel? _currentUser;
   UserModel? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
+
+  /// Dernière erreur d'authentification (code Firebase brut), pour l'écran de
+  /// diagnostic debug. `null` tant qu'aucune erreur n'est survenue.
+  static String? lastAuthError;
 
   void _setCurrentUser(UserModel? value) {
     _currentUser = value;
@@ -131,7 +148,9 @@ class AuthService extends ChangeNotifier {
   Future<void> _loadUserFromFirestore(String uid) async {
     final doc = await _db.collection('users').doc(uid).get();
     if (doc.exists) {
-      _setCurrentUser(UserModel.fromMap(doc.data()!));
+      // `uid` réinjecté : certains vieux documents ne stockent pas le champ,
+      // et sans lui UserModel.id serait vide.
+      _setCurrentUser(UserModel.fromMap({'uid': uid, ...doc.data()!}));
     } else {
       final firebaseUser = _auth.currentUser;
       if (firebaseUser != null) {
@@ -159,12 +178,26 @@ class AuthService extends ChangeNotifier {
     await AnalyticsService.instance.setUserRole(role);
   }
 
-  // ─── CONNEXION (EMAIL/MOT DE PASSE — DÉPRÉCIÉ) ────────────────────────
+  /// Enregistre / rafraîchit le token FCM du compte connecté.
+  Future<void> _saveFcmToken(String uid) async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await _db.collection('users').doc(uid).set(
+          {'fcmToken': token},
+          SetOptions(merge: true),
+        );
+      }
+    } catch (_) {
+      // FCM indisponible (simulateur iOS, permission refusée) : non bloquant.
+    }
+  }
 
-  @Deprecated(
-    'Remplacé par envoyerOtp + verifierOtp. '
-    'Conservé uniquement pour les comptes email/password existants.',
-  )
+  // ─── CONNEXION (EMAIL / MOT DE PASSE) ─────────────────────────────────
+
+  /// Connexion par email + mot de passe.
+  /// Applique l'anti-brute-force local et n'autorise que les rôles
+  /// `prestataire` et `admin` (les visiteurs n'ont pas de compte).
   Future<AuthResult> login(String email, String password) async {
     // Recharger l'état persisté (cas redémarrage entre tentatives)
     await _loadBruteForceState();
@@ -178,15 +211,7 @@ class AuthService extends ChangeNotifier {
         password: password,
       );
       await _loadUserFromFirestore(cred.user!.uid);
-
-      // FCM token
-      final token = await FirebaseMessaging.instance.getToken();
-      if (token != null) {
-        await _db.collection('users').doc(cred.user!.uid).set(
-          {'fcmToken': token},
-          SetOptions(merge: true),
-        );
-      }
+      await _saveFcmToken(cred.user!.uid);
 
       // Vérification du rôle — prestataires ET admins peuvent se connecter
       if (_currentUser?.role != UserRole.prestataire &&
@@ -200,6 +225,7 @@ class AuthService extends ChangeNotifier {
 
       // ✅ Connexion réussie : réinitialisation du compteur
       await _resetBruteForce();
+      lastAuthError = null;
 
       // [ANALYTICS] Connexion prestataire réussie
       await AnalyticsService.instance.logConnexionPrestataire();
@@ -207,41 +233,56 @@ class AuthService extends ChangeNotifier {
       return AuthResult.success;
 
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found'   ||
-          e.code == 'wrong-password'   ||
-          e.code == 'invalid-credential' ||
+      lastAuthError = e.code;
+      if (e.code == 'user-not-found'      ||
+          e.code == 'wrong-password'      ||
+          e.code == 'invalid-credential'  ||
           e.code == 'invalid-email') {
         await _recordFailedAttempt();
-        return AuthResult.wrongCredentials;
+        return e.code == 'invalid-email'
+            ? AuthResult.invalidEmail
+            : AuthResult.wrongCredentials;
       }
+      if (e.code == 'too-many-requests') {
+        await _recordFailedAttempt();
+        return AuthResult.tooManyAttempts;
+      }
+      if (e.code == 'user-disabled') return AuthResult.userDisabled;
+      return AuthResult.networkError;
+    } catch (e) {
+      lastAuthError = e.toString();
       return AuthResult.networkError;
     }
   }
 
-  // ─── RÉINITIALISATION MOT DE PASSE (DÉPRÉCIÉ) ─────────────────────────
+  // ─── RÉINITIALISATION MOT DE PASSE ────────────────────────────────────
 
-  @Deprecated('Sans objet avec l\'authentification OTP.')
+  /// Envoie un email de réinitialisation du mot de passe.
   Future<AuthResult> sendPasswordReset(String email) async {
     try {
-      await FirebaseAuth.instance
-          .sendPasswordResetEmail(email: email.trim());
+      await _auth.sendPasswordResetEmail(email: email.trim());
+      lastAuthError = null;
       return AuthResult.success;
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found' || e.code == 'invalid-email') {
-        return AuthResult.wrongCredentials;
-      }
+      lastAuthError = e.code;
+      if (e.code == 'invalid-email') return AuthResult.invalidEmail;
+      // `user-not-found` : réponse volontairement identique au succès pour ne
+      // pas révéler quels emails ont un compte (énumération de comptes).
+      if (e.code == 'user-not-found') return AuthResult.success;
       return AuthResult.networkError;
-    } catch (_) {
+    } catch (e) {
+      lastAuthError = e.toString();
       return AuthResult.networkError;
     }
   }
 
-  // ─── INSCRIPTION (EMAIL/MOT DE PASSE — DÉPRÉCIÉ) ─────────────────────
+  // ─── INSCRIPTION (EMAIL / MOT DE PASSE) ───────────────────────────────
 
-  @Deprecated(
-    'Remplacé par envoyerOtp + verifierOtp + updateProfile. '
-    'L\'inscription nominale passe désormais par OTP.',
-  )
+  /// Crée un compte prestataire.
+  ///
+  /// [telephone] est le numéro Mobile Money par défaut (format E.164, ex.
+  /// « +237612345678 »). Il n'est PAS vérifié : aucun SMS n'est envoyé, il sert
+  /// uniquement à pré-remplir l'opérateur au moment des paiements.
   Future<AuthResult> register({
     required String email,
     required String password,
@@ -256,18 +297,24 @@ class AuthService extends ChangeNotifier {
         password: password,
       );
 
-      final token = await FirebaseMessaging.instance.getToken();
+      String? fcmToken;
+      try {
+        fcmToken = await FirebaseMessaging.instance.getToken();
+      } catch (_) {
+        // FCM indisponible : non bloquant.
+      }
 
       final user = UserModel(
         id: cred.user!.uid,
         email: email.trim(),
-        nom: nom,
-        prenom: prenom,
-        telephone: telephone,
+        nom: nom.trim(),
+        prenom: prenom.trim(),
+        telephone: telephone.trim(),   // numéro de paiement par défaut
         role: UserRole.prestataire,
-        fcmToken: token,
+        fcmToken: fcmToken,
         photoUrl: photoUrl,
         isVerifie: false,
+        phoneVerified: false,          // téléphone non vérifié — sert au paiement
       );
 
       await _db.collection('users').doc(cred.user!.uid).set({
@@ -276,185 +323,47 @@ class AuthService extends ChangeNotifier {
       });
 
       _setCurrentUser(user);
+      await _resetBruteForce();
+      lastAuthError = null;
+      await AnalyticsService.instance.logConnexionPrestataire();
       return AuthResult.success;
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'email-already-in-use') {
-        return AuthResult.emailAlreadyUsed;
+      lastAuthError = e.code;
+      switch (e.code) {
+        case 'email-already-in-use':
+          return AuthResult.emailAlreadyUsed;
+        case 'invalid-email':
+          return AuthResult.invalidEmail;
+        case 'weak-password':
+          return AuthResult.weakPassword;
+        default:
+          return AuthResult.networkError;
       }
-      return AuthResult.networkError;
-    } catch (_) {
-      return AuthResult.networkError;
-    }
-  }
-
-  // ─── OTP PHONE AUTH ───────────────────────────────────────────────────
-
-  /// Dernier diagnostic OTP capturé (utile pour la bannière debug + écran diag).
-  /// Reste `null` tant qu'aucune erreur n'a été remontée par Firebase Phone Auth.
-  static OtpDiag? lastOtpDiag;
-
-  /// Envoie un SMS OTP via Firebase Phone Auth.
-  /// [telephone] doit être au format E.164, ex. « +237612345678 ».
-  Future<void> envoyerOtp({
-    required String telephone,
-    required void Function(String verificationId) onCodeSent,
-    required void Function(FirebaseAuthException) onError,
-    void Function(PhoneAuthCredential)? onAutoVerified,
-  }) async {
-    debugPrint('[OTP] sendVerification phone=$telephone');
-    try {
-      await _auth.verifyPhoneNumber(
-        phoneNumber: telephone,
-        timeout: const Duration(seconds: 30),
-        verificationCompleted: (PhoneAuthCredential credential) {
-          debugPrint('[OTP] auto-verified by Play Services');
-          onAutoVerified?.call(credential);
-        },
-        verificationFailed: (FirebaseAuthException e) {
-          _captureOtpDiag(e);
-          onError(e);
-        },
-        codeSent: (String verificationId, int? resendToken) {
-          debugPrint('[OTP] codeSent id=${verificationId.substring(0, 6)}…');
-          onCodeSent(verificationId);
-        },
-        codeAutoRetrievalTimeout: (_) {},
-      );
-    } on FirebaseAuthException catch (e) {
-      _captureOtpDiag(e);
-      onError(e);
     } catch (e) {
-      final wrapped = FirebaseAuthException(
-        code: 'network-request-failed',
-        message: 'Impossible de joindre le serveur : $e',
-      );
-      _captureOtpDiag(wrapped);
-      onError(wrapped);
-    }
-  }
-
-  /// Convertit une FirebaseAuthException en diagnostic structuré et le journalise.
-  void _captureOtpDiag(FirebaseAuthException e) {
-    final diag = OtpDiag.fromException(e);
-    lastOtpDiag = diag;
-    debugPrint(
-      '[OTP] FAILED reason=${diag.reason.name} '
-      'code=${e.code} message=${e.message}',
-    );
-  }
-
-  /// Vérifie le code OTP saisi manuellement.
-  /// Applique l'anti-brute-force sur les codes invalides.
-  Future<AuthResult> verifierOtp({
-    required String verificationId,
-    required String smsCode,
-  }) async {
-    await _loadBruteForceState();
-    if (isBlocked) return AuthResult.tooManyAttempts;
-
-    try {
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId,
-        smsCode: smsCode,
-      );
-      return await _doPhoneSignIn(credential, countFailure: true);
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'invalid-verification-code' ||
-          e.code == 'invalid-verification-id') {
-        await _recordFailedAttempt();
-        return AuthResult.wrongCredentials;
-      }
-      if (e.code == 'session-expired') return AuthResult.otpExpired;
-      return AuthResult.networkError;
-    } catch (_) {
+      lastAuthError = e.toString();
       return AuthResult.networkError;
     }
-  }
-
-  /// Connexion avec un credential pré-construit (cas auto-vérification Android).
-  /// Pas d'anti-brute-force : la vérification est faite par le système.
-  Future<AuthResult> signInWithPhoneCredential(
-      PhoneAuthCredential credential) async {
-    try {
-      return await _doPhoneSignIn(credential, countFailure: false);
-    } on FirebaseAuthException catch (_) {
-      return AuthResult.networkError;
-    } catch (_) {
-      return AuthResult.networkError;
-    }
-  }
-
-  Future<AuthResult> _doPhoneSignIn(
-    PhoneAuthCredential credential, {
-    required bool countFailure,
-  }) async {
-    final cred = await _auth.signInWithCredential(credential);
-    await _loadUserFromFirestore(cred.user!.uid);
-
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token != null) {
-      await _db.collection('users').doc(cred.user!.uid).set(
-        {'fcmToken': token},
-        SetOptions(merge: true),
-      );
-    }
-
-    if (_currentUser?.role != UserRole.prestataire &&
-        _currentUser?.role != UserRole.admin) {
-      await _auth.signOut();
-      _setCurrentUser(null);
-      if (countFailure) await _recordFailedAttempt();
-      return AuthResult.wrongCredentials;
-    }
-
-    // Marque le téléphone vérifié la première fois seulement
-    if (_currentUser?.phoneVerified != true) {
-      await _db.collection('users').doc(cred.user!.uid).set(
-        {
-          'phoneVerified':   true,
-          'phoneVerifiedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-      _setCurrentUser(UserModel(
-        id:              _currentUser!.id,
-        email:           _currentUser!.email,
-        nom:             _currentUser!.nom,
-        prenom:          _currentUser!.prenom,
-        telephone:       _currentUser!.telephone,
-        role:            _currentUser!.role,
-        isPremium:       _currentUser!.isPremium,
-        photoUrl:        _currentUser!.photoUrl,
-        fcmToken:        _currentUser!.fcmToken,
-        isVerifie:       _currentUser!.isVerifie,
-        compteGratuit:   _currentUser!.compteGratuit,
-        premiumExpiry:   _currentUser!.premiumExpiry,
-        phoneVerified:   true,
-        phoneVerifiedAt: DateTime.now(),
-      ));
-    }
-
-    await _resetBruteForce();
-    await AnalyticsService.instance.logConnexionPrestataire();
-    return AuthResult.success;
   }
 
   // ─── MISE À JOUR PROFIL ───────────────────────────────────────────────
 
   /// Met à jour les champs de profil passés (merge Firestore + cache mémoire).
+  /// [telephone] met à jour le numéro Mobile Money par défaut.
   Future<void> updateProfile({
     String? nom,
     String? prenom,
     String? email,
+    String? telephone,
     String? photoUrl,
   }) async {
     if (_currentUser == null) return;
     final updates = <String, dynamic>{};
-    if (nom != null)      updates['nom']      = nom;
-    if (prenom != null)   updates['prenom']   = prenom;
-    if (email != null)    updates['email']    = email;
-    if (photoUrl != null) updates['photoUrl'] = photoUrl;
-    if (updates.isEmpty)  return;
+    if (nom != null)       updates['nom']       = nom;
+    if (prenom != null)    updates['prenom']    = prenom;
+    if (email != null)     updates['email']     = email;
+    if (telephone != null) updates['telephone'] = telephone;
+    if (photoUrl != null)  updates['photoUrl']  = photoUrl;
+    if (updates.isEmpty)   return;
 
     await _db.collection('users').doc(_currentUser!.id).set(
       updates,
@@ -462,13 +371,13 @@ class AuthService extends ChangeNotifier {
     );
     _setCurrentUser(UserModel(
       id:              _currentUser!.id,
-      email:           email    ?? _currentUser!.email,
-      nom:             nom      ?? _currentUser!.nom,
-      prenom:          prenom   ?? _currentUser!.prenom,
-      telephone:       _currentUser!.telephone,
+      email:           email     ?? _currentUser!.email,
+      nom:             nom       ?? _currentUser!.nom,
+      prenom:          prenom    ?? _currentUser!.prenom,
+      telephone:       telephone ?? _currentUser!.telephone,
       role:            _currentUser!.role,
       isPremium:       _currentUser!.isPremium,
-      photoUrl:        photoUrl ?? _currentUser!.photoUrl,
+      photoUrl:        photoUrl  ?? _currentUser!.photoUrl,
       fcmToken:        _currentUser!.fcmToken,
       isVerifie:       _currentUser!.isVerifie,
       compteGratuit:   _currentUser!.compteGratuit,
@@ -515,102 +424,18 @@ class AuthService extends ChangeNotifier {
 
 enum AuthResult {
   success,
+  /// Identifiants incorrects (email inconnu ou mot de passe faux).
   wrongCredentials,
+  /// Email déjà associé à un compte (inscription).
   emailAlreadyUsed,
+  /// Format d'email invalide.
+  invalidEmail,
+  /// Mot de passe trop faible (< 6 caractères côté Firebase).
+  weakPassword,
+  /// Compte désactivé par un administrateur Firebase.
+  userDisabled,
+  /// Erreur réseau / serveur.
   networkError,
-  /// Compte temporairement verrouillé (anti-brute-force)
+  /// Compte temporairement verrouillé (anti-brute-force).
   tooManyAttempts,
-  /// Session OTP expirée (Firebase session-expired)
-  otpExpired,
-}
-
-// ============================================================
-// DIAGNOSTIC OTP — mapping FirebaseAuthException → cause probable
-// Aide à savoir EXACTEMENT pourquoi l'envoi SMS échoue :
-// fingerprint SHA absente, App Check KO, quota épuisé, etc.
-// ============================================================
-
-enum OtpDiagReason {
-  /// SHA-1 / SHA-256 absente côté Firebase Console.
-  shaMissing,
-  /// App Check n'a pas pu fournir de token valide (Play Integrity KO ou
-  /// debug token non enregistré).
-  appCheckFailed,
-  /// Quota Firebase Phone Auth dépassé (mensuel ou journalier).
-  quotaExceeded,
-  /// Facturation Firebase non activée — Phone Auth bascule sur Spark limité.
-  billingDisabled,
-  /// Trop de tentatives sur ce numéro côté Firebase.
-  tooManyRequests,
-  /// reCAPTCHA est apparu et a échoué/été fermé.
-  recaptchaFailed,
-  /// Numéro invalide ou manquant.
-  invalidPhone,
-  /// Code OTP invalide ou expiré.
-  invalidCode,
-  /// Connectivité réseau.
-  network,
-  /// Autre / inconnu.
-  unknown,
-}
-
-class OtpDiag {
-  final OtpDiagReason reason;
-  final String code;
-  final String? message;
-  final DateTime at;
-
-  OtpDiag({
-    required this.reason,
-    required this.code,
-    this.message,
-  }) : at = DateTime.now();
-
-  factory OtpDiag.fromException(FirebaseAuthException e) {
-    return OtpDiag(
-      reason: _mapCode(e.code),
-      code: e.code,
-      message: e.message,
-    );
-  }
-
-  static OtpDiagReason _mapCode(String code) {
-    switch (code) {
-      case 'app-not-authorized':
-      case 'missing-client-identifier':
-      case 'app-not-installed':
-        return OtpDiagReason.shaMissing;
-      case 'app-check-token-invalid':
-      case 'firebase-app-check-token-is-invalid':
-        return OtpDiagReason.appCheckFailed;
-      case 'quota-exceeded':
-        return OtpDiagReason.quotaExceeded;
-      case 'billing-not-enabled':
-        return OtpDiagReason.billingDisabled;
-      case 'too-many-requests':
-        return OtpDiagReason.tooManyRequests;
-      case 'web-context-cancelled':
-      case 'web-context-already-presented':
-      case 'captcha-check-failed':
-      case 'recaptcha-not-enabled':
-        return OtpDiagReason.recaptchaFailed;
-      case 'invalid-phone-number':
-      case 'missing-phone-number':
-        return OtpDiagReason.invalidPhone;
-      case 'invalid-verification-code':
-      case 'invalid-verification-id':
-      case 'session-expired':
-        return OtpDiagReason.invalidCode;
-      case 'network-request-failed':
-        return OtpDiagReason.network;
-      default:
-        return OtpDiagReason.unknown;
-    }
-  }
-
-  /// Clé i18n pour la cause probable affichée à l'utilisateur (debug only).
-  String get i18nReasonKey => 'otp_diag_reason_${reason.name}';
-
-  /// Clé i18n pour l'action conseillée à mener.
-  String get i18nHintKey => 'otp_diag_hint_${reason.name}';
 }

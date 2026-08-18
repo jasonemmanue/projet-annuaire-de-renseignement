@@ -645,17 +645,226 @@ class SectionTitle extends StatelessWidget {
 }
 
 // ----------------------------------------------------------
-// BANDEAU PUBLICITAIRE (AdMob désactivé)
+// BANDEAU PUBLICITAIRE INLINE (remplace AdMob)
 // ----------------------------------------------------------
-// Les publicités prestataires sont désormais diffusées via StoriesPublicitesOverlay.
-// Ce widget est conservé pour éviter les erreurs de compilation dans les écrans
-// qui y font référence, mais il ne rend rien.
-class PubliciteBanner extends StatelessWidget {
+// Carte compacte intercalee dans les listes d'annonces.
+// Affiche une publicite prestataire aleatoire depuis Firestore.
+// Fonctionne sur toutes les plateformes, y compris iOS.
+class PubliciteBanner extends StatefulWidget {
   final bool? isPremium;
   const PubliciteBanner({super.key, this.isPremium});
 
   @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
+  State<PubliciteBanner> createState() => _PubliciteBannerState();
+}
+
+class _PubliciteBannerState extends State<PubliciteBanner> {
+  static List<Publicite> _cachedPubs = [];
+  static StreamSubscription<List<Publicite>>? _globalSub;
+  static int _nextIndex = 0;
+
+  Publicite? _pub;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_globalSub == null) {
+      _globalSub = PubliciteService.watchPublicitesDiffusables().listen((pubs) {
+        _cachedPubs = pubs;
+      });
+    }
+    if (_cachedPubs.isNotEmpty) {
+      _pub = _cachedPubs[_nextIndex % _cachedPubs.length];
+      _nextIndex++;
+    } else {
+      PubliciteService.watchPublicitesDiffusables().first.then((pubs) {
+        if (!mounted || pubs.isEmpty) return;
+        _cachedPubs = pubs;
+        setState(() {
+          _pub = _cachedPubs[_nextIndex % _cachedPubs.length];
+          _nextIndex++;
+        });
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_pub == null) return const SizedBox.shrink();
+    final l = AppLocalizations.of(context);
+    final pub = _pub!;
+    final photo = pub.photos.isNotEmpty ? pub.photos.first : pub.logementPhoto;
+
+    return GestureDetector(
+      onTap: () => ouvrirStoriesPublicites(context),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.20),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Label "Sponsorise" ──
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.08),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.campaign_rounded,
+                      size: 13, color: AppColors.primary.withValues(alpha: 0.7)),
+                  const SizedBox(width: 4),
+                  Text(
+                    l.t('pub_inline_sponsored'),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary.withValues(alpha: 0.7),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // ── Contenu ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Row(
+                children: [
+                  // Photo
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: photo != null
+                        ? Image.network(
+                            photo,
+                            width: 72,
+                            height: 72,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 72,
+                              height: 72,
+                              color: AppColors.primary.withValues(alpha: 0.1),
+                              child: const Icon(Icons.campaign,
+                                  color: AppColors.primary, size: 28),
+                            ),
+                          )
+                        : Container(
+                            width: 72,
+                            height: 72,
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            child: const Icon(Icons.campaign,
+                                color: AppColors.primary, size: 28),
+                          ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Texte
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          pub.titre,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          pub.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            if (pub.prestatairePhoto != null &&
+                                pub.prestatairePhoto!.isNotEmpty)
+                              CircleAvatar(
+                                radius: 9,
+                                backgroundImage:
+                                    NetworkImage(pub.prestatairePhoto!),
+                              )
+                            else
+                              CircleAvatar(
+                                radius: 9,
+                                backgroundColor:
+                                    AppColors.primary.withValues(alpha: 0.15),
+                                child: Text(
+                                  pub.prestataireNom.isNotEmpty
+                                      ? pub.prestataireNom[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary),
+                                ),
+                              ),
+                            const SizedBox(width: 5),
+                            Expanded(
+                              child: Text(
+                                pub.prestataireNom,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: AppColors.textHint,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                l.t('pub_inline_discover'),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ----------------------------------------------------------
