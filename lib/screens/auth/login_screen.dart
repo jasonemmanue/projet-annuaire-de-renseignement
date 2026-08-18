@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/media_permission.dart';
 import '../../theme/app_theme.dart';
@@ -13,8 +12,16 @@ import '../../services/storage_service.dart';
 import '../legal/cgu_screen.dart';
 import 'diag_otp_screen.dart';
 
+// ==============================================================
+// ÉCRAN DE CONNEXION / INSCRIPTION — EMAIL + MOT DE PASSE
+// Le numéro de téléphone reste demandé à l'inscription comme
+// coordonnée de contact (affichée aux visiteurs) mais n'authentifie pas.
+// Un email de vérification est envoyé à l'inscription.
+// ==============================================================
 
-enum _Etape { telephone, otp }
+/// Valide un email de façon simple mais robuste.
+bool _isValidEmail(String v) =>
+    RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v.trim());
 
 class LoginScreen extends StatefulWidget {
   final bool isInscription;
@@ -117,8 +124,8 @@ class _LoginScreenState extends State<LoginScreen>
               child: TabBarView(
                 controller: _tabController,
                 children: const [
-                  _OtpConnexionTab(),
-                  _OtpInscriptionTab(),
+                  _ConnexionTab(),
+                  _InscriptionTab(),
                 ],
               ),
             ),
@@ -129,28 +136,26 @@ class _LoginScreenState extends State<LoginScreen>
   }
 }
 
-class _OtpConnexionTab extends StatefulWidget {
-  const _OtpConnexionTab();
+// ==============================================================
+// TAB CONNEXION — email + mot de passe
+// ==============================================================
+class _ConnexionTab extends StatefulWidget {
+  const _ConnexionTab();
   @override
-  State<_OtpConnexionTab> createState() => _OtpConnexionTabState();
+  State<_ConnexionTab> createState() => _ConnexionTabState();
 }
 
-class _OtpConnexionTabState extends State<_OtpConnexionTab> {
-  _Etape _etape = _Etape.telephone;
+class _ConnexionTabState extends State<_ConnexionTab> {
+  final _formKey     = GlobalKey<FormState>();
+  final _emailCtrl   = TextEditingController();
+  final _passCtrl    = TextEditingController();
 
-  final _phoneFormKey = GlobalKey<FormState>();
-  final _otpFormKey   = GlobalKey<FormState>();
-  final _telCtrl      = TextEditingController();
-  final _otpCtrl      = TextEditingController();
-
-  String  _verificationId = '';
-  bool    _isLoading      = false;
+  bool    _isLoading    = false;
+  bool    _obscure      = true;
   String? _errorMessage;
 
-  int    _lockSeconds   = 0;
+  int    _lockSeconds = 0;
   Timer? _lockTimer;
-  int    _resendSeconds = 0;
-  Timer? _resendTimer;
 
   @override
   void initState() {
@@ -164,9 +169,8 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
   @override
   void dispose() {
     _lockTimer?.cancel();
-    _resendTimer?.cancel();
-    _telCtrl.dispose();
-    _otpCtrl.dispose();
+    _emailCtrl.dispose();
+    _passCtrl.dispose();
     super.dispose();
   }
 
@@ -181,19 +185,8 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
     });
   }
 
-  void _startResendCountdown() {
-    _resendTimer?.cancel();
-    setState(() => _resendSeconds = 60);
-    _resendTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) { t.cancel(); return; }
-      setState(() { if (--_resendSeconds <= 0) { t.cancel(); _resendSeconds = 0; } });
-    });
-  }
-
-  String get _fullPhone => '+237${_telCtrl.text.trim()}';
-
-  Future<void> _envoyerCode() async {
-    if (!_phoneFormKey.currentState!.validate()) return;
+  Future<void> _connexion() async {
+    if (!_formKey.currentState!.validate()) return;
     final auth = AuthService.instance;
     if (auth.isBlocked) {
       _startLockCountdown(auth.remainingLockDuration.inSeconds);
@@ -201,113 +194,57 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
     }
     setState(() { _isLoading = true; _errorMessage = null; });
 
-    try {
-      await auth.envoyerOtp(
-        telephone: _fullPhone,
-        onCodeSent: (vid) {
-          if (!mounted) return;
-          setState(() {
-            _verificationId = vid;
-            _etape          = _Etape.otp;
-            _isLoading      = false;
-          });
-          _startResendCountdown();
-        },
-        onError: (e) {
-          if (!mounted) return;
-          setState(() { _isLoading = false; _errorMessage = _smsError(e); });
-        },
-        onAutoVerified: (credential) async {
-          if (!mounted) return;
-          setState(() => _isLoading = true);
-          final result = await auth.signInWithPhoneCredential(credential);
-          if (!mounted) return;
-          setState(() => _isLoading = false);
-          _handleResult(result);
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() { _isLoading = false; _errorMessage = 'Erreur inattendue : $e'; });
-    }
-  }
-
-  Future<void> _verifierCode() async {
-    if (!_otpFormKey.currentState!.validate()) return;
-    final auth = AuthService.instance;
-    if (auth.isBlocked) {
-      _startLockCountdown(auth.remainingLockDuration.inSeconds);
-      return;
-    }
-    setState(() { _isLoading = true; _errorMessage = null; });
-
-    final result = await auth.verifierOtp(
-      verificationId: _verificationId,
-      smsCode: _otpCtrl.text.trim(),
-    );
+    final result = await auth.login(_emailCtrl.text.trim(), _passCtrl.text);
     if (!mounted) return;
     setState(() => _isLoading = false);
-    _handleResult(result);
-  }
 
-  void _handleResult(AuthResult result) {
     final l = AppLocalizations.of(context);
     switch (result) {
       case AuthResult.success:
         Navigator.pop(context, true);
       case AuthResult.wrongCredentials:
-        final auth = AuthService.instance;
         if (auth.isBlocked) {
           _startLockCountdown(auth.remainingLockDuration.inSeconds);
           setState(() => _errorMessage = null);
         } else {
-          setState(() => _errorMessage = l.t('login_otp_invalid'));
+          setState(() => _errorMessage = l.t('login_wrong_credentials'));
         }
-      case AuthResult.otpExpired:
-        setState(() => _errorMessage = l.t('login_otp_expired'));
       case AuthResult.tooManyAttempts:
-        _startLockCountdown(AuthService.instance.remainingLockDuration.inSeconds);
+        _startLockCountdown(auth.remainingLockDuration.inSeconds);
         setState(() => _errorMessage = null);
-      case AuthResult.networkError:
+      case AuthResult.invalidEmail:
+        setState(() => _errorMessage = l.t('login_email_invalid'));
+      default:
         setState(() => _errorMessage = l.t('login_error_network'));
-      case AuthResult.emailAlreadyUsed:
-        break;
     }
   }
 
-  String _smsError(FirebaseAuthException e) {
+  Future<void> _motDePasseOublie() async {
     final l = AppLocalizations.of(context);
-    return (e.code == 'invalid-phone-number' || e.code == 'missing-phone-number')
-        ? l.t('login_phone_invalid')
-        : l.t('login_sms_error');
-  }
-
-  String? _validatePhone(String? v) {
-    final l = AppLocalizations.of(context);
-    if (v == null || v.trim().isEmpty) return l.t('form_required');
-    if (!RegExp(r'^6\d{8}$').hasMatch(v.trim())) return l.t('login_phone_invalid');
-    return null;
+    final ctrl = TextEditingController(text: _emailCtrl.text.trim());
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _ForgotPasswordSheet(controller: ctrl),
+    );
+    ctrl.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return _etape == _Etape.telephone
-        ? _buildPhone(context)
-        : _buildOtp(context);
-  }
-
-  Widget _buildPhone(BuildContext context) {
     final l = AppLocalizations.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Form(
-        key: _phoneFormKey,
+        key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 16),
-            Text(l.t('login_phone_enter'), style: AppTextStyles.h3.copyWith(color: context.appTextPrimary)),
-            const SizedBox(height: 12),
             // Bandeau info prestataire
             Container(
               padding: const EdgeInsets.all(10),
@@ -326,129 +263,68 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
                 ),
               ]),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             TextFormField(
-              controller: _telCtrl,
-              keyboardType: TextInputType.phone,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(9),
-              ],
+              controller: _emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const [AutofillHints.email],
               decoration: InputDecoration(
-                labelText: l.t('login_phone'),
-                prefixIcon: const Icon(Icons.phone_outlined),
-                prefixText: '+237 ',
-                hintText: l.t('login_phone_hint_otp'),
+                labelText: l.t('login_email_field'),
+                prefixIcon: const Icon(Icons.email_outlined),
+                hintText: l.t('login_email_hint'),
               ),
-              validator: _validatePhone,
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return l.t('form_required');
+                if (!_isValidEmail(v)) return l.t('login_email_invalid');
+                return null;
+              },
             ),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 12),
-              _ErrorBanner(message: _errorMessage!),
-              if (kDebugMode) const _DebugDiagBanner(),
-            ],
-            if (_isLocked) ...[
-              const SizedBox(height: 12),
-              _LockBanner(seconds: _lockSeconds),
-            ],
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: (_isLoading || _isLocked) ? null : _envoyerCode,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 50),
-                disabledBackgroundColor: Theme.of(context).disabledColor.withValues(alpha: 0.2),
-              ),
-              child: _isLoading
-                  ? const _Spinner()
-                  : Text(l.t('login_send_code'),
-                      style: const TextStyle(fontSize: 16)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOtp(BuildContext context) {
-    final l = AppLocalizations.of(context);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Form(
-        key: _otpFormKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 16),
-            Text(l.t('login_otp_title'), style: AppTextStyles.h3.copyWith(color: context.appTextPrimary)),
-            const SizedBox(height: 8),
-            RichText(
-              text: TextSpan(
-                style: AppTextStyles.bodyMedium
-                    .copyWith(color: context.appTextSecondary),
-                children: [
-                  TextSpan(text: l.t('login_otp_sent_to')),
-                  TextSpan(
-                    text: '+237 ${_telCtrl.text.trim()}',
-                    style: const TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(l.t('login_otp_enter'),
-                style: AppTextStyles.caption.copyWith(color: context.appTextSecondary)),
-            const SizedBox(height: 20),
-            _OtpField(controller: _otpCtrl),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 12),
-              _ErrorBanner(message: _errorMessage!),
-              if (kDebugMode) const _DebugDiagBanner(),
-            ],
-            if (_isLocked) ...[
-              const SizedBox(height: 12),
-              _LockBanner(seconds: _lockSeconds),
-            ],
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: (_isLoading || _isLocked) ? null : _verifierCode,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 50),
-                disabledBackgroundColor: Theme.of(context).disabledColor.withValues(alpha: 0.2),
-              ),
-              child: _isLoading
-                  ? const _Spinner()
-                  : Text(l.t('login_verify_code'),
-                      style: const TextStyle(fontSize: 16)),
-            ),
-            const SizedBox(height: 16),
-            Center(
-              child: _resendSeconds > 0
-                  ? Text(
-                      '${l.t('login_otp_resend_in')} ${_resendSeconds}s',
-                      style: AppTextStyles.bodyMedium
-                          .copyWith(color: context.appTextSecondary),
-                    )
-                  : TextButton(
-                      onPressed: _isLoading ? null : _envoyerCode,
-                      child: Text(l.t('login_otp_resend')),
-                    ),
-            ),
-            Center(
-              child: TextButton(
-                onPressed: () => setState(() {
-                  _etape        = _Etape.telephone;
-                  _errorMessage = null;
-                  _otpCtrl.clear();
-                  _resendTimer?.cancel();
-                  _resendSeconds = 0;
-                }),
-                child: Text(
-                  l.t('login_otp_change_number'),
-                  style: TextStyle(color: context.appTextSecondary),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _passCtrl,
+              obscureText: _obscure,
+              autofillHints: const [AutofillHints.password],
+              decoration: InputDecoration(
+                labelText: l.t('login_password'),
+                prefixIcon: const Icon(Icons.lock_outline),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                      _obscure ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscure = !_obscure),
                 ),
               ),
+              validator: (v) => (v == null || v.isEmpty)
+                  ? l.t('form_required')
+                  : null,
+              onFieldSubmitted: (_) => _connexion(),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _isLoading ? null : _motDePasseOublie,
+                child: Text(l.t('login_forgot_password')),
+              ),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 4),
+              _ErrorBanner(message: _errorMessage!),
+            ],
+            if (_isLocked) ...[
+              const SizedBox(height: 12),
+              _LockBanner(seconds: _lockSeconds),
+            ],
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: (_isLoading || _isLocked) ? null : _connexion,
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
+                disabledBackgroundColor:
+                    Theme.of(context).disabledColor.withValues(alpha: 0.2),
+              ),
+              child: _isLoading
+                  ? const _Spinner()
+                  : Text(l.t('login_button'),
+                      style: const TextStyle(fontSize: 16)),
             ),
           ],
         ),
@@ -458,44 +334,42 @@ class _OtpConnexionTabState extends State<_OtpConnexionTab> {
 }
 
 // ==============================================================
-// TAB INSCRIPTION
-// Étape 1 : nom/prénom/photo + numéro → Étape 2 : code OTP
+// TAB INSCRIPTION — photo + nom/prénom + téléphone + email + mot de passe
 // ==============================================================
-class _OtpInscriptionTab extends StatefulWidget {
-  const _OtpInscriptionTab();
+class _InscriptionTab extends StatefulWidget {
+  const _InscriptionTab();
   @override
-  State<_OtpInscriptionTab> createState() => _OtpInscriptionTabState();
+  State<_InscriptionTab> createState() => _InscriptionTabState();
 }
 
-class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
-  _Etape _etape = _Etape.telephone;
+class _InscriptionTabState extends State<_InscriptionTab> {
+  final _formKey     = GlobalKey<FormState>();
+  final _prenomCtrl  = TextEditingController();
+  final _nomCtrl     = TextEditingController();
+  final _telCtrl     = TextEditingController();
+  final _emailCtrl   = TextEditingController();
+  final _passCtrl    = TextEditingController();
+  final _pass2Ctrl   = TextEditingController();
 
-  final _step1FormKey = GlobalKey<FormState>();
-  final _otpFormKey   = GlobalKey<FormState>();
-  final _prenomCtrl   = TextEditingController();
-  final _nomCtrl      = TextEditingController();
-  final _telCtrl      = TextEditingController();
-  final _otpCtrl      = TextEditingController();
-
-  String  _verificationId = '';
-  bool    _isLoading      = false;
+  bool    _isLoading    = false;
+  bool    _obscure      = true;
+  bool    _obscure2     = true;
   String? _errorMessage;
   XFile?  _photo;
-  bool    _cguAcceptees  = false;
+  bool    _cguAcceptees = false;
 
-  int    _lockSeconds   = 0;
+  int    _lockSeconds = 0;
   Timer? _lockTimer;
-  int    _resendSeconds = 0;
-  Timer? _resendTimer;
 
   @override
   void dispose() {
     _lockTimer?.cancel();
-    _resendTimer?.cancel();
     _prenomCtrl.dispose();
     _nomCtrl.dispose();
     _telCtrl.dispose();
-    _otpCtrl.dispose();
+    _emailCtrl.dispose();
+    _passCtrl.dispose();
+    _pass2Ctrl.dispose();
     super.dispose();
   }
 
@@ -510,22 +384,10 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
     });
   }
 
-  void _startResendCountdown() {
-    _resendTimer?.cancel();
-    setState(() => _resendSeconds = 60);
-    _resendTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) { t.cancel(); return; }
-      setState(() { if (--_resendSeconds <= 0) { t.cancel(); _resendSeconds = 0; } });
-    });
-  }
-
-  String get _fullPhone => '+237${_telCtrl.text.trim()}';
-
   Future<void> _pickPhoto(ImageSource source) async {
     final type = source == ImageSource.camera ? MediaType.camera : MediaType.photos;
     if (!await demanderPermissionMedia(context, type)) return;
-    final img = await ImagePicker().pickImage(
-        source: source, imageQuality: 80);
+    final img = await ImagePicker().pickImage(source: source, imageQuality: 80);
     if (img != null && mounted) setState(() => _photo = img);
   }
 
@@ -536,8 +398,8 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
     return null;
   }
 
-  Future<void> _envoyerCode() async {
-    if (!_step1FormKey.currentState!.validate()) return;
+  Future<void> _inscription() async {
+    if (!_formKey.currentState!.validate()) return;
     if (!_cguAcceptees) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(AppLocalizations.of(context).t('login_cgu_required')),
@@ -547,80 +409,26 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
       ));
       return;
     }
-    final auth = AuthService.instance;
-    if (auth.isBlocked) {
-      _startLockCountdown(auth.remainingLockDuration.inSeconds);
-      return;
-    }
     setState(() { _isLoading = true; _errorMessage = null; });
 
-    try {
-      await auth.envoyerOtp(
-        telephone: _fullPhone,
-        onCodeSent: (vid) {
-          if (!mounted) return;
-          setState(() {
-            _verificationId = vid;
-            _etape          = _Etape.otp;
-            _isLoading      = false;
-          });
-          _startResendCountdown();
-        },
-        onError: (e) {
-          if (!mounted) return;
-          final l = AppLocalizations.of(context);
-          setState(() {
-            _isLoading    = false;
-            _errorMessage = (e.code == 'invalid-phone-number' ||
-                    e.code == 'missing-phone-number')
-                ? l.t('login_phone_invalid')
-                : l.t('login_sms_error');
-          });
-        },
-        onAutoVerified: (credential) async {
-          if (!mounted) return;
-          setState(() => _isLoading = true);
-          final result = await auth.signInWithPhoneCredential(credential);
-          if (!mounted) return;
-          if (result == AuthResult.success) {
-            await _completeProfile();
-          } else {
-            setState(() => _isLoading = false);
-            _handleResult(result);
-          }
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() { _isLoading = false; _errorMessage = 'Erreur inattendue : $e'; });
-    }
-  }
-
-  Future<void> _verifierCode() async {
-    if (!_otpFormKey.currentState!.validate()) return;
     final auth = AuthService.instance;
-    if (auth.isBlocked) {
-      _startLockCountdown(auth.remainingLockDuration.inSeconds);
-      return;
-    }
-    setState(() { _isLoading = true; _errorMessage = null; });
-
-    final result = await auth.verifierOtp(
-      verificationId: _verificationId,
-      smsCode: _otpCtrl.text.trim(),
+    final result = await auth.register(
+      email:     _emailCtrl.text.trim(),
+      password:  _passCtrl.text,
+      nom:       _nomCtrl.text.trim(),
+      prenom:    _prenomCtrl.text.trim(),
+      telephone: '+237${_telCtrl.text.trim()}',
     );
-    if (!mounted) return;
-    if (result == AuthResult.success) {
-      await _completeProfile();
-    } else {
-      setState(() => _isLoading = false);
-      _handleResult(result);
-    }
-  }
 
-  Future<void> _completeProfile() async {
-    final auth = AuthService.instance;
-    String? photoUrl;
+    if (!mounted) return;
+
+    if (result != AuthResult.success) {
+      setState(() => _isLoading = false);
+      _handleError(result);
+      return;
+    }
+
+    // Compte créé : upload de la photo (optionnelle, non bloquante).
     if (_photo != null && auth.currentUser != null) {
       try {
         final urls = await StorageService.uploadMultiplePhotos(
@@ -628,66 +436,48 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
           logementId: 'profile_${auth.currentUser!.id}',
           images:     [_photo!],
         );
-        if (urls.isNotEmpty) photoUrl = urls.first;
+        if (urls.isNotEmpty) {
+          await auth.updatePhotoUrl(urls.first);
+        }
       } catch (_) {
         // photo non bloquante
       }
     }
-    await auth.updateProfile(
-      nom:      _nomCtrl.text.trim(),
-      prenom:   _prenomCtrl.text.trim(),
-      photoUrl: photoUrl,
-    );
+
     if (!mounted) return;
     setState(() => _isLoading = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content:
-          Text(AppLocalizations.of(context).t('login_register_complete')),
-      backgroundColor: Colors.green.shade700,
-      behavior: SnackBarBehavior.floating,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-    ));
+
+    // Confirmation + rappel de vérification d'email, puis retour connecté.
+    await showEmailVerificationDialog(context, _emailCtrl.text.trim());
+    if (!mounted) return;
     Navigator.pop(context, true);
   }
 
-  void _handleResult(AuthResult result) {
+  void _handleError(AuthResult result) {
     final l = AppLocalizations.of(context);
     switch (result) {
-      case AuthResult.wrongCredentials:
-        final auth = AuthService.instance;
-        if (auth.isBlocked) {
-          _startLockCountdown(auth.remainingLockDuration.inSeconds);
-          setState(() => _errorMessage = null);
-        } else {
-          setState(() => _errorMessage = l.t('login_otp_invalid'));
-        }
-      case AuthResult.otpExpired:
-        setState(() => _errorMessage = l.t('login_otp_expired'));
+      case AuthResult.emailAlreadyUsed:
+        setState(() => _errorMessage = l.t('login_error_already_registered'));
+      case AuthResult.invalidEmail:
+        setState(() => _errorMessage = l.t('login_email_invalid'));
+      case AuthResult.weakPassword:
+        setState(() => _errorMessage = l.t('login_password_too_short'));
       case AuthResult.tooManyAttempts:
         _startLockCountdown(
             AuthService.instance.remainingLockDuration.inSeconds);
         setState(() => _errorMessage = null);
-      case AuthResult.networkError:
-        setState(() => _errorMessage = l.t('login_error_network'));
       default:
-        break;
+        setState(() => _errorMessage = l.t('login_error_network_register'));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return _etape == _Etape.telephone
-        ? _buildStep1(context)
-        : _buildStep2(context);
-  }
-
-  Widget _buildStep1(BuildContext context) {
     final l = AppLocalizations.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Form(
-        key: _step1FormKey,
+        key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -744,7 +534,8 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
                   ),
                 ]),
                 Text(l.t('login_profile_photo'),
-                    style: AppTextStyles.caption.copyWith(color: context.appTextSecondary)),
+                    style: AppTextStyles.caption
+                        .copyWith(color: context.appTextSecondary)),
               ]),
             ),
             const SizedBox(height: 16),
@@ -754,30 +545,30 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
               Expanded(
                 child: TextFormField(
                   controller: _prenomCtrl,
-                  decoration: InputDecoration(
-                      labelText: l.t('login_firstname')),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty)
-                          ? l.t('form_required')
-                          : null,
+                  textCapitalization: TextCapitalization.words,
+                  decoration:
+                      InputDecoration(labelText: l.t('login_firstname')),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? l.t('form_required')
+                      : null,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: TextFormField(
                   controller: _nomCtrl,
+                  textCapitalization: TextCapitalization.words,
                   decoration:
                       InputDecoration(labelText: l.t('login_lastname')),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty)
-                          ? l.t('form_required')
-                          : null,
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? l.t('form_required')
+                      : null,
                 ),
               ),
             ]),
             const SizedBox(height: 12),
 
-            // ─── TÉLÉPHONE ────────────────────────────────────
+            // ─── TÉLÉPHONE (contact, pas d'auth) ─────────────
             TextFormField(
               controller: _telCtrl,
               keyboardType: TextInputType.phone,
@@ -793,14 +584,72 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
               ),
               validator: _validatePhone,
             ),
-            const SizedBox(height: 6),
-            Text(l.t('login_register_otp_info'),
-                style: AppTextStyles.caption.copyWith(color: context.appTextSecondary)),
+            const SizedBox(height: 12),
+
+            // ─── EMAIL ────────────────────────────────────────
+            TextFormField(
+              controller: _emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const [AutofillHints.email],
+              decoration: InputDecoration(
+                labelText: l.t('login_email_field'),
+                prefixIcon: const Icon(Icons.email_outlined),
+                hintText: l.t('login_email_hint'),
+              ),
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return l.t('form_required');
+                if (!_isValidEmail(v)) return l.t('login_email_invalid');
+                return null;
+              },
+            ),
+            const SizedBox(height: 4),
+            Text(l.t('login_register_email_info'),
+                style: AppTextStyles.caption
+                    .copyWith(color: context.appTextSecondary)),
+            const SizedBox(height: 12),
+
+            // ─── MOT DE PASSE ─────────────────────────────────
+            TextFormField(
+              controller: _passCtrl,
+              obscureText: _obscure,
+              autofillHints: const [AutofillHints.newPassword],
+              decoration: InputDecoration(
+                labelText: l.t('login_password_field'),
+                prefixIcon: const Icon(Icons.lock_outline),
+                helperText: l.t('login_password_hint'),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                      _obscure ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                ),
+              ),
+              validator: (v) => (v == null || v.length < 6)
+                  ? l.t('login_password_too_short')
+                  : null,
+            ),
+            const SizedBox(height: 12),
+
+            // ─── CONFIRMATION MOT DE PASSE ────────────────────
+            TextFormField(
+              controller: _pass2Ctrl,
+              obscureText: _obscure2,
+              decoration: InputDecoration(
+                labelText: l.t('login_password_confirm'),
+                prefixIcon: const Icon(Icons.lock_outline),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                      _obscure2 ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscure2 = !_obscure2),
+                ),
+              ),
+              validator: (v) => (v != _passCtrl.text)
+                  ? l.t('login_password_mismatch')
+                  : null,
+            ),
 
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
               _ErrorBanner(message: _errorMessage!),
-              if (kDebugMode) const _DebugDiagBanner(),
             ],
             if (_isLocked) ...[
               const SizedBox(height: 12),
@@ -808,6 +657,7 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
             ],
             const SizedBox(height: 16),
 
+            // ─── CGU ──────────────────────────────────────────
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -846,14 +696,15 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
             const SizedBox(height: 16),
 
             ElevatedButton(
-              onPressed: (_isLoading || _isLocked) ? null : _envoyerCode,
+              onPressed: (_isLoading || _isLocked) ? null : _inscription,
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
-                disabledBackgroundColor: Theme.of(context).disabledColor.withValues(alpha: 0.2),
+                disabledBackgroundColor:
+                    Theme.of(context).disabledColor.withValues(alpha: 0.2),
               ),
               child: _isLoading
                   ? const _Spinner()
-                  : Text(l.t('login_send_code'),
+                  : Text(l.t('login_register_cta'),
                       style: const TextStyle(fontSize: 16)),
             ),
             const SizedBox(height: 40),
@@ -862,214 +713,222 @@ class _OtpInscriptionTabState extends State<_OtpInscriptionTab> {
       ),
     );
   }
-
-  Widget _buildStep2(BuildContext context) {
-    final l = AppLocalizations.of(context);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Form(
-        key: _otpFormKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 16),
-            Text(l.t('login_otp_title'), style: AppTextStyles.h3.copyWith(color: context.appTextPrimary)),
-            const SizedBox(height: 8),
-            RichText(
-              text: TextSpan(
-                style: AppTextStyles.bodyMedium
-                    .copyWith(color: AppColors.textSecondary),
-                children: [
-                  TextSpan(text: l.t('login_otp_sent_to')),
-                  TextSpan(
-                    text: '+237 ${_telCtrl.text.trim()}',
-                    style: const TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(l.t('login_otp_enter'), style: AppTextStyles.caption),
-            const SizedBox(height: 20),
-            _OtpField(controller: _otpCtrl),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 12),
-              _ErrorBanner(message: _errorMessage!),
-              if (kDebugMode) const _DebugDiagBanner(),
-            ],
-            if (_isLocked) ...[
-              const SizedBox(height: 12),
-              _LockBanner(seconds: _lockSeconds),
-            ],
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: (_isLoading || _isLocked) ? null : _verifierCode,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 50),
-                disabledBackgroundColor: Theme.of(context).disabledColor.withValues(alpha: 0.2),
-              ),
-              child: _isLoading
-                  ? const _Spinner()
-                  : Text(l.t('login_verify_code'),
-                      style: const TextStyle(fontSize: 16)),
-            ),
-            const SizedBox(height: 16),
-            Center(
-              child: _resendSeconds > 0
-                  ? Text(
-                      '${l.t('login_otp_resend_in')} ${_resendSeconds}s',
-                      style: AppTextStyles.bodyMedium
-                          .copyWith(color: context.appTextSecondary),
-                    )
-                  : TextButton(
-                      onPressed: _isLoading ? null : _envoyerCode,
-                      child: Text(l.t('login_otp_resend')),
-                    ),
-            ),
-            Center(
-              child: TextButton(
-                onPressed: () => setState(() {
-                  _etape        = _Etape.telephone;
-                  _errorMessage = null;
-                  _otpCtrl.clear();
-                  _resendTimer?.cancel();
-                  _resendSeconds = 0;
-                }),
-                child: Text(
-                  l.t('login_otp_change_number'),
-                  style: TextStyle(color: context.appTextSecondary),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
-
-/// Saisie OTP — 6 cases carrées à coins arrondis.
-class _OtpField extends StatefulWidget {
+// ==============================================================
+// FEUILLE « MOT DE PASSE OUBLIÉ »
+// ==============================================================
+class _ForgotPasswordSheet extends StatefulWidget {
   final TextEditingController controller;
-  const _OtpField({required this.controller});
+  const _ForgotPasswordSheet({required this.controller});
 
   @override
-  State<_OtpField> createState() => _OtpFieldState();
+  State<_ForgotPasswordSheet> createState() => _ForgotPasswordSheetState();
 }
 
-class _OtpFieldState extends State<_OtpField> {
-  final _focusNode = FocusNode();
-  bool _focused = false;
+class _ForgotPasswordSheetState extends State<_ForgotPasswordSheet> {
+  bool    _isLoading = false;
+  String? _message;
+  bool    _isError = false;
 
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.addListener(_rebuild);
-    _focusNode.addListener(_onFocus);
+  Future<void> _envoyer() async {
+    final l = AppLocalizations.of(context);
+    final email = widget.controller.text.trim();
+    if (email.isEmpty || !_isValidEmail(email)) {
+      setState(() { _isError = true; _message = l.t('login_email_invalid'); });
+      return;
+    }
+    setState(() { _isLoading = true; _message = null; });
+    final result = await AuthService.instance.sendPasswordReset(email);
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      if (result == AuthResult.success) {
+        _isError = false;
+        _message = '${l.t('login_forgot_sent')} $email. '
+            '${l.t('login_forgot_check_spam')}';
+      } else if (result == AuthResult.wrongCredentials) {
+        _isError = true;
+        _message = l.t('login_forgot_no_account');
+      } else {
+        _isError = true;
+        _message = l.t('login_error_network');
+      }
+    });
   }
-
-  @override
-  void dispose() {
-    widget.controller.removeListener(_rebuild);
-    _focusNode.removeListener(_onFocus);
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  void _rebuild() => setState(() {});
-  void _onFocus() => setState(() => _focused = _focusNode.hasFocus);
 
   @override
   Widget build(BuildContext context) {
-    final code = widget.controller.text;
-    return GestureDetector(
-      onTap: () => _focusNode.requestFocus(),
-      child: SizedBox(
-        height: 58,
-        child: Stack(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(6, (i) {
-                final filled = i < code.length;
-                final active = _focused && i == code.length;
-                return Container(
-                  width: 46,
-                  height: 58,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: active
-                          ? AppColors.primary
-                          : filled
-                              ? AppColors.primary.withValues(alpha: 0.6)
-                              : AppColors.primary.withValues(alpha: 0.25),
-                      width: active ? 2.0 : 1.5,
-                    ),
-                    boxShadow: active
-                        ? [BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            spreadRadius: 1,
-                          )]
-                        : null,
-                  ),
-                  child: Center(
-                    child: filled
-                        ? Text(
-                            code[i],
-                            style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primary,
-                            ),
-                          )
-                        : active
-                            ? Container(
-                                width: 1.5,
-                                height: 22,
-                                color: AppColors.primary,
-                              )
-                            : null,
-                  ),
-                );
-              }),
+    final l = AppLocalizations.of(context);
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l.t('login_forgot_title'),
+              style: AppTextStyles.h3.copyWith(color: context.appTextPrimary)),
+          const SizedBox(height: 8),
+          Text(l.t('login_forgot_subtitle'),
+              style: AppTextStyles.bodyMedium
+                  .copyWith(color: context.appTextSecondary)),
+          const SizedBox(height: 16),
+          TextField(
+            controller: widget.controller,
+            keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(
+              labelText: l.t('login_email_field'),
+              prefixIcon: const Icon(Icons.email_outlined),
+              hintText: l.t('login_email_hint'),
             ),
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0,
-                child: TextFormField(
-                  controller: widget.controller,
-                  focusNode: _focusNode,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(6),
-                  ],
-                  maxLength: 6,
-                  validator: (v) => (v == null || v.length != 6)
-                      ? AppLocalizations.of(context).t('login_otp_invalid')
-                      : null,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    counterText: '',
-                    border: InputBorder.none,
-                  ),
-                ),
-              ),
-            ),
+          ),
+          if (_message != null) ...[
+            const SizedBox(height: 12),
+            _isError
+                ? _ErrorBanner(message: _message!)
+                : _SuccessBanner(message: _message!),
           ],
-        ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _isLoading ? null : _envoyer,
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: _isLoading
+                ? const _Spinner()
+                : Text(l.t('login_forgot_send')),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l.t('login_close')),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Bannière d'erreur rouge (code invalide, expiré, réseau).
+// ==============================================================
+// DIALOG DE VÉRIFICATION D'EMAIL
+// Réutilisable : après inscription et depuis le profil.
+// ==============================================================
+Future<void> showEmailVerificationDialog(
+    BuildContext context, String email) {
+  final l = AppLocalizations.of(context);
+  return showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => _EmailVerificationDialog(email: email, l: l),
+  );
+}
+
+class _EmailVerificationDialog extends StatefulWidget {
+  final String email;
+  final AppLocalizations l;
+  const _EmailVerificationDialog({required this.email, required this.l});
+
+  @override
+  State<_EmailVerificationDialog> createState() =>
+      _EmailVerificationDialogState();
+}
+
+class _EmailVerificationDialogState extends State<_EmailVerificationDialog> {
+  bool _busy = false;
+
+  Future<void> _renvoyer() async {
+    setState(() => _busy = true);
+    final result = await AuthService.instance.renvoyerEmailVerification();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final l = widget.l;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(result == AuthResult.success
+          ? l.t('login_verify_resent')
+          : l.t('login_error_network')),
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
+  Future<void> _jaiVerifie() async {
+    setState(() => _busy = true);
+    final ok = await AuthService.instance.reloadEmailVerifie();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    if (ok) {
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text(widget.l.t('login_verify_ok')),
+        backgroundColor: Colors.green.shade700,
+        behavior: SnackBarBehavior.floating,
+      ));
+    } else {
+      messenger.showSnackBar(SnackBar(
+        content: Text(widget.l.t('login_verify_not_yet')),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = widget.l;
+    return AlertDialog(
+      title: Row(children: [
+        const Icon(Icons.mark_email_unread_outlined, color: AppColors.primary),
+        const SizedBox(width: 8),
+        Expanded(child: Text(l.t('login_verify_email_title'))),
+      ]),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l.t('login_verify_email_intro')),
+          const SizedBox(height: 4),
+          Text(widget.email,
+              style: const TextStyle(
+                  color: AppColors.primary, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 12),
+          Text(l.t('login_verify_email_instr'),
+              style: AppTextStyles.caption
+                  .copyWith(color: context.appTextSecondary)),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : _renvoyer,
+          child: Text(l.t('login_verify_resend')),
+        ),
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.pop(context),
+          child: Text(l.t('login_close')),
+        ),
+        ElevatedButton(
+          onPressed: _busy ? null : _jaiVerifie,
+          child: _busy
+              ? const _Spinner()
+              : Text(l.t('login_verify_check')),
+        ),
+      ],
+    );
+  }
+}
+
+// ==============================================================
+// BANNIÈRES & INDICATEURS PARTAGÉS
+// ==============================================================
+
+/// Bannière d'erreur rouge.
 class _ErrorBanner extends StatelessWidget {
   final String message;
   const _ErrorBanner({required this.message});
@@ -1078,8 +937,7 @@ class _ErrorBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: AppColors.error.withValues(alpha: 0.1),
         border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
@@ -1088,16 +946,46 @@ class _ErrorBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.error_outline,
-              color: AppColors.error, size: 18),
+          const Icon(Icons.error_outline, color: AppColors.error, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
-              style: TextStyle(
-                  color: AppColors.error,
-                  fontSize: 13,
-                  height: 1.4),
+              style: const TextStyle(
+                  color: AppColors.error, fontSize: 13, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bannière de succès verte.
+class _SuccessBanner extends StatelessWidget {
+  final String message;
+  const _SuccessBanner({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final green = Colors.green.shade700;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: green.withValues(alpha: 0.1),
+        border: Border.all(color: green.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.check_circle_outline, color: green, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: green, fontSize: 13, height: 1.4),
             ),
           ),
         ],
@@ -1120,8 +1008,7 @@ class _LockBanner extends StatelessWidget {
         : '${l.t('common_retry')} dans ${seconds}s.';
     return Container(
       width: double.infinity,
-      padding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: AppColors.error.withValues(alpha: 0.1),
         border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
@@ -1130,95 +1017,13 @@ class _LockBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.lock_clock,
-              color: AppColors.error, size: 18),
+          const Icon(Icons.lock_clock, color: AppColors.error, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               '${l.t('login_locked_prefix')}\n$retry',
-              style: TextStyle(
-                  color: AppColors.error,
-                  fontSize: 13,
-                  height: 1.4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Bannière de diagnostic OTP (debug uniquement).
-/// Affiche la cause probable + action conseillée + bouton vers l'écran diag.
-class _DebugDiagBanner extends StatelessWidget {
-  const _DebugDiagBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    final diag = AuthService.lastOtpDiag;
-    if (diag == null) return const SizedBox.shrink();
-    final l = AppLocalizations.of(context);
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.orange.withValues(alpha: 0.1),
-        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Icon(Icons.bug_report_outlined,
-                color: Colors.orange.shade800, size: 16),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                l.t('otp_diag_banner_title'),
-                style: TextStyle(
-                    color: Colors.orange.shade900,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700),
-              ),
-            ),
-          ]),
-          const SizedBox(height: 4),
-          Text(
-            l.t(diag.i18nReasonKey),
-            style: TextStyle(
-                color: Colors.orange.shade900,
-                fontSize: 13,
-                fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            l.t(diag.i18nHintKey),
-            style: TextStyle(
-                color: Colors.orange.shade900,
-                fontSize: 11,
-                height: 1.4),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'code: ${diag.code}',
-            style: const TextStyle(
-                fontSize: 10, fontFamily: 'monospace'),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DiagOtpScreen()),
-              ),
-              icon: const Icon(Icons.open_in_new, size: 12),
-              label: Text(l.t('otp_diag_more'),
-                  style: const TextStyle(fontSize: 11)),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: const Size(0, 28),
-              ),
+              style: const TextStyle(
+                  color: AppColors.error, fontSize: 13, height: 1.4),
             ),
           ),
         ],

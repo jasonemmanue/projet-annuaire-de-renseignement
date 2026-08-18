@@ -494,33 +494,48 @@ class _UtilisateursTabState extends State<_UtilisateursTab> {
     final l = AppLocalizations.of(context);
     final nomCtrl = TextEditingController();
     final prenomCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
     final telCtrl = TextEditingController();
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: Text(l.t('admin_creer_gratuit_title')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: prenomCtrl,
-              decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_prenom')),
-              textCapitalization: TextCapitalization.words,
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: nomCtrl,
-              decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_nom')),
-              textCapitalization: TextCapitalization.words,
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: telCtrl,
-              decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_tel')),
-              keyboardType: TextInputType.phone,
-            ),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: prenomCtrl,
+                decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_prenom')),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: nomCtrl,
+                decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_nom')),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: emailCtrl,
+                decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_email')),
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: passwordCtrl,
+                decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_password')),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: telCtrl,
+                decoration: InputDecoration(labelText: l.t('admin_creer_gratuit_tel')),
+                keyboardType: TextInputType.phone,
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -540,9 +555,17 @@ class _UtilisateursTabState extends State<_UtilisateursTab> {
 
     final nom = nomCtrl.text.trim();
     final prenom = prenomCtrl.text.trim();
+    final email = emailCtrl.text.trim();
+    final password = passwordCtrl.text;
     String tel = telCtrl.text.trim();
-    if (nom.isEmpty || prenom.isEmpty || tel.isEmpty) return;
-    if (!tel.startsWith('+')) tel = '+237$tel';
+    if (nom.isEmpty || prenom.isEmpty || email.isEmpty || password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(l.t('admin_creer_gratuit_champs_requis')),
+        backgroundColor: AppColors.error,
+      ));
+      return;
+    }
+    if (tel.isNotEmpty && !tel.startsWith('+')) tel = '+237$tel';
 
     try {
       final token = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
@@ -552,7 +575,13 @@ class _UtilisateursTabState extends State<_UtilisateursTab> {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: jsonEncode({'telephone': tel, 'nom': nom, 'prenom': prenom}),
+        body: jsonEncode({
+          'email': email,
+          'password': password,
+          'nom': nom,
+          'prenom': prenom,
+          'telephone': tel,
+        }),
       );
       if (!mounted) return;
       if (resp.statusCode == 200) {

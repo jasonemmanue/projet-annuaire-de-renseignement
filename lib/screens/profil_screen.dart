@@ -6,6 +6,7 @@ import '../app_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
+import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/shared_widgets.dart' as sw;
 import 'auth/login_screen.dart';
@@ -89,6 +90,19 @@ class _ProfilScreenState extends State<ProfilScreen> {
                 utilisateur: widget.utilisateur,
                 isPrestataire: widget.isPrestataire,
               ),
+
+              if (widget.isPrestataire &&
+                  widget.utilisateur != null &&
+                  AuthService.instance.currentUser?.compteGratuit != true &&
+                  !AuthService.instance.isEmailVerified) ...[
+                const SizedBox(height: 12),
+                _EmailNonVerifieBanner(
+                  email: AuthService.instance.currentEmail ??
+                      widget.utilisateur?.email ??
+                      '',
+                  onChanged: () => setState(() {}),
+                ),
+              ],
 
               const SizedBox(height: 12),
 
@@ -625,6 +639,64 @@ class _ModificationProfilScreen extends StatelessWidget {
               child: Text(l.t('common_save')),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bannière orange affichée aux prestataires dont l'email n'est pas vérifié.
+/// Ouvre le dialog de vérification (renvoi du lien + rafraîchissement).
+class _EmailNonVerifieBanner extends StatelessWidget {
+  final String email;
+  final VoidCallback onChanged;
+  const _EmailNonVerifieBanner({required this.email, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () async {
+          await showEmailVerificationDialog(context, email);
+          onChanged();
+        },
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.warning.withValues(alpha: 0.12),
+            border: Border.all(color: AppColors.warning.withValues(alpha: 0.5)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.mark_email_unread_outlined,
+                  color: AppColors.warning),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l.t('login_verify_banner'),
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      l.t('login_verify_resend'),
+                      style: TextStyle(
+                          fontSize: 12, color: context.appTextSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: AppColors.warning),
+            ],
+          ),
         ),
       ),
     );
