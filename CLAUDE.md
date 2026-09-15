@@ -4,51 +4,6 @@
 
 ---
 
-## Journal des correctifs récents
-
-### 2026-09-15 — Messagerie instantanée, notes vocales, tag/répondre pour tout média
-- **Cache local persistant `SessionCache`** (`lib/utils/session_cache.dart`,
-  SharedPreferences, TTL 7 j). L'écran Messagerie relit la dernière liste
-  connue au démarrage, la fusionne avec le cache Firestore local
-  (`Source.cache`, actif via `persistenceEnabled`), puis se rafraîchit sur
-  le stream serveur. Fin du spinner infini : sans réseau, on affiche la
-  dernière liste sauvegardée. Avec un cache vide, un fallback écran vide
-  après 6 s remplace la roue permanente.
-- **Notes vocales** (nouveau type de message `audio`) :
-  - `record ^5.1.2` (enregistrement AAC-LC 128 kbps mono en `.m4a`)
-    + `audioplayers ^6.1.0` (lecture streaming avec `UrlSource`)
-    + `path_provider ^2.1.4` (dossier temporaire).
-  - Permission `RECORD_AUDIO` ajoutée dans `AndroidManifest.xml`.
-  - **Bouton dynamique** `lib/widgets/audio_recorder_button.dart` : icône
-    micro par défaut, bascule automatiquement en icône envoyer dès qu'un
-    texte est saisi. Long-press sur le micro pour enregistrer, glisser
-    « Annuler » pour ne pas envoyer, timer mm:ss visible pendant. Un
-    enregistrement < 500 ms est considéré comme un tap accidentel.
-  - **Bulle audio** `lib/widgets/audio_message_bubble.dart` : bouton
-    play/pause, slider de position, compteur mm:ss / mm:ss. Utilise la
-    durée mémorisée à l'envoi (`audioDurationMs`) tant que le lecteur
-    n'a pas confirmé la durée réelle.
-  - `MessagerieService.sendAudio` téléverse dans
-    `messages/{conv}/audio/*.m4a` puis crée le document
-    `{type: 'audio', audioUrl, audioDurationMs, ...}`. Le
-    `lastMessage` de la conversation devient « 🎤 Note vocale ».
-  - Cloud Function `sendChatNotification` reconnaît `audio` (+ `video`)
-    et pousse « 🎤 Note vocale » dans la notif.
-- **Tag/répondre à tous les types** :
-  - L'extrait cité prend un libellé typé (« 📷 Photo », « 🎬 Vidéo »,
-    « 🎤 Note vocale », « 📎 <nom> ») quand il n'y a pas de texte, au
-    lieu du générique « Pièce jointe » qui masquait le type.
-  - Le long-press sur une bulle ouvre le menu contextuel pour **tous**
-    les messages (texte, image, vidéo, note vocale, fichier), y compris
-    ceux reçus. Option **Répondre** ajoutée en tête ; **Modifier** reste
-    limité au texte propre dans les 2 min ; **Supprimer** couvre tous
-    les médias envoyés par soi dans la même fenêtre.
-- Déploiement : `firebase deploy --only functions,firestore:rules`.
-
----
-
----
-
 ## Identité du projet
 
 **App :** horem_plus (titre affiché « Horem+ »)  

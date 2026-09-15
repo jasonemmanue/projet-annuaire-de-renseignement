@@ -145,10 +145,6 @@ exports.sendChatNotification = onDocumentCreated(
     let notifBody;
     if (type === "image") {
       notifBody = "📷 Vous a envoyé une photo";
-    } else if (type === "video") {
-      notifBody = "🎬 Vous a envoyé une vidéo";
-    } else if (type === "audio") {
-      notifBody = "🎤 Note vocale";
     } else if (type === "file") {
       notifBody = `📎 ${msg.fileName ?? "Fichier"}`;
     } else {
