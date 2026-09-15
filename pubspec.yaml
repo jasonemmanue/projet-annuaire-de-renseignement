@@ -86,17 +86,9 @@ dependencies:
   webview_flutter: ^4.10.0
 
   # Notes vocales : enregistrement + lecture
-  record: 5.2.1
+  record: ^5.1.2
   audioplayers: ^6.1.0
   path_provider: ^2.1.4
-
-dependency_overrides:
-  # `record_linux` 0.7.2 est publie contre une ancienne interface — il refuse
-  # de compiler avec `record_platform_interface` moderne, meme quand on
-  # construit uniquement pour Android. On epingle a une version connue
-  # compatible avec `record` 5.2.1.
-  record_linux: 0.7.2
-  record_platform_interface: 1.1.0
 
 dev_dependencies:
   flutter_test:
