@@ -46,7 +46,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Horem+ accède à vos photos pour illustrer vos annonces et publicités</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Horem+ utilise le microphone pour enregistrer des vidéos</string>
+	<string>Horem+ utilise le microphone pour enregistrer des notes vocales et des vidéos dans vos discussions.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Horem+ utilise votre position pour afficher les annonces proches de vous</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

@@ -15,8 +15,13 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- Notes vocales : enregistrement audio -->
+    <!-- Notes vocales : enregistrement + lecture des fichiers audio -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <!-- Wake lock : sur certains OEMs (Xiaomi, Oppo) la lecture audio en
+         arriere-plan est coupee sans lui, meme moteur bref d'une note vocale. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
     <application
         android:label="Horem+"
