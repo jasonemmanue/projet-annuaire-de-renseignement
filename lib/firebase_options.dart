@@ -52,7 +52,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDX7WhRXy09q0x8uGR3STEJ4XgTEcq7NIE',
-    appId: '1:623906779506:android:25c3875728d2a668a52deb',
+    appId: '1:623906779506:android:4b5d3d86674fe7f4a52deb',
     messagingSenderId: '623906779506',
     projectId: 'sgk-home',
     storageBucket: 'sgk-home.firebasestorage.app',

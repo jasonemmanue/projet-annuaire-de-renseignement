@@ -11,6 +11,9 @@
 // Jamais les deux en même temps → pas de confusion de boîtes.
 // ============================================================
 
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -21,7 +24,6 @@ import 'package:uuid/uuid.dart';
 import 'package:flutter/services.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:video_player/video_player.dart';
-import 'dart:io';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
@@ -30,6 +32,9 @@ import '../services/messagerie_service.dart';
 import '../services/analytics_service.dart';
 import '../services/logement_service.dart';
 import '../utils/media_permission.dart';
+import '../utils/session_cache.dart';
+import '../widgets/audio_message_bubble.dart';
+import '../widgets/audio_recorder_button.dart';
 
 // ─── UID visiteur persisté ────────────────────────────────────
 Future<String> getOrCreateVisitorId() async {
@@ -83,10 +88,30 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
   String? _uid;
   bool _isPrestataire = false;
 
+  /// Cache statique par uid : ouverture instantanee, meme apres redemarrage.
+  /// Alimente par (1) SharedPreferences au demarrage, (2) le cache Firestore
+  /// local, puis (3) rafraichi par le stream.
+  static final Map<String, List<Map<String, dynamic>>> _memCache = {};
+
+  /// Delai apres lequel on renonce au spinner et on affiche l'ecran vide,
+  /// pour eviter la roue infinie quand le reseau ne repond pas.
+  static const Duration _softTimeout = Duration(seconds: 6);
+  bool _softTimedOut = false;
+  Timer? _timeoutTimer;
+
   @override
   void initState() {
     super.initState();
     _initUid();
+    _timeoutTimer = Timer(_softTimeout, () {
+      if (mounted) setState(() => _softTimedOut = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timeoutTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _initUid() async {
@@ -95,6 +120,7 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
         _uid = widget.forceUid;
         _isPrestataire = AuthService.instance.isLoggedIn;
       });
+      _warmCaches(widget.forceUid!);
       return;
     }
     final uid = await resolveCurrentUid();
@@ -103,7 +129,146 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
         _uid = uid;
         _isPrestataire = AuthService.instance.isLoggedIn;
       });
+      _warmCaches(uid);
     }
+  }
+
+  Widget _emptyState(BuildContext context, AppLocalizations l) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.chat_bubble_outline,
+              size: 64, color: AppColors.textHint),
+          const SizedBox(height: 16),
+          Text(l.t('messages_empty'), style: AppTextStyles.h3),
+          const SizedBox(height: 8),
+          Text(
+            _isPrestataire
+                ? l.t('messages_empty_prestataire')
+                : l.t('messages_empty_desc'),
+            style: TextStyle(color: context.appTextSecondary),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Rendu de secours pendant que le stream Firestore n'a pas encore ouvert :
+  /// on affiche la derniere liste connue au lieu d'un spinner.
+  Widget _buildFromCache(BuildContext context, AppLocalizations l) {
+    final entries = _memCache[_uid!] ?? const <Map<String, dynamic>>[];
+    if (entries.isEmpty) return _emptyState(context, l);
+
+    final now = DateTime.now();
+    Timestamp? tsOf(Map<String, dynamic> d, String key) =>
+        d[key] is Timestamp ? d[key] as Timestamp : null;
+
+    bool urgenceActive(Map<String, dynamic> d) {
+      final u = tsOf(d, 'urgenceUntil');
+      return u != null && u.toDate().isAfter(now);
+    }
+
+    final sorted = [...entries];
+    sorted.sort((a, b) {
+      final ua = urgenceActive(a);
+      final ub = urgenceActive(b);
+      if (ua && !ub) return -1;
+      if (!ua && ub) return 1;
+      final tA = tsOf(a, 'lastMessageTime');
+      final tB = tsOf(b, 'lastMessageTime');
+      if (tA == null && tB == null) return 0;
+      if (tA == null) return 1;
+      if (tB == null) return -1;
+      return tB.compareTo(tA);
+    });
+
+    return ListView.separated(
+      itemCount: sorted.length,
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 80),
+      itemBuilder: (_, i) {
+        final data = sorted[i];
+        final convId = data['__id'] as String? ?? '';
+        final unread = (data['unread_${_uid!}'] as int?) ?? 0;
+
+        final clientUid = data['client_uid'] as String? ?? '';
+        final prestataireUid = data['prestataire_uid'] as String? ?? '';
+        String otherId;
+        if (clientUid.isNotEmpty && prestataireUid.isNotEmpty) {
+          otherId = _uid == clientUid ? prestataireUid : clientUid;
+        } else {
+          final parts = List<String>.from(data['participants'] ?? []);
+          otherId = parts.firstWhere((p) => p != _uid!, orElse: () => '');
+        }
+        final isOtherVisitor = otherId.startsWith('visiteur_');
+        final contactLabel = data['contact_label'] as String?;
+        final urgenceUntilTs = tsOf(data, 'urgenceUntil');
+        final estUrgent =
+            urgenceUntilTs != null && urgenceUntilTs.toDate().isAfter(now);
+
+        return _ConversationTile(
+          conversationId: convId,
+          logementTitre: data['logement_titre'] ?? 'Logement',
+          logementPhoto: data['logement_photo'],
+          otherId: otherId,
+          contactLabel: contactLabel,
+          isOtherVisitor: isOtherVisitor,
+          lastMessage: data['lastMessage'] ?? '',
+          lastMessageTime: tsOf(data, 'lastMessageTime')?.toDate(),
+          nbNonLus: unread,
+          currentUid: _uid!,
+          isCurrentUserPrestataire: _isPrestataire,
+          urgenceUntil: urgenceUntilTs?.toDate(),
+          estUrgent: estUrgent,
+          onTap: () async {
+            final myUids = await getAllMyUids();
+            if (!context.mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChatScreen(
+                  conversationId: convId,
+                  logementTitre: data['logement_titre'] ?? 'Logement',
+                  logementPhoto: data['logement_photo'],
+                  otherId: otherId,
+                  currentUid: _uid!,
+                  myUids: myUids,
+                  contactLabel: contactLabel,
+                  isOtherVisitor: isOtherVisitor,
+                  isCurrentUserPrestataire: _isPrestataire,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _warmCaches(String uid) async {
+    // 1) Disque (SharedPreferences) — n'attend rien.
+    try {
+      final cached = await SessionCache.loadConversations(uid);
+      if (cached != null && cached.isNotEmpty) {
+        _memCache[uid] = cached;
+        if (mounted) setState(() {});
+      }
+    } catch (_) {}
+    // 2) Cache Firestore local — n'attend rien non plus.
+    try {
+      final snap = await MessagerieService.getConversationsFromCache(uid);
+      if (snap != null && snap.docs.isNotEmpty) {
+        _memCache[uid] = snap.docs
+            .map((d) => {
+                  '__id': d.id,
+                  ...(d.data() as Map<String, dynamic>),
+                })
+            .toList();
+        unawaited(SessionCache.saveConversations(uid, _memCache[uid]!));
+        if (mounted) setState(() {});
+      }
+    } catch (_) {}
   }
 
   @override
@@ -138,7 +303,16 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
           : StreamBuilder<QuerySnapshot>(
               stream: MessagerieService.getConversations(_uid!),
               builder: (context, snapshot) {
+                // Cache disque en dernier recours : pas de spinner infini.
+                final hasCache =
+                    (_memCache[_uid!]?.isNotEmpty ?? false);
                 if (snapshot.connectionState == ConnectionState.waiting) {
+                  if (hasCache) {
+                    return _buildFromCache(context, l);
+                  }
+                  if (_softTimedOut) {
+                    return _emptyState(context, l);
+                  }
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
@@ -159,6 +333,17 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                 }
 
                 final docs = List.from(snapshot.data?.docs ?? []);
+                // Persistance : on garde la derniere liste connue pour un
+                // demarrage instantane la prochaine fois.
+                _memCache[_uid!] = docs
+                    .map((d) => {
+                          '__id': d.id,
+                          ...(d.data() as Map<String, dynamic>),
+                        })
+                    .toList();
+                unawaited(
+                    SessionCache.saveConversations(_uid!, _memCache[_uid!]!));
+
                 final now = DateTime.now();
                 bool urgenceActive(dynamic doc) {
                   final u = (doc.data() as Map)['urgenceUntil'] as Timestamp?;
@@ -183,26 +368,7 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                 });
 
                 if (docs.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.chat_bubble_outline,
-                            size: 64, color: AppColors.textHint),
-                        const SizedBox(height: 16),
-                        Text(l.t('messages_empty'), style: AppTextStyles.h3),
-                        const SizedBox(height: 8),
-                        Text(
-                          _isPrestataire
-                              ? l.t('messages_empty_prestataire')
-                              : l.t('messages_empty_desc'),
-                          style: TextStyle(
-                              color: context.appTextSecondary),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  );
+                  return _emptyState(context, l);
                 }
 
                 return ListView.separated(
@@ -678,6 +844,32 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _envoyerAudio(File file, Duration duration) async {
+    if (!mounted) return;
+    setState(() => _isUploading = true);
+    try {
+      await MessagerieService.sendAudio(
+        conversationId: widget.conversationId,
+        senderId: widget.currentUid,
+        recipientId: widget.otherId,
+        audioFile: file,
+        durationMs: duration.inMilliseconds,
+      );
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur envoi note vocale : $e')));
+      }
+    } finally {
+      // Le fichier temporaire ne sert plus une fois televerse.
+      try {
+        await file.delete();
+      } catch (_) {}
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
   Future<void> _envoyerVideo() async {
     if (!await demanderPermissionMedia(context, MediaType.videos)) return;
     final picker = ImagePicker();
@@ -789,22 +981,19 @@ class _ChatScreenState extends State<ChatScreen> {
     required String messageId,
     required String text,
     required String type,
+    required String senderId,
     required DateTime timestamp,
+    required String extrait,
+    required bool isMe,
   }) {
     final age = DateTime.now().difference(timestamp);
     final withinWindow = age < const Duration(minutes: 2);
-    final canEdit = withinWindow && type == 'text';
-    final canDelete = withinWindow;
-
-    if (!canEdit && !canDelete) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: const Text('Modification impossible après 2 minutes'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        duration: const Duration(seconds: 2),
-      ));
-      return;
-    }
+    // Modifier reste reserve au texte, mais taguer (répondre) et
+    // supprimer se font sur tous les types — image, video, note vocale,
+    // fichier — et depuis n'importe quel côte de la conversation.
+    final canEdit = withinWindow && type == 'text' && isMe;
+    final canDelete = withinWindow && isMe;
+    const canReply = true;
 
     showModalBottomSheet(
       context: context,
@@ -822,6 +1011,20 @@ class _ChatScreenState extends State<ChatScreen> {
                   color: Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(2)),
             ),
+            if (canReply)
+              ListTile(
+                leading: const Icon(Icons.reply_rounded,
+                    color: AppColors.primary),
+                title: const Text('Répondre'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _setReply(ReplyTo(
+                    messageId: messageId,
+                    extrait: extrait,
+                    senderId: senderId,
+                  ));
+                },
+              ),
             if (canEdit)
               ListTile(
                 leading: const Icon(Icons.edit_outlined,
@@ -1014,9 +1217,28 @@ class _ChatScreenState extends State<ChatScreen> {
                         data['edited'] as bool? ?? false;
                     final text =
                         data['text'] as String? ?? '';
-                    final extrait = text.length > 60
-                        ? '${text.substring(0, 60)}…'
-                        : text;
+                    // Extrait pour la citation en réponse : on prend le
+                    // texte s'il existe, sinon un libellé typé selon le média.
+                    // Une image copiée dans un aperçu vaut mieux qu'un
+                    // générique « Pièce jointe » qui empêche de distinguer
+                    // les photos des notes vocales.
+                    String extrait;
+                    if (text.isNotEmpty) {
+                      extrait = text.length > 60
+                          ? '${text.substring(0, 60)}…'
+                          : text;
+                    } else if (type == 'image') {
+                      extrait = '📷 Photo';
+                    } else if (type == 'video') {
+                      extrait = '🎬 Vidéo';
+                    } else if (type == 'audio') {
+                      extrait = '🎤 Note vocale';
+                    } else if (type == 'file') {
+                      final n = data['fileName'] as String? ?? 'Fichier';
+                      extrait = '📎 $n';
+                    } else {
+                      extrait = '📎 Pièce jointe';
+                    }
 
                     return Column(
                       children: [
@@ -1037,14 +1259,17 @@ class _ChatScreenState extends State<ChatScreen> {
                               ));
                             }
                           },
-                          onLongPress: isMe && !deleted
-                              ? () => _showMessageOptions(
+                          onLongPress: deleted
+                              ? null
+                              : () => _showMessageOptions(
                                     messageId: docs[i].id,
                                     text: text,
                                     type: type,
+                                    senderId: senderId,
                                     timestamp: timestamp,
-                                  )
-                              : null,
+                                    extrait: extrait,
+                                    isMe: isMe,
+                                  ),
                           child: _MessageBubble(
                             text: text,
                             imageUrl:
@@ -1055,6 +1280,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                 data['fileUrl'] as String?,
                             fileName:
                                 data['fileName'] as String?,
+                            audioUrl:
+                                data['audioUrl'] as String?,
+                            audioDurationMs:
+                                (data['audioDurationMs'] as num?)
+                                    ?.toInt(),
                             type: type,
                             isMe: isMe,
                             timestamp: timestamp,
@@ -1084,6 +1314,7 @@ class _ChatScreenState extends State<ChatScreen> {
             onPhoto: _envoyerPhoto,
             onVideo: _envoyerVideo,
             onDocument: _envoyerDocument,
+            onAudio: _envoyerAudio,
             isUploading: _isUploading,
             isPrestataire: widget.isCurrentUserPrestataire,
           ),
@@ -1202,6 +1433,8 @@ class _MessageBubble extends StatelessWidget {
   final String? videoUrl;
   final String? fileUrl;
   final String? fileName;
+  final String? audioUrl;
+  final int? audioDurationMs;
   final String type;
   final bool isMe;
   final DateTime timestamp;
@@ -1220,6 +1453,8 @@ class _MessageBubble extends StatelessWidget {
     this.videoUrl,
     this.fileUrl,
     this.fileName,
+    this.audioUrl,
+    this.audioDurationMs,
     this.replyTo,
     this.deleted = false,
     this.edited = false,
@@ -1365,6 +1600,12 @@ class _MessageBubble extends StatelessWidget {
                                       child:
                                           CircularProgressIndicator()))),
                 ),
+              )
+            else if (type == 'audio' && audioUrl != null)
+              AudioMessageBubble(
+                audioUrl: audioUrl!,
+                isMe: isMe,
+                initialDurationMs: audioDurationMs,
               )
             else if (type == 'video' && videoUrl != null)
               _VideoMessageWidget(videoUrl: videoUrl!, isMe: isMe)
@@ -1801,6 +2042,7 @@ class _SaisieBar extends StatelessWidget {
   final VoidCallback? onPhoto;
   final VoidCallback? onVideo;
   final VoidCallback? onDocument;
+  final OnAudioRecorded? onAudio;
   final bool isUploading;
   final bool isPrestataire;
 
@@ -1811,6 +2053,7 @@ class _SaisieBar extends StatelessWidget {
     this.onPhoto,
     this.onVideo,
     this.onDocument,
+    this.onAudio,
     this.isUploading = false,
   });
 
@@ -1860,19 +2103,14 @@ class _SaisieBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          GestureDetector(
-            onTap: isUploading ? null : onSend,
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                  color: isUploading
-                      ? AppColors.textHint
-                      : AppColors.primary,
-                  shape: BoxShape.circle),
-              child: const Icon(Icons.send,
-                  color: Colors.white, size: 20),
-            ),
+          // Bouton dynamique : micro tant que le champ est vide,
+          // envoyer des qu'un texte est saisi. Long press sur le micro pour
+          // enregistrer une note vocale (annulation possible pendant).
+          RecordSendButton(
+            controller: controller,
+            onSend: onSend,
+            disabled: isUploading,
+            onAudioRecorded: onAudio ?? (_, __) async {},
           ),
         ],
       ),

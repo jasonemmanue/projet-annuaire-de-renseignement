@@ -122,6 +122,22 @@ class MessagerieService {
   }
 
   // ============================================================
+  // Lecture unique depuis le cache Firestore local (sans reseau).
+  // Sert au prechargement : rend la main immediatement si la persistance
+  // Firestore a deja vu les conversations, meme sans connectivite.
+  // ============================================================
+  static Future<QuerySnapshot?> getConversationsFromCache(String uid) async {
+    try {
+      return await _db
+          .collection('conversations')
+          .where('participants', arrayContains: uid)
+          .get(const GetOptions(source: Source.cache));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ============================================================
   // Stream des messages
   // ============================================================
   static Stream<QuerySnapshot> getMessages(String conversationId) {
@@ -283,6 +299,75 @@ class MessagerieService {
       },
     );
     await batch.commit();
+  }
+
+  // ============================================================
+  // Envoyer une note vocale
+  // ============================================================
+  static Future<void> sendAudio({
+    required String conversationId,
+    required String senderId,
+    required String recipientId,
+    required File audioFile,
+    required int durationMs,
+  }) async {
+    final safeId = senderId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+    final fileName =
+        '${DateTime.now().millisecondsSinceEpoch}_$safeId.m4a';
+    final ref = _storage
+        .ref()
+        .child('messages/$conversationId/audio/$fileName');
+
+    final task = await ref.putFile(
+      audioFile,
+      SettableMetadata(contentType: 'audio/mp4'),
+    );
+    final audioUrl = await task.ref.getDownloadURL();
+
+    final batch = _db.batch();
+    batch.set(
+      _db
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(),
+      {
+        'senderId': senderId,
+        'audioUrl': audioUrl,
+        'audioDurationMs': durationMs,
+        'type': 'audio',
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+      },
+    );
+    batch.update(
+      _db.collection('conversations').doc(conversationId),
+      {
+        'lastMessage': '🎤 Note vocale',
+        'lastMessageTime': FieldValue.serverTimestamp(),
+        'unread_$recipientId': FieldValue.increment(1),
+      },
+    );
+    await batch.commit();
+
+    try {
+      final senderUser = AuthService.instance.currentUser;
+      final senderName = senderUser != null
+          ? '${senderUser.prenom} ${senderUser.nom}'.trim()
+          : 'Visiteur';
+      final convData = (await _db
+              .collection('conversations')
+              .doc(conversationId)
+              .get())
+          .data();
+      await NotificationService.showMessageNotification(
+        senderName: senderName.isEmpty ? 'Visiteur' : senderName,
+        messageText: '🎤 Note vocale',
+        conversationId: conversationId,
+        logementTitre:
+            convData?['logement_titre'] as String? ?? '',
+      );
+    } catch (_) {}
   }
 
   // ============================================================
