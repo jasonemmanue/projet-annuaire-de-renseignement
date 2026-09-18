@@ -110,6 +110,37 @@ function mmoProviderCM(operateur) {
   return undefined;
 }
 
+// Code opérateur Flutter → mmo_provider PawaPay (Côte d'Ivoire).
+//   'orange_ci' → ORANGE_CIV
+//   'mtn_ci'    → MTN_MOMO_CIV
+//   'moov_ci'   → MOOV_CIV
+//   'wave_ci'   → WAVE_CIV
+function mmoProviderCI(operateur) {
+  const o = (operateur || "").toLowerCase();
+  if (o.includes("wave")) return "WAVE_CIV";
+  if (o.includes("moov")) return "MOOV_CIV";
+  if (o.includes("mtn")) return "MTN_MOMO_CIV";
+  if (o.includes("orange")) return "ORANGE_CIV";
+  return undefined;
+}
+
+// Résolveur unifié : renvoie { country, mmoProvider } à partir du
+// paramètre `pays` (ISO 2 lettres) et de l'opérateur reçus dans le
+// body de la Cloud Function.
+//
+// - Pays absent → auto-détecté via le suffixe de l'opérateur (`_ci`)
+//   ou fallback Cameroun (comportement historique inchangé).
+// - Opérateur inconnu → mmoProvider = undefined → PawaPay auto-détecte
+//   depuis le numéro. Aucune fonction ne lève d'exception.
+function resoudrePays(pays, operateur) {
+  const o = (operateur || "").toLowerCase();
+  let country = (pays || "").toUpperCase();
+  if (!country) country = o.endsWith("_ci") ? "CI" : "CM";
+  const mmoProvider =
+    country === "CI" ? mmoProviderCI(o) : mmoProviderCM(o);
+  return { country, mmoProvider };
+}
+
 // URLs de redirection post-checkout (cosmétiques : la confirmation
 // réelle passe par le webhook). Adaptez à votre hébergement.
 const PAIEMENT_SUCCESS_URL = "https://sgk-home.web.app/paiement/succes";
@@ -605,11 +636,12 @@ exports.initierPaiementPremium = onRequest(
       }
       const uid = decoded.uid;
 
-      const { telephone, channel } = req.body || {};
+      const { telephone, channel, pays } = req.body || {};
       if (!telephone) {
         res.status(400).json({ success: false, error: "Numéro de téléphone requis" });
         return;
       }
+      const { country, mmoProvider } = resoudrePays(pays, channel);
 
       // 2. Vérifier que l'appelant est bien un prestataire
       const userSnap = await admin.firestore().collection("users").doc(uid).get();
@@ -649,12 +681,12 @@ exports.initierPaiementPremium = onRequest(
         amount: PREMIUM_MONTANT,
         currency: DEVISE,
         paymentMethod: "pawapay",
-        mmoProvider: mmoProviderCM(channel),
-        customerCountry: "CM",
+        mmoProvider,
+        customerCountry: country,
         description: "Pack Premium Horem+ — 1 mois",
         customerEmail: u.email || "",
         customerPhone: telephone,
-        metadata: { uid, type: "premium" },
+        metadata: { uid, type: "premium", pays: country },
         callbackUrl: GENIUSPAY_WEBHOOK_URL,
         returnUrl: PAIEMENT_SUCCESS_URL,
         errorUrl: PAIEMENT_ERROR_URL,
@@ -675,6 +707,7 @@ exports.initierPaiementPremium = onRequest(
         internalRef,
         telephone,
         channel: channel || "orange",
+        pays: country,
         checkoutUrl: paiement.paymentUrl || "",
         geniuspayTransactionId: paiement.transactionId,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -729,11 +762,12 @@ exports.initierSponsorisation = onRequest(
       }
       const uid = decoded.uid;
 
-      const { logementId, telephone, operateur, duree } = req.body || {};
+      const { logementId, telephone, operateur, duree, pays } = req.body || {};
       if (!logementId || !telephone) {
         res.status(400).json({ success: false, error: "Paramètres manquants" });
         return;
       }
+      const { country, mmoProvider } = resoudrePays(pays, operateur);
 
       // 2. Vérifier que le logement appartient au prestataire
       const logSnap = await admin.firestore().collection("logements").doc(logementId).get();
@@ -764,12 +798,12 @@ exports.initierSponsorisation = onRequest(
         amount: montant,
         currency: DEVISE,
         paymentMethod: "pawapay",
-        mmoProvider: mmoProviderCM(operateur),
-        customerCountry: "CM",
+        mmoProvider,
+        customerCountry: country,
         description: `Publication Horem+ — ${log.titre || "annonce"}`,
         customerEmail: u.email || "",
         customerPhone: telephone,
-        metadata: { uid, type: "sponsorisation", logementId, duree: codeduree },
+        metadata: { uid, type: "sponsorisation", logementId, duree: codeduree, pays: country },
         callbackUrl: GENIUSPAY_WEBHOOK_URL,
         returnUrl: PAIEMENT_SUCCESS_URL,
         errorUrl: PAIEMENT_ERROR_URL,
@@ -841,11 +875,12 @@ exports.initierPublication = onRequest(
       const decoded = await admin.auth().verifyIdToken(idToken);
       const uid = decoded.uid;
 
-      const { logementId, telephone, operateur, montant, dureeJours } = req.body || {};
+      const { logementId, telephone, operateur, montant, dureeJours, pays } = req.body || {};
       if (!logementId || !telephone || !montant) {
         res.status(400).json({ success: false, error: "Paramètres manquants" });
         return;
       }
+      const { country, mmoProvider } = resoudrePays(pays, operateur);
       // Durée personnalisée (hébergement forfaitaire) — bornée à [7, 400] jours.
       let dureeJoursFinal = Number(dureeJours);
       if (!Number.isFinite(dureeJoursFinal) || dureeJoursFinal <= 0) {
@@ -877,12 +912,12 @@ exports.initierPublication = onRequest(
         amount: montantFinal,
         currency: DEVISE,
         paymentMethod: "pawapay",
-        mmoProvider: mmoProviderCM(operateur),
-        customerCountry: "CM",
+        mmoProvider,
+        customerCountry: country,
         description: `Publication Horem+ — ${log.titre || "annonce"}`,
         customerEmail: u.email || "",
         customerPhone: telephone,
-        metadata: { uid, type: "publication", logementId },
+        metadata: { uid, type: "publication", logementId, pays: country },
         callbackUrl: GENIUSPAY_WEBHOOK_URL,
         returnUrl: PAIEMENT_SUCCESS_URL,
         errorUrl: PAIEMENT_ERROR_URL,
@@ -957,11 +992,12 @@ exports.initierUrgence = onRequest(
       }
       const uid = decoded.uid;
 
-      const { logementId, telephone, operateur } = req.body || {};
+      const { logementId, telephone, operateur, pays } = req.body || {};
       if (!logementId || !telephone) {
         res.status(400).json({ success: false, error: "Paramètres manquants" });
         return;
       }
+      const { country, mmoProvider } = resoudrePays(pays, operateur);
 
       const alerteId = logementId;
       const montant = 200;
@@ -989,12 +1025,12 @@ exports.initierUrgence = onRequest(
         amount: montant,
         currency: DEVISE,
         paymentMethod: "pawapay",
-        mmoProvider: mmoProviderCM(operateur),
-        customerCountry: "CM",
+        mmoProvider,
+        customerCountry: country,
         description: `Alerte prioritaire 48H — ${alerteDesc}`,
         customerEmail: email,
         customerPhone: telephone,
-        metadata: { uid, type: "urgence", logementId: alerteId },
+        metadata: { uid, type: "urgence", logementId: alerteId, pays: country },
         callbackUrl: GENIUSPAY_WEBHOOK_URL,
         returnUrl: PAIEMENT_SUCCESS_URL,
         errorUrl: PAIEMENT_ERROR_URL,
@@ -1312,11 +1348,12 @@ exports.initierVisibilite = onRequest(
       }
       const uid = decoded.uid;
 
-      const { logementId, telephone, operateur } = req.body || {};
+      const { logementId, telephone, operateur, pays } = req.body || {};
       if (!logementId || !telephone) {
         res.status(400).json({ success: false, error: "Paramètres manquants" });
         return;
       }
+      const { country, mmoProvider } = resoudrePays(pays, operateur);
 
       const logSnap = await admin.firestore().collection("logements").doc(logementId).get();
       if (!logSnap.exists) {
@@ -1343,12 +1380,12 @@ exports.initierVisibilite = onRequest(
         amount: montant,
         currency: DEVISE,
         paymentMethod: "pawapay",
-        mmoProvider: mmoProviderCM(operateur),
-        customerCountry: "CM",
+        mmoProvider,
+        customerCountry: country,
         description: `Visibilité 1 an — ${log.titre || log.typeBien || "fiche"}`,
         customerEmail: u.email || "",
         customerPhone: telephone,
-        metadata: { uid, type: "visibilite", logementId },
+        metadata: { uid, type: "visibilite", logementId, pays: country },
         callbackUrl: GENIUSPAY_WEBHOOK_URL,
         returnUrl: PAIEMENT_SUCCESS_URL,
         errorUrl: PAIEMENT_ERROR_URL,
@@ -1804,11 +1841,12 @@ exports.initierPaiementPublicite = onRequest(
       }
       const uid = decoded.uid;
 
-      const { publiciteId, telephone, operateur } = req.body || {};
+      const { publiciteId, telephone, operateur, pays } = req.body || {};
       if (!publiciteId || !telephone) {
         res.status(400).json({ success: false, error: "Paramètres manquants" });
         return;
       }
+      const { country, mmoProvider } = resoudrePays(pays, operateur);
 
       // Vérifier que la pub appartient au prestataire connecté.
       const pubSnap = await admin.firestore().collection("publicites").doc(publiciteId).get();
@@ -1830,12 +1868,12 @@ exports.initierPaiementPublicite = onRequest(
         amount: PUBLICITE_MONTANT,
         currency: DEVISE,
         paymentMethod: "pawapay",
-        mmoProvider: mmoProviderCM(operateur),
-        customerCountry: "CM",
+        mmoProvider,
+        customerCountry: country,
         description: `Publicité ${PUBLICITE_DUREE_JOURS} jours — ${pubSnap.data().titre || "Horem+"}`,
         customerEmail: u.email || "",
         customerPhone: telephone,
-        metadata: { uid, type: "publicite", publiciteId },
+        metadata: { uid, type: "publicite", publiciteId, pays: country },
         callbackUrl: GENIUSPAY_WEBHOOK_URL,
         returnUrl: PAIEMENT_SUCCESS_URL,
         errorUrl: PAIEMENT_ERROR_URL,
@@ -2374,7 +2412,7 @@ exports.initierPaiementDepuisWeb = onRequest(
       return;
     }
     try {
-      const { token, telephone, operateur } = req.body || {};
+      const { token, telephone, operateur, pays } = req.body || {};
       if (!token || !telephone) {
         res.status(400).json({ success: false, error: "Paramètres manquants" });
         return;
@@ -2383,6 +2421,7 @@ exports.initierPaiementDepuisWeb = onRequest(
         res.status(400).json({ success: false, error: "Token invalide" });
         return;
       }
+      const { country, mmoProvider } = resoudrePays(pays, operateur);
 
       const db = admin.firestore();
       const tokenRef = db.collection("paiements_web").doc(token);
@@ -2444,12 +2483,12 @@ exports.initierPaiementDepuisWeb = onRequest(
         amount: montant,
         currency: DEVISE,
         paymentMethod: "pawapay",
-        mmoProvider: mmoProviderCM(operateur),
-        customerCountry: "CM",
+        mmoProvider,
+        customerCountry: country,
         description: `Horem+ — ${t.libelle || type}`,
         customerEmail: t.email || u.email || "",
         customerPhone: telephone,
-        metadata: meta,
+        metadata: { ...meta, pays: country },
         callbackUrl: GENIUSPAY_WEBHOOK_URL,
         returnUrl: PAIEMENT_SUCCESS_URL,
         errorUrl: PAIEMENT_ERROR_URL,

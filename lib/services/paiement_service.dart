@@ -55,14 +55,39 @@ class PaiementService {
   // car les secrets GeniusPay ne sont disponibles qu'en production déployée.
   bool get _simulation => kSimulationPaiement || kDebugMode;
 
-  /// Convertit le code opérateur Flutter ('orange'|'mtn') vers le
-  /// channel GeniusPay Cameroun attendu par l'API.
+  /// Convertit le code opérateur Flutter vers le channel GeniusPay
+  /// attendu par l'API.
+  ///
+  /// Codes acceptés :
+  ///   Cameroun       → 'orange' | 'mtn' | 'orange_cm' | 'mtn_cm'
+  ///   Côte d'Ivoire  → 'orange_ci' | 'mtn_ci' | 'moov_ci' | 'wave_ci'
   static String? _toChannel(String? op) {
     switch (op) {
-      case 'orange': return 'orange_money_cm';
-      case 'mtn':    return 'mtn_momo_cm';
-      default:       return null;
+      case 'orange':
+      case 'orange_cm':
+        return 'orange_money_cm';
+      case 'mtn':
+      case 'mtn_cm':
+        return 'mtn_momo_cm';
+      case 'orange_ci':
+        return 'orange_money_ci';
+      case 'mtn_ci':
+        return 'mtn_momo_ci';
+      case 'moov_ci':
+        return 'moov_ci';
+      case 'wave_ci':
+        return 'wave_ci';
+      default:
+        return null;
     }
+  }
+
+  /// Détermine le pays ISO à partir du code opérateur (fallback 'CM').
+  /// La Cloud Function accepte aussi un `pays` explicite, mais on
+  /// dérive proprement quand seul l'opérateur est fourni.
+  static String _paysDepuisOperateur(String? op) {
+    if (op == null) return 'CM';
+    return op.endsWith('_ci') ? 'CI' : 'CM';
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -117,6 +142,7 @@ class PaiementService {
             },
             body: jsonEncode({
               'telephone': telephone,
+              'pays': _paysDepuisOperateur(channel),
               if (_toChannel(channel) != null) 'channel': _toChannel(channel),
             }),
           )
@@ -202,6 +228,7 @@ class PaiementService {
       final body = jsonEncode({
         'logementId': logementId,
         'telephone': telephone,
+        'pays': _paysDepuisOperateur(channel),
         if (_toChannel(channel) != null) 'operateur': _toChannel(channel),
         if (duree != null) 'duree': duree,
       });
@@ -304,6 +331,7 @@ class PaiementService {
         'logementId': logementId,
         'telephone': telephone,
         'montant': montant,
+        'pays': _paysDepuisOperateur(channel),
         if (dureeJours != null) 'dureeJours': dureeJours,
         if (_toChannel(channel) != null) 'operateur': _toChannel(channel),
       });
@@ -420,6 +448,7 @@ class PaiementService {
       final body = jsonEncode({
         'logementId': logementId,
         'telephone': telephone,
+        'pays': _paysDepuisOperateur(operateur),
         if (_toChannel(operateur) != null) 'operateur': _toChannel(operateur),
       });
       log.info('Body: $body');
@@ -538,6 +567,7 @@ class PaiementService {
       final body = jsonEncode({
         'publiciteId': publiciteId,
         'telephone': telephone,
+        'pays': _paysDepuisOperateur(channel),
         if (_toChannel(channel) != null) 'operateur': _toChannel(channel),
       });
       log.info('Body: $body');
@@ -634,6 +664,7 @@ class PaiementService {
             body: jsonEncode({
               'logementId': logementId,
               'telephone': telephone,
+              'pays': _paysDepuisOperateur(channel),
               if (_toChannel(channel) != null) 'operateur': _toChannel(channel),
             }),
           )
