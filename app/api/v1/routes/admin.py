@@ -269,12 +269,15 @@ async def conversations(q: str | None = None, limit: int = 50, offset: int = 0,
                        api_conv, limit, offset)
     # Noms des participants en une requête.
     ids = {p for c in rep["items"] for p in c.get("participants") or [] if not p.startswith("visiteur_")}
-    noms = {}
+    noms, infos = {}, {}
     if ids:
-        for uid, prenom, nom in (await db.execute(select(Utilisateur.id, Utilisateur.prenom, Utilisateur.nom)
-                                                  .where(Utilisateur.id.in_(ids)))).all():
+        for uid, prenom, nom, role in (await db.execute(
+                select(Utilisateur.id, Utilisateur.prenom, Utilisateur.nom, Utilisateur.role)
+                .where(Utilisateur.id.in_(ids)))).all():
             noms[uid] = f"{prenom} {nom}".strip()
+            infos[uid] = {"id": uid, "prenom": prenom, "nom": nom, "role": role}
     rep["noms"] = noms
+    rep["utilisateurs"] = infos
     return rep
 
 
