@@ -17,6 +17,9 @@ class UserModel {
   final bool compteGratuit;
   final DateTime? premiumExpiry;
   final DateTime? phoneVerifiedAt;
+  /// CNI déposée (numéro + photos) : obligatoire pour publier.
+  final String? cniNumero;
+  final bool cniDeposee;
 
   UserModel({
     required this.id,
@@ -33,6 +36,8 @@ class UserModel {
     this.compteGratuit = false,
     this.premiumExpiry,
     this.phoneVerifiedAt,
+    this.cniNumero,
+    this.cniDeposee = false,
   });
 
   /// Vrai si l'abonnement Premium est actif ET non expiré.
@@ -63,6 +68,10 @@ class UserModel {
       compteGratuit: map['compteGratuit'] ?? false,
       premiumExpiry: apiDate(map['premiumExpiry']),
       phoneVerifiedAt: apiDate(map['phoneVerifiedAt']),
+      cniNumero: map['cniNumero'] as String?,
+      cniDeposee: (map['cniNumero'] ?? '').toString().isNotEmpty &&
+          (map['cniRecto'] ?? '').toString().isNotEmpty &&
+          (map['cniVerso'] ?? '').toString().isNotEmpty,
     );
   }
 

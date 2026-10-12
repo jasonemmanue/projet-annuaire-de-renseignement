@@ -28,6 +28,7 @@ import '../services/messagerie_service.dart';
 import '../services/analytics_service.dart';
 import '../services/logement_service.dart';
 import '../utils/media_permission.dart';
+import '../utils/photo_source.dart';
 
 // ─── UID visiteur persisté ────────────────────────────────────
 // (même clé SharedPreferences qu'avant : les visiteurs gardent leurs
@@ -639,10 +640,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _envoyerPhoto() async {
-    if (!await demanderPermissionMedia(context, MediaType.photos)) return;
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(
-        source: ImageSource.gallery, imageQuality: 80);
+    // Prise de vue directe ou import depuis la galerie.
+    final picked = await choisirPhoto(context);
     if (picked == null || !mounted) return;
     setState(() => _isUploading = true);
     try {

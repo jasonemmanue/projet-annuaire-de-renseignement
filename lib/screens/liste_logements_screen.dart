@@ -208,10 +208,10 @@ class _ListeLogementsScreenState extends State<ListeLogementsScreen> {
 
     switch (_triActif) {
       case 'prix_asc':
-        liste.sort((a, b) => a.prix.compareTo(b.prix));
+        liste.sort((a, b) => a.prixAffiche.compareTo(b.prixAffiche));
         break;
       case 'prix_desc':
-        liste.sort((a, b) => b.prix.compareTo(a.prix));
+        liste.sort((a, b) => b.prixAffiche.compareTo(a.prixAffiche));
         break;
       case 'populaires':
         liste.sort((a, b) => b.nbVues.compareTo(a.nbVues));

@@ -45,6 +45,29 @@ class Logement {
   final String? motifRejet;
   /// 'autre' quand typeBien est un texte libre saisi par le prestataire.
   final String? typeBienBase;
+  /// Détail du coût (location) : charges mensuelles, frais d'agence, caution,
+  /// nombre de mois d'avance. prixTotal = ce que paie le chercheur à l'entrée,
+  /// calculé par le serveur ; c'est le prix affiché partout.
+  final double charges;
+  final double fraisAgence;
+  final double caution;
+  final int moisAvance;
+  final double prixTotal;
+  /// Dernière actualisation : sans actualisation pendant 21 jours, l'annonce
+  /// est masquée aux visiteurs.
+  final DateTime? actualiseLe;
+  final DateTime? expireActualisationLe;
+  final bool masqueeNonActualisee;
+
+  /// Le prix total diffère du prix de base (frais, caution ou avance en plus).
+  bool get aDetailPrix => prixTotal > 0 && prixTotal != prix;
+
+  /// Jours restants avant masquage faute d'actualisation (négatif = masquée).
+  int? get joursAvantMasquage {
+    final fin = expireActualisationLe;
+    if (fin == null) return null;
+    return (fin.difference(DateTime.now()).inHours / 24).ceil();
+  }
 
   bool get estEnAttenteModeration => statutModeration == 'en_attente';
   bool get estRejetee => statutModeration == 'rejete';
@@ -109,6 +132,14 @@ class Logement {
     this.statutModeration = 'valide',
     this.motifRejet,
     this.typeBienBase,
+    this.charges = 0,
+    this.fraisAgence = 0,
+    this.caution = 0,
+    this.moisAvance = 1,
+    this.prixTotal = 0,
+    this.actualiseLe,
+    this.expireActualisationLe,
+    this.masqueeNonActualisee = false,
   });
 
   bool get estOuvertMaintenant {
@@ -130,18 +161,27 @@ class Logement {
     return hr * 60 + min;
   }
 
-  // Formatage prix en XAF avec séparateur
-  String get prixFormate {
-    final formatted = prix.toStringAsFixed(0).replaceAllMapped(
+  static String formaterXaf(double v) {
+    final formatted = v.toStringAsFixed(0).replaceAllMapped(
       RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
           (m) => '${m[1]} ',
     );
     return '$formatted XAF';
   }
 
-  // Sous-titre prix pour location
-  String get prixLabel =>
-      typeLocation == 'location' ? '$prixFormate/mois' : prixFormate;
+  /// Prix affiché = prix total à payer par le chercheur (filtres, tris).
+  double get prixAffiche => prixTotal > 0 ? prixTotal : prix;
+
+  String get prixFormate => formaterXaf(prixAffiche);
+
+  /// Prix de base (loyer mensuel ou prix de vente), pour le détail.
+  String get prixBaseFormate => formaterXaf(prix);
+
+  // Libellé du prix affiché : total à l'entrée si un détail existe,
+  // sinon loyer mensuel / prix de vente.
+  String get prixLabel => aDetailPrix
+      ? prixFormate
+      : typeLocation == 'location' ? '$prixFormate/mois' : prixFormate;
 
 
   // ── API (mêmes clés que les anciens documents Firestore) ────────────────────────────────────────────
@@ -185,6 +225,15 @@ class Logement {
     statutModeration: map['statutModeration'] ?? 'valide',
     motifRejet: map['motifRejet'],
     typeBienBase: map['typeBienBase'],
+    charges: (map['charges'] as num?)?.toDouble() ?? 0,
+    fraisAgence: (map['fraisAgence'] as num?)?.toDouble() ?? 0,
+    caution: (map['caution'] as num?)?.toDouble() ?? 0,
+    moisAvance: (map['moisAvance'] as num?)?.toInt() ?? 1,
+    prixTotal: (map['prixTotal'] as num?)?.toDouble() ??
+        (map['prix'] as num?)?.toDouble() ?? 0,
+    actualiseLe: apiDate(map['actualiseLe']),
+    expireActualisationLe: apiDate(map['expireActualisationLe']),
+    masqueeNonActualisee: map['masqueeNonActualisee'] == true,
   );
 
   factory Logement.fromJson(Map<String, dynamic> json) => Logement(
@@ -229,6 +278,16 @@ class Logement {
     statutModeration: json['statutModeration'] ?? 'valide',
     motifRejet: json['motifRejet'],
     typeBienBase: json['typeBienBase'],
+    charges: (json['charges'] as num?)?.toDouble() ?? 0,
+    fraisAgence: (json['fraisAgence'] as num?)?.toDouble() ?? 0,
+    caution: (json['caution'] as num?)?.toDouble() ?? 0,
+    moisAvance: (json['moisAvance'] as num?)?.toInt() ?? 1,
+    prixTotal: (json['prixTotal'] as num?)?.toDouble() ?? 0,
+    actualiseLe: json['actualiseLe'] != null ? DateTime.tryParse(json['actualiseLe']) : null,
+    expireActualisationLe: json['expireActualisationLe'] != null
+        ? DateTime.tryParse(json['expireActualisationLe'])
+        : null,
+    masqueeNonActualisee: json['masqueeNonActualisee'] == true,
   );
 
   Map<String, dynamic> toJson() => {
@@ -267,6 +326,14 @@ class Logement {
     'statutModeration': statutModeration,
     'motifRejet': motifRejet,
     'typeBienBase': typeBienBase,
+    'charges': charges,
+    'fraisAgence': fraisAgence,
+    'caution': caution,
+    'moisAvance': moisAvance,
+    'prixTotal': prixTotal,
+    'actualiseLe': actualiseLe?.toIso8601String(),
+    'expireActualisationLe': expireActualisationLe?.toIso8601String(),
+    'masqueeNonActualisee': masqueeNonActualisee,
   };
 }
 

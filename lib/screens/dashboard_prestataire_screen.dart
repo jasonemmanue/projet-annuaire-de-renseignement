@@ -8,12 +8,16 @@
 // ============================================================
 
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/media_permission.dart';
+import '../utils/photo_source.dart';
+import 'cni_screen.dart';
+import 'rendez_vous_screen.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
@@ -91,6 +95,11 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
   final _titreCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _prixCtrl = TextEditingController();
+  // Détail du coût pour le chercheur (le serveur calcule le prix total).
+  final _chargesCtrl = TextEditingController();
+  final _fraisAgenceCtrl = TextEditingController();
+  final _cautionCtrl = TextEditingController();
+  int _moisAvance = 1;
   final _surfaceCtrl = TextEditingController();
   final _quartierCtrl = TextEditingController();
 
@@ -176,6 +185,10 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
       _titreCtrl.text = l.titre;
       _descCtrl.text = l.description;
       _prixCtrl.text = l.prix.toString();
+      if (l.charges > 0) _chargesCtrl.text = l.charges.toStringAsFixed(0);
+      if (l.fraisAgence > 0) _fraisAgenceCtrl.text = l.fraisAgence.toStringAsFixed(0);
+      if (l.caution > 0) _cautionCtrl.text = l.caution.toStringAsFixed(0);
+      _moisAvance = l.moisAvance.clamp(1, 24);
       _surfaceCtrl.text = l.surface.toString();
       _quartierCtrl.text = l.quartier;
       _typeLocation = l.typeLocation;
@@ -203,6 +216,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
   @override
   void dispose() {
     _titreCtrl.dispose(); _descCtrl.dispose(); _prixCtrl.dispose();
+    _chargesCtrl.dispose(); _fraisAgenceCtrl.dispose(); _cautionCtrl.dispose();
     _surfaceCtrl.dispose(); _quartierCtrl.dispose();
     _heureOuvCtrl.dispose(); _heureFermCtrl.dispose();
     _typeBienAutreCtrl.dispose();
@@ -408,6 +422,10 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         'quartier': _quartierCtrl.text.trim(),
         'ville': _ville,
         'typeLocation': _isServiceType ? 'service' : _typeLocation,
+        'charges': _isServiceType ? 0 : (double.tryParse(_chargesCtrl.text) ?? 0),
+        'fraisAgence': _isServiceType ? 0 : (double.tryParse(_fraisAgenceCtrl.text) ?? 0),
+        'caution': _isServiceType ? 0 : (double.tryParse(_cautionCtrl.text) ?? 0),
+        'moisAvance': _moisAvance,
         'typeBien': _typeBienFirestore,
         // 'autre' : typeBien est alors le texte libre saisi (filtrage).
         'typeBienBase': _isAutreType ? 'autre' : _typeBien,
@@ -593,6 +611,17 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
           ));
         }
       }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.code == 'cni_requise') {
+        // CNI obligatoire : dépôt puis nouvelle tentative de publication.
+        setState(() { _isSubmitting = false; _isUploadingPhotos = false; });
+        if (await CniScreen.ouvrir(context) && mounted) _publier();
+        return;
+      }
+      final msg = e.code == 'doublon_gps' ? _loc.t('form_duplicate_gps') : e.message;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(msg), backgroundColor: AppColors.error, behavior: SnackBarBehavior.floating));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Erreur : $e'), backgroundColor: AppColors.error, behavior: SnackBarBehavior.floating));
@@ -600,6 +629,26 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
       if (mounted) setState(() { _isSubmitting = false; _isUploadingPhotos = false; });
     }
   }
+
+  /// Aperçu du prix total payé par le chercheur (même calcul que le serveur).
+  double get _apercuTotal {
+    final prix = double.tryParse(_prixCtrl.text) ?? 0;
+    final charges = double.tryParse(_chargesCtrl.text) ?? 0;
+    final frais = double.tryParse(_fraisAgenceCtrl.text) ?? 0;
+    final caution = double.tryParse(_cautionCtrl.text) ?? 0;
+    if (_typeLocation == 'location') return (prix + charges) * _moisAvance + caution + frais;
+    return prix + frais;
+  }
+
+  Widget _champMontant(TextEditingController c, String labelKey) => Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: TextFormField(
+          controller: c,
+          keyboardType: TextInputType.number,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(labelText: _loc.t(labelKey), suffixText: 'XAF'),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -827,9 +876,40 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                         suffixText: _isImmoType && _typeLocation == 'location'
                             ? 'XAF/mois'
                             : 'XAF'),
+                    onChanged: (_) => setState(() {}),
                     validator: (v) => (!_isServiceType && (v == null || v.isEmpty))
                         ? _loc.t('form_required')
                         : null),
+                // ── Détail du coût → prix total affiché aux chercheurs ──
+                if (!_isServiceType) ...[
+                  if (_typeLocation == 'location') ...[
+                    _champMontant(_chargesCtrl, 'form_price_charges'),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<int>(
+                      initialValue: _moisAvance,
+                      decoration: InputDecoration(labelText: _loc.t('form_price_advance_months')),
+                      items: [for (var m = 1; m <= 12; m++)
+                        DropdownMenuItem(value: m, child: Text('$m'))],
+                      onChanged: (v) => setState(() => _moisAvance = v ?? 1),
+                    ),
+                    _champMontant(_cautionCtrl, 'form_price_deposit'),
+                  ],
+                  _champMontant(_fraisAgenceCtrl, 'form_price_agency_fees'),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${_loc.t(_typeLocation == 'location' ? 'price_total_entry' : 'price_total')} : '
+                      '${Logement.formaterXaf(_apercuTotal)}\n${_loc.t('form_price_total_hint')}',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                  ),
+                ],
               ],
 
               // ── Heures d'ouverture (tous les types service) ───
@@ -1700,9 +1780,30 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
                   builder: (_) => FormulaireAnnonce(logement: _logements[i]))),
           onDelete: () => _confirmerSuppression(_logements[i].id),
           onToggleDisponible: () => _toggleDisponible(_logements[i]),
+          onActualiser: () => _actualiser(_logements[i]),
         ),
       ),
     );
+  }
+
+  /// Actualisation gratuite : l'annonce reste visible 21 jours de plus.
+  Future<void> _actualiser(Logement l) async {
+    try {
+      await LogementService.actualiser(l.id);
+      await _forceRefresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_loc.t('refresh_done')),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('$e'), backgroundColor: AppColors.error, behavior: SnackBarBehavior.floating));
+      }
+    }
   }
 
   Future<void> _confirmerSuppression(String id) async {
@@ -1899,6 +2000,7 @@ class _AnnonceCard extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onToggleDisponible;
+  final VoidCallback onActualiser;
 
   const _AnnonceCard({
     super.key,
@@ -1906,6 +2008,7 @@ class _AnnonceCard extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onToggleDisponible,
+    required this.onActualiser,
   });
 
   // Zone sponsorisation : badge si actif, sinon bouton "Sponsoriser".
@@ -2025,6 +2128,31 @@ class _AnnonceCard extends StatelessWidget {
               children: [
                 Text(l.titre, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                     maxLines: 1, overflow: TextOverflow.ellipsis),
+                // Actualisation : masquée après 21 jours sans actualisation.
+                if (l.disponible && !l.paymentPending && l.joursAvantMasquage != null) ...[
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    Icon(l.masqueeNonActualisee ? Icons.visibility_off_outlined : Icons.update,
+                        size: 15,
+                        color: l.masqueeNonActualisee ? AppColors.error : AppColors.textSecondary),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        l.masqueeNonActualisee
+                            ? loc.t('refresh_hidden')
+                            : loc.t('refresh_days_left').replaceAll('{n}', '${l.joursAvantMasquage}'),
+                        style: TextStyle(fontSize: 12,
+                            color: l.masqueeNonActualisee ? AppColors.error : AppColors.textSecondary),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: onActualiser,
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: Text(loc.t('refresh_action')),
+                      style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                    ),
+                  ]),
+                ],
                 // Modération : file d'attente ou motif du refus.
                 if (l.estEnAttenteModeration || l.estRejetee) ...[
                   const SizedBox(height: 6),
@@ -3102,6 +3230,31 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
             leading: Container(
               width: 36, height: 36,
               decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.event_available_outlined, color: AppColors.primary, size: 20),
+            ),
+            title: Text(_loc.t('rdv_list_title')),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textHint),
+            onTap: () => Navigator.push(context, MaterialPageRoute(
+                builder: (_) => const RendezVousScreen(prestataire: true))),
+          ),
+          ListTile(
+            leading: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.badge_outlined, color: AppColors.primary, size: 20),
+            ),
+            title: Text(_loc.t('cni_title')),
+            subtitle: Text(_loc.t((AuthService.instance.currentUser?.cniDeposee ?? false)
+                ? 'cni_status_sent' : 'cni_status_missing')),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textHint),
+            onTap: () async {
+              if (await CniScreen.ouvrir(context) && mounted) setState(() {});
+            },
+          ),
+          ListTile(
+            leading: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
               child: const Icon(Icons.school_outlined, color: AppColors.primary, size: 20),
             ),
             title: Text(_loc.t('presta_onb_replay')),
@@ -3279,6 +3432,7 @@ class _FormulaireModificationProfilState extends State<_FormulaireModificationPr
   late final TextEditingController _nomCtrl;
   late final TextEditingController _telCtrl;
   bool _saving = false;
+  XFile? _nouvellePhoto;
 
   @override
   void didChangeDependencies() {
@@ -3305,10 +3459,15 @@ class _FormulaireModificationProfilState extends State<_FormulaireModificationPr
     if (uid == null) return;
     setState(() => _saving = true);
     try {
+      String? photoUrl;
+      if (_nouvellePhoto != null) {
+        photoUrl = await StorageService.uploadProfilePhoto(uid: uid, image: _nouvellePhoto!);
+      }
       await ApiClient.instance.put('/users/me', {
         'prenom': _prenomCtrl.text.trim(),
         'nom': _nomCtrl.text.trim(),
         'telephone': _telCtrl.text.trim(),
+        if (photoUrl != null) 'photoUrl': photoUrl,
       });
       await AuthService.instance.refreshCurrentUser();
       if (mounted) {
@@ -3320,8 +3479,11 @@ class _FormulaireModificationProfilState extends State<_FormulaireModificationPr
         ));
       }
     } catch (e) {
+      final msg = (e is ApiException && e.code == 'telephone_utilise')
+          ? _loc.t('login_phone_taken')
+          : 'Erreur : $e';
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Erreur : $e'),
+        content: Text(msg),
         backgroundColor: AppColors.error,
         behavior: SnackBarBehavior.floating,
       ));
@@ -3332,15 +3494,42 @@ class _FormulaireModificationProfilState extends State<_FormulaireModificationPr
 
   @override
   Widget build(BuildContext context) {
+    final photoActuelle = widget.user?.photoUrl;
     return Padding(
       padding: EdgeInsets.fromLTRB(24, 20, 24, MediaQuery.of(context).viewInsets.bottom + 24),
-      child: Column(
+      child: SingleChildScrollView(child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(_loc.t('profil_edit_title'),
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           const SizedBox(height: 20),
+          // ── Photo de profil (caméra ou galerie) ──
+          Center(
+            child: Column(children: [
+              GestureDetector(
+                onTap: _changerPhoto,
+                child: CircleAvatar(
+                  radius: 44,
+                  backgroundColor: context.appPrimaryLight,
+                  backgroundImage: _nouvellePhoto != null
+                      ? FileImage(File(_nouvellePhoto!.path)) as ImageProvider
+                      : (photoActuelle != null && photoActuelle.isNotEmpty)
+                          ? NetworkImage(photoActuelle)
+                          : null,
+                  child: (_nouvellePhoto == null && (photoActuelle == null || photoActuelle.isEmpty))
+                      ? const Icon(Icons.person, size: 44, color: AppColors.primary)
+                      : null,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _changerPhoto,
+                icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                label: Text(_loc.t('profil_change_photo')),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 8),
           TextFormField(
             controller: _prenomCtrl,
             decoration: InputDecoration(labelText: _loc.t('prest_edit_first_name'), prefixIcon: const Icon(Icons.person_outline)),
@@ -3368,8 +3557,13 @@ class _FormulaireModificationProfilState extends State<_FormulaireModificationPr
                 : Text(_loc.t('common_save')),
           ),
         ],
-      ),
+      )),
     );
+  }
+
+  Future<void> _changerPhoto() async {
+    final img = await choisirPhoto(context);
+    if (img != null && mounted) setState(() => _nouvellePhoto = img);
   }
 }
 

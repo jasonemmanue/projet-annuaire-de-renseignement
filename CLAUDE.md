@@ -57,6 +57,38 @@ synchronisées dans l'API (`notifMessages`, `notifModeration`,
 `notifFinSponsor`) : le serveur n'envoie pas les push désactivés.
 `NotificationService.categoriePourType()` mappe le `type` d'un push.
 
+### Mises à jour du 12/10/2026 (2e lot)
+
+- **Prix total** : le prestataire saisit loyer (`prix`), `charges`,
+  `moisAvance`, `caution`, `fraisAgence` ; l'API calcule `prixTotal`
+  (location : (loyer + charges) × mois d'avance + caution + frais ; vente :
+  prix + frais). `Logement.prixAffiche` / `prixFormate` / `prixLabel` montrent
+  ce total partout (listes, filtres, tris, favoris) ; détail du calcul dans
+  `_DetailPrix` (detail_logement_screen).
+- **Actualisation 21 jours** : une annonce non actualisée depuis 21 jours est
+  masquée aux visiteurs (`actualiseLe`, `masqueeNonActualisee`). Bouton
+  gratuit « Actualiser » sur la carte prestataire (`LogementService.actualiser`) ;
+  toute modification compte ; push de rappel à J-2 (`type: actualisation`).
+- **Doublon GPS** : l'API refuse (409 `doublon_gps`) une annonce active du même
+  type et du même prix à moins de 10 m.
+- **CNI obligatoire** : à l'inscription (`CniChamps` dans login_screen) et pour
+  publier (API 403 `cni_requise` → `CniScreen`). Photos dans Storage
+  `cni/<uid>/recto|verso.jpg`, visibles du titulaire et de l'admin seulement.
+- **Un numéro = un compte** : `GET /users/telephone-disponible` avant la
+  création Firebase ; l'API refuse aussi (409 `telephone_utilise`).
+- **Rendez-vous de visite** : `rendez_vous_screen.dart` (`demanderVisite` depuis
+  le détail, liste avec Accepter / Refuser / Annuler), entrées dans les deux
+  profils.
+- **Vocal** : `flutter_tts` (bouton « Écouter » de la description),
+  `speech_to_text` (micro de `AppSearchBar` sur l'accueil). Permissions
+  `RECORD_AUDIO` + `<queries>` TTS/Recognition (Android),
+  `NSSpeechRecognitionUsageDescription` (iOS).
+- **Photos** : `utils/photo_source.dart` (`choisirPhoto` : caméra ou galerie),
+  utilisé pour la photo de profil (formulaire « Modifier mes coordonnées »),
+  la CNI et la messagerie. La photo de profil est recopiée sur les annonces.
+- **WhatsApp** : bouton à côté de l'appel sur le détail (wa.me + message
+  pré-rempli).
+
 ### Onboarding prestataire
 
 `prestataire_onboarding_screen.dart` : 4 pages, ouvert une fois après la

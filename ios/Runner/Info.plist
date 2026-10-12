@@ -45,6 +45,8 @@
 	<string>Horem+ utilise la caméra pour prendre des photos de vos annonces et publicités</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Horem+ accède à vos photos pour illustrer vos annonces et publicités</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Horem+ utilise la reconnaissance vocale pour rechercher un logement à la voix.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Horem+ utilise le microphone pour enregistrer des vidéos</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

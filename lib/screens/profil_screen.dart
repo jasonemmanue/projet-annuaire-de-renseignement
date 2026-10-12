@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
 import '../widgets/notifications_settings_widget.dart';
+import 'rendez_vous_screen.dart';
 import '../widgets/shared_widgets.dart' as sw;
 import 'auth/login_screen.dart';
 import 'aide_faq_screen.dart';
@@ -187,6 +188,12 @@ class _ProfilScreenState extends State<ProfilScreen> {
               _Section(
                 title: l.t('profil_info_section'),
                 children: [
+                  _OptionTile(
+                    icon: Icons.event_available_outlined,
+                    label: l.t('rdv_list_title'),
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const RendezVousScreen())),
+                  ),
                   _OptionTile(
                     icon: Icons.help_outline,
                     label: l.t('profil_help'),

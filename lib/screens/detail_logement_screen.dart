@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
 import '../services/api_client.dart';
@@ -15,6 +16,7 @@ import '../services/analytics_service.dart';
 import '../services/favoris_service.dart'; // ← ÉTAPE 1
 import '../l10n/app_localizations.dart';
 import 'messagerie_screen.dart';
+import 'rendez_vous_screen.dart';
 import '../widgets/shared_widgets.dart' as sw;
 
 // ============================================================
@@ -60,6 +62,10 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
   int _currentPhoto = 0;
   bool _contactLoading = false;
   Timer? _autoScrollTimer;
+
+  // ── Synthèse vocale de la description ──────────────────────
+  final FlutterTts _tts = FlutterTts();
+  bool _lecture = false;
 
   // ── État signalement ────────────────────────────────────────
   bool _dejaSignale = false;
@@ -177,6 +183,7 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
 
   @override
   void dispose() {
+    _tts.stop();
     _autoScrollTimer?.cancel();
     _pageController.dispose();
     _heartController.dispose();
@@ -556,6 +563,8 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                             Text('${l.nbVues} ${_loc.t('detail_views')}', style: AppTextStyles.caption),
                           ]),
                         ]),
+                        // Prix affiché = total à payer ; détail du calcul.
+                        if (l.aDetailPrix) _DetailPrix(logement: l),
                       ],
                     ),
                   ),
@@ -693,7 +702,14 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                   Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(_loc.t('detail_description'), style: AppTextStyles.h3),
+                      Row(children: [
+                        Expanded(child: Text(_loc.t('detail_description'), style: AppTextStyles.h3)),
+                        TextButton.icon(
+                          onPressed: _basculerLecture,
+                          icon: Icon(_lecture ? Icons.stop_circle_outlined : Icons.volume_up_outlined),
+                          label: Text(_loc.t(_lecture ? 'detail_tts_stop' : 'detail_tts_listen')),
+                        ),
+                      ]),
                       const SizedBox(height: 8),
                       _ExpandableText(text: l.description),
                     ]),
@@ -848,7 +864,33 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
                                   borderRadius: BorderRadius.circular(8)),
                             ),
                           ),
+                        if (_prestatirePhoneAffiche.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          IconButton(
+                            onPressed: _ouvrirWhatsApp,
+                            tooltip: 'WhatsApp',
+                            icon: const Icon(Icons.chat, color: AppColors.success),
+                            style: IconButton.styleFrom(
+                              backgroundColor: AppColors.success.withValues(alpha: 0.12),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ],
                       ]),
+                      // ── Rendez-vous de visite (biens immobiliers) ──
+                      if (l.typeLocation != 'service') ...[
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: () => demanderVisite(context, l),
+                          icon: const Icon(Icons.event_available_outlined, size: 18),
+                          label: Text(_loc.t('rdv_plan_visit')),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 44),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ],
                       // ── Réserver une table (Restaurant / Snack) ──
                       if (l.typeBien == 'Restaurant / Snack') ...[
                         const SizedBox(height: 12),
@@ -1089,6 +1131,46 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     final texte = '${l.titre}\n${l.quartier}, ${l.ville}\n${l.prixLabel}\n\n'
         'Découvrez cette annonce sur Horem+.';
     Share.share(texte, subject: 'Annonce Horem+ – ${l.titre}');
+  }
+
+  /// Lit le titre, le prix et la description à voix haute (langue de l'app).
+  Future<void> _basculerLecture() async {
+    if (_lecture) {
+      await _tts.stop();
+      if (mounted) setState(() => _lecture = false);
+      return;
+    }
+    final anglais = Localizations.localeOf(context).languageCode == 'en';
+    await _tts.setLanguage(anglais ? 'en-US' : 'fr-FR');
+    await _tts.setSpeechRate(0.45);
+    _tts.setCompletionHandler(() {
+      if (mounted) setState(() => _lecture = false);
+    });
+    _tts.setErrorHandler((_) {
+      if (mounted) setState(() => _lecture = false);
+    });
+    final prix = l.prixAffiche > 0
+        ? '${_loc.t('detail_tts_price')} ${l.prixAffiche.toStringAsFixed(0)} francs CFA. '
+        : '';
+    setState(() => _lecture = true);
+    await _tts.speak('${l.titre}. ${l.quartier}, ${l.ville}. $prix${l.description}');
+  }
+
+  /// Ouvre WhatsApp avec le prestataire, message pré-rempli sur l'annonce.
+  Future<void> _ouvrirWhatsApp() async {
+    var tel = _prestatirePhoneAffiche.replaceAll(RegExp(r'\D'), '');
+    if (tel.startsWith('00')) tel = tel.substring(2);
+    if (tel.length == 9) tel = '237$tel';
+    if (tel.length == 10 && tel.startsWith('0')) tel = '225$tel';
+    final texte = Uri.encodeComponent(
+        '${_loc.t('detail_whatsapp_message')} « ${l.titre} » (${l.prixLabel}) — Horem+');
+    final uri = Uri.parse('https://wa.me/$tel?text=$texte');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_loc.t('detail_whatsapp_error')),
+        backgroundColor: AppColors.error,
+      ));
+    }
   }
 
   void _appelerPrestataire() async {
@@ -1578,6 +1660,61 @@ class _BandeauVerification extends StatelessWidget {
             style: TextStyle(fontSize: 12.5, color: context.appTextPrimary, height: 1.35),
           ),
         ),
+      ]),
+    );
+  }
+}
+
+
+// ── Détail du prix total (location / vente) ─────────────────────────────────
+class _DetailPrix extends StatelessWidget {
+  final Logement logement;
+  const _DetailPrix({required this.logement});
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final l = logement;
+    final location = l.typeLocation == 'location';
+    final lignes = <(String, double)>[
+      if (location) ...[
+        ('${loc.t('price_rent')} × ${l.moisAvance} ${loc.t('price_months')}', l.prix * l.moisAvance),
+        if (l.charges > 0) ('${loc.t('price_charges')} × ${l.moisAvance}', l.charges * l.moisAvance),
+        if (l.caution > 0) (loc.t('price_deposit'), l.caution),
+      ] else
+        (loc.t('price_sale'), l.prix),
+      if (l.fraisAgence > 0) (loc.t('price_agency_fees'), l.fraisAgence),
+    ];
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(loc.t(location ? 'price_total_entry' : 'price_total'),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+        const SizedBox(height: 6),
+        for (final (libelle, montant) in lignes)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(children: [
+              Expanded(child: Text(libelle, style: TextStyle(fontSize: 13, color: context.appTextSecondary))),
+              Text(Logement.formaterXaf(montant), style: const TextStyle(fontSize: 13)),
+            ]),
+          ),
+        const Divider(height: 12),
+        Row(children: [
+          Expanded(child: Text(loc.t('price_total'), style: const TextStyle(fontWeight: FontWeight.w700))),
+          Text(l.prixFormate,
+              style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary)),
+        ]),
+        if (location) ...[
+          const SizedBox(height: 4),
+          Text('${loc.t('price_then_monthly')} ${Logement.formaterXaf(l.prix + l.charges)}',
+              style: TextStyle(fontSize: 12, color: context.appTextSecondary)),
+        ],
       ]),
     );
   }

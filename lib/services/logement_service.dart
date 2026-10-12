@@ -78,6 +78,11 @@ class LogementService {
 
   /// Crée une annonce. Pharmacie : publiée tout de suite ; autres types :
   /// brouillon en attente de paiement. Renvoie l'identifiant.
+  /// Actualisation gratuite (repousse de 21 jours le masquage automatique).
+  static Future<void> actualiser(String logementId) async {
+    await _api.post('/logements/$logementId/actualiser');
+  }
+
   static Future<String> addLogement(Map<String, dynamic> data) async {
     final rep = await _api.post('/logements', data) as Map<String, dynamic>;
     final id = rep['id'] as String;

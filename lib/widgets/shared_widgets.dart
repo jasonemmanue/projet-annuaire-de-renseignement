@@ -442,6 +442,9 @@ class AppSearchBar extends StatelessWidget {
   final ValueChanged<String>? onChanged;
   final VoidCallback? onFilterTap;
   final int filtresActifsCount;
+  /// Recherche vocale : micro affiché quand le champ est vide.
+  final VoidCallback? onVoiceTap;
+  final bool ecouteVocale;
 
   const AppSearchBar({
     super.key,
@@ -450,6 +453,8 @@ class AppSearchBar extends StatelessWidget {
     this.onChanged,
     this.onFilterTap,
     this.filtresActifsCount = 0,
+    this.onVoiceTap,
+    this.ecouteVocale = false,
   });
 
   @override
@@ -476,7 +481,14 @@ class AppSearchBar extends StatelessWidget {
                         onSearch('');
                       },
                     )
-                  : null,
+                  : onVoiceTap != null
+                      ? IconButton(
+                          tooltip: l.t('search_voice'),
+                          icon: Icon(ecouteVocale ? Icons.mic : Icons.mic_none,
+                              color: ecouteVocale ? AppColors.error : AppColors.primary),
+                          onPressed: onVoiceTap,
+                        )
+                      : null,
               filled: true,
               fillColor: context.appSurface,
               border: OutlineInputBorder(

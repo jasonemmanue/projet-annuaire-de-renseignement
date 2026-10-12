@@ -72,7 +72,7 @@ class _FavoriData {
   factory _FavoriData.fromLogement(Logement logement) => _FavoriData(
     logementId: logement.id,
     titre: logement.titre,
-    prix: logement.prix,
+    prix: logement.prixAffiche,
     ville: logement.ville,
     quartier: logement.quartier,
     photo: logement.photos.isNotEmpty ? logement.photos.first : null,

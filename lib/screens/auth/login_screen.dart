@@ -9,6 +9,8 @@ import '../../utils/media_permission.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/storage_service.dart';
+import '../../services/api_client.dart';
+import '../cni_screen.dart';
 import '../legal/cgu_screen.dart';
 import 'diag_otp_screen.dart';
 
@@ -357,6 +359,10 @@ class _InscriptionTabState extends State<_InscriptionTab> {
   String? _errorMessage;
   XFile?  _photo;
   bool    _cguAcceptees = false;
+  // CNI obligatoire pour s'inscrire comme prestataire / propriétaire.
+  final _cniNumeroCtrl = TextEditingController();
+  XFile?  _cniRecto;
+  XFile?  _cniVerso;
 
   int    _lockSeconds = 0;
   Timer? _lockTimer;
@@ -370,6 +376,7 @@ class _InscriptionTabState extends State<_InscriptionTab> {
     _emailCtrl.dispose();
     _passCtrl.dispose();
     _pass2Ctrl.dispose();
+    _cniNumeroCtrl.dispose();
     super.dispose();
   }
 
@@ -409,7 +416,28 @@ class _InscriptionTabState extends State<_InscriptionTab> {
       ));
       return;
     }
+    final l = AppLocalizations.of(context);
+    if (_cniRecto == null || _cniVerso == null) {
+      setState(() => _errorMessage = l.t('cni_photos_required'));
+      return;
+    }
     setState(() { _isLoading = true; _errorMessage = null; });
+
+    // Un numéro de téléphone = un seul compte : vérifié AVANT de créer le
+    // compte Firebase (l'API le refuse aussi à l'enregistrement du profil).
+    final telephone = '+237${_telCtrl.text.trim()}';
+    try {
+      final rep = await ApiClient.instance.get('/users/telephone-disponible',
+          params: {'numero': telephone});
+      if (rep is Map && rep['disponible'] == false) {
+        if (!mounted) return;
+        setState(() { _isLoading = false; _errorMessage = l.t('login_phone_taken'); });
+        return;
+      }
+    } catch (_) {
+      // Vérification indisponible : l'API refusera quand même un doublon.
+    }
+    if (!mounted) return;
 
     final auth = AuthService.instance;
     final result = await auth.register(
@@ -417,7 +445,7 @@ class _InscriptionTabState extends State<_InscriptionTab> {
       password:  _passCtrl.text,
       nom:       _nomCtrl.text.trim(),
       prenom:    _prenomCtrl.text.trim(),
-      telephone: '+237${_telCtrl.text.trim()}',
+      telephone: telephone,
     );
 
     if (!mounted) return;
@@ -441,6 +469,24 @@ class _InscriptionTabState extends State<_InscriptionTab> {
         }
       } catch (_) {
         // photo non bloquante
+      }
+    }
+
+    // CNI : photos + numéro (obligatoire). En cas d'échec réseau, l'app la
+    // redemandera à la première publication (l'API l'exige).
+    if (auth.currentUser != null) {
+      try {
+        await envoyerCni(
+          uid: auth.currentUser!.id,
+          numero: _cniNumeroCtrl.text,
+          recto: _cniRecto!,
+          verso: _cniVerso!,
+        );
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(l.t('cni_upload_failed')), backgroundColor: AppColors.error));
+        }
       }
     }
 
@@ -655,6 +701,21 @@ class _InscriptionTabState extends State<_InscriptionTab> {
               const SizedBox(height: 12),
               _LockBanner(seconds: _lockSeconds),
             ],
+            const SizedBox(height: 16),
+
+            // ─── CNI (obligatoire) ────────────────────────────
+            Text(l.t('cni_title'), style: AppTextStyles.h3),
+            const SizedBox(height: 4),
+            Text(l.t('cni_register_hint'),
+                style: TextStyle(fontSize: 12, color: context.appTextSecondary)),
+            const SizedBox(height: 10),
+            CniChamps(
+              numeroCtrl: _cniNumeroCtrl,
+              recto: _cniRecto,
+              verso: _cniVerso,
+              onRecto: (f) => setState(() => _cniRecto = f),
+              onVerso: (f) => setState(() => _cniVerso = f),
+            ),
             const SizedBox(height: 16),
 
             // ─── CGU ──────────────────────────────────────────

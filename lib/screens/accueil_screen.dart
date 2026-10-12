@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/api_client.dart';
 import 'package:intl/intl.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import '../l10n/app_localizations.dart';
 import '../services/logement_service.dart';
 import '../services/analytics_service.dart';
@@ -48,6 +49,10 @@ class _AccueilScreenState extends State<AccueilScreen> {
   // ── Données ──────────────────────────────────────────────────
   List<Logement> _logements = [];
   bool _isLoading = true;
+
+  // ── Recherche vocale ─────────────────────────────────────────
+  final SpeechToText _stt = SpeechToText();
+  bool _ecouteVocale = false;
   bool _erreurSansCache = false;
 
   // ── Connectivité & cache ─────────────────────────────────────
@@ -155,6 +160,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
 
   @override
   void dispose() {
+    _stt.cancel();
     _alaUneTimer?.cancel();
     _alaUneScrollCtrl.dispose();
     _connectivitySub.cancel();
@@ -328,7 +334,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
       if (budget != null) {
         final min = budget * 0.9;
         final max = budget * 1.1;
-        result = result.where((l) => l.prix >= min && l.prix <= max).toList();
+        result = result.where((l) => l.prixAffiche >= min && l.prixAffiche <= max).toList();
       }
     }
 
@@ -343,10 +349,10 @@ class _AccueilScreenState extends State<AccueilScreen> {
       result = result.where((l) => _n(l.typeLocation).contains(tl)).toList();
     }
     if (f.prixMin != null) {
-      result = result.where((l) => l.prix >= f.prixMin!).toList();
+      result = result.where((l) => l.prixAffiche >= f.prixMin!).toList();
     }
     if (f.prixMax != null && f.prixMax! < 1000000) {
-      result = result.where((l) => l.prix <= f.prixMax!).toList();
+      result = result.where((l) => l.prixAffiche <= f.prixMax!).toList();
     }
     if (f.seulementVerifies) {
       result = result.where((l) => l.estVerifie).toList();
@@ -364,6 +370,49 @@ class _AccueilScreenState extends State<AccueilScreen> {
     if (_filtresAvances.prixMin != null || _filtresAvances.prixMax != null) n++;
     if (_filtresAvances.seulementVerifies) n++;
     return n;
+  }
+
+  /// Dicte la recherche (« studio Bastos 50 000 ») : le texte reconnu
+  /// alimente la barre comme une saisie clavier (suggestions + budget).
+  Future<void> _rechercheVocale() async {
+    final loc = AppLocalizations.of(context);
+    if (_ecouteVocale) {
+      await _stt.stop();
+      if (mounted) setState(() => _ecouteVocale = false);
+      return;
+    }
+    final dispo = await _stt.initialize(
+      onStatus: (st) {
+        if ((st == 'done' || st == 'notListening') && mounted) {
+          setState(() => _ecouteVocale = false);
+        }
+      },
+      onError: (_) {
+        if (mounted) setState(() => _ecouteVocale = false);
+      },
+    );
+    if (!mounted) return;
+    if (!dispo) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(loc.t('search_voice_unavailable'))));
+      return;
+    }
+    final anglais = Localizations.localeOf(context).languageCode == 'en';
+    setState(() => _ecouteVocale = true);
+    await _stt.listen(
+      localeId: anglais ? 'en_US' : 'fr_FR',
+      listenOptions: SpeechListenOptions(partialResults: true),
+      onResult: (r) {
+        if (!mounted) return;
+        final texte = r.recognizedWords;
+        _searchController.value = TextEditingValue(
+            text: texte, selection: TextSelection.collapsed(offset: texte.length));
+        _onSearchChanged(texte);
+        if (r.finalResult) {
+          setState(() { _ecouteVocale = false; _suggestions = []; });
+        }
+      },
+    );
   }
 
   void _onSearchChanged(String query) {
@@ -413,7 +462,7 @@ class _AccueilScreenState extends State<AccueilScreen> {
         if (budget != null) {
           final min = budget * 0.9;
           final max = budget * 1.1;
-          if (l.prix >= min && l.prix <= max) {
+          if (l.prixAffiche >= min && l.prixAffiche <= max) {
             if (texte.isEmpty || _n(l.titre).contains(_n(texte)) ||
                 _n(l.typeBien).contains(_n(texte))) {
               suggs.putIfAbsent('b_${l.id}', () => _Suggestion(
@@ -661,6 +710,8 @@ class _AccueilScreenState extends State<AccueilScreen> {
                   onChanged: _onSearchChanged,
                   onFilterTap: _afficherFiltresAvances,
                   filtresActifsCount: _nombreFiltresActifs,
+                  onVoiceTap: _rechercheVocale,
+                  ecouteVocale: _ecouteVocale,
                 ),
               ),
             ),

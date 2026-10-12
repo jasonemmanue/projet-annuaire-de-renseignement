@@ -54,6 +54,20 @@ class StorageService {
     return await task.ref.getDownloadURL();
   }
 
+  // Upload CNI (recto / verso) — dossier privé cni/<uid>/
+  static Future<String> uploadCni({
+    required String uid,
+    required String face,
+    required XFile image,
+  }) async {
+    final ref = _storage.ref().child('cni/$uid/$face.jpg');
+    final task = await ref.putFile(
+      File(image.path),
+      SettableMetadata(contentType: 'image/jpeg'),
+    );
+    return await task.ref.getDownloadURL();
+  }
+
   // Supprimer une photo
   static Future<void> deletePhoto(String url) async {
     try {
