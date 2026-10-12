@@ -1,7 +1,7 @@
 # CLAUDE.md — horem-api
 
 API Horem+ : FastAPI + PostgreSQL + Redis, déployée sur Railway (projet
-**Admin Horem+**, service `horem-api`, URL
+**Horem+ Application Complète**, service **`Api  Horem+`** (deux espaces), URL
 `https://horem-api-production.up.railway.app`). Structure calquée sur l'API
 Prepaxia. Code versionné sur la branche **`horem-api`** du dépôt de l'app
 (`jasonemmanue/projet-annuaire-de-renseignement`).
@@ -46,11 +46,28 @@ des fichiers (Firebase Storage, l'app envoie directement) et les push (FCM).
   `push.notifier_utilisateur(..., pref="notif_xxx")` les respecte.
   Fin de sponsorisation (tâche horaire) → push `type: fin_sponsorisation`.
 
+- **Prix total** : `tarifs.prix_total()` recalculé à chaque création /
+  modification ; filtres `prixMin`/`prixMax` et alertes urgence sur `prix_total`.
+- **Actualisation** : `actualise_le` (21 j, `tarifs.ACTUALISATION_JOURS`) dans
+  `_visible_visiteur()` ; remis à maintenant par création, modification,
+  paiement de publication, validation admin et `POST /logements/{id}/actualiser`.
+  Rappel push unique à J-2 (`rappel_actualisation`, tâche horaire).
+- **Doublon GPS** : `_verifier_doublon()` (10 m, même type, même prix,
+  hors brouillons et refusées) → 409 `doublon_gps`.
+- **CNI** : `cni_numero/recto/verso` (jamais dans `/users/{uid}/public`) ;
+  publication refusée sans CNI (403 `cni_requise`, sauf admin et compte
+  offert). Filtres admin `cni_a_verifier`, `cni_manquante`.
+- **Téléphone unique** : `normaliser_telephone()` + `telephone_pris()` sur
+  `PUT /users/me` (409 `telephone_utilise`) et `GET /users/telephone-disponible`.
+- **Rendez-vous** (`routes/rendez_vous.py`, table `rendez_vous`) :
+  `GET/POST /rendez-vous`, `PATCH /rendez-vous/{id}` (prestataire :
+  accepte/refuse ; demandeur : annule), polling `rdv:<id>`, push `type: rendez_vous`.
+
 ## Commandes
 
 ```bash
-railway up -s horem-api --detach          # déployer
-railway logs -s horem-api                 # journaux
+railway up --detach                        # déployer (dossier lié au service)
+railway logs --service "Api  Horem+"       # journaux
 TEST_FAKEREDIS=1 .venv/Scripts/python -m pytest -q   # tests (Postgres embarqué pgserver)
 ```
 
