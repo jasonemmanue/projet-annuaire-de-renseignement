@@ -123,6 +123,8 @@ async def _logements() -> int:
                              ("vues", 0), ("contacts", 0), ("vues_milestones", [])):
             if getattr(o, attr) is None:
                 setattr(o, attr, defaut)
+        # Anciennes annonces : pas de détail du coût, le total est le prix.
+        o.prix_total = o.prix or 0
         objets.append(o)
     await _enregistrer(objets)
     return len(objets)
