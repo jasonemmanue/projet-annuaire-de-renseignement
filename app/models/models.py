@@ -47,6 +47,9 @@ class Utilisateur(Base):
     phone_verified_at: Mapped[datetime | None] = _ts(nullable=True)
     compte_gratuit: Mapped[bool] = mapped_column(Boolean, default=False)
     notif_messages: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Préférences push prestataire : annonce validée/refusée, fin de sponsorisation.
+    notif_moderation: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    notif_fin_sponsor: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     suspendu: Mapped[bool] = mapped_column(Boolean, default=False)
     anonyme: Mapped[bool] = mapped_column(Boolean, default=False)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)
@@ -70,6 +73,8 @@ class Utilisateur(Base):
         ("phoneVerifiedAt", "phone_verified_at", "d"),
         ("compteGratuit", "compte_gratuit", "b"),
         ("notifMessages", "notif_messages", "b"),
+        ("notifModeration", "notif_moderation", "b"),
+        ("notifFinSponsor", "notif_fin_sponsor", "b"),
         ("suspendu", "suspendu", "b"),
         ("createdAt", "created_at", "d"),
         ("updatedAt", "updated_at", "d"),
@@ -89,6 +94,8 @@ class Logement(Base):
     prix: Mapped[float] = mapped_column(Float, default=0)
     type_location: Mapped[str] = mapped_column(String(40), default="location")
     type_bien: Mapped[str] = mapped_column(String(80), default="Studio", index=True)
+    # « autre » quand typeBien est un texte libre saisi par le prestataire.
+    type_bien_base: Mapped[str | None] = mapped_column(String(80))
     grade: Mapped[str] = mapped_column(String(40), default="standards")
     ville: Mapped[str] = mapped_column(String(120), default="", index=True)
     quartier: Mapped[str] = mapped_column(String(160), default="")
@@ -118,6 +125,10 @@ class Logement(Base):
     vues: Mapped[int] = mapped_column(Integer, default=0)
     contacts: Mapped[int] = mapped_column(Integer, default=0)
     vues_milestones: Mapped[list] = mapped_column(JSONB, default=list)
+    # Modération : en_attente | valide | rejete. NULL = annonce antérieure à la
+    # modération, traitée comme validée.
+    statut_moderation: Mapped[str | None] = mapped_column(String(20), index=True)
+    motif_rejet: Mapped[str | None] = mapped_column(Text)
     # Vrai une fois la notification « nouvelle annonce » envoyée.
     annonce_diffusee: Mapped[bool] = mapped_column(Boolean, default=False)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)
@@ -132,6 +143,7 @@ class Logement(Base):
         ("prix", "prix", "f"),
         ("typeLocation", "type_location", "s"),
         ("typeBien", "type_bien", "s"),
+        ("typeBienBase", "type_bien_base", "s"),
         ("grade", "grade", "s"),
         ("ville", "ville", "s"),
         ("quartier", "quartier", "s"),
@@ -142,6 +154,8 @@ class Logement(Base):
         ("nbPieces", "nb_pieces", "i"),
         ("equipements", "equipements", "j"),
         ("estVerifie", "est_verifie", "b"),
+        ("statutModeration", "statut_moderation", "s"),
+        ("motifRejet", "motif_rejet", "s"),
         ("isSponsored", "is_sponsored", "b"),
         ("estSponsorie", "is_sponsored", "b"),
         ("sponsoredUntil", "sponsored_until", "d"),
@@ -171,6 +185,10 @@ class Logement(Base):
         if self.visible_admin is not None:
             return self.visible_admin
         return self.type_bien != "Pharmacie"
+
+    @property
+    def moderation_ok(self) -> bool:
+        return self.statut_moderation in (None, "valide")
 
 
 Index("ix_logements_visiteur", Logement.disponible, Logement.payment_pending)

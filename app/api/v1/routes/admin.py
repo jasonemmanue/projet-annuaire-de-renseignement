@@ -67,6 +67,7 @@ async def stats(db: AsyncSession = Depends(get_db)):
         "annoncesNonVerifiees": await compter(Logement, Logement.est_verifie.is_(False)),
         "annoncesSponsorisees": await compter(Logement, Logement.is_sponsored.is_(True)),
         "brouillons": await compter(Logement, Logement.payment_pending.is_(True)),
+        "annoncesAVerifier": await compter(Logement, Logement.statut_moderation == "en_attente"),
         "totalUtilisateurs": await compter(Utilisateur, Utilisateur.anonyme.is_(False)),
         "prestataires": await compter(Utilisateur, Utilisateur.role == "prestataire"),
         "comptesGratuits": await compter(Utilisateur, Utilisateur.compte_gratuit.is_(True)),
@@ -93,6 +94,8 @@ _FILTRES_LOGEMENTS = {
     "sponsorie": Logement.is_sponsored.is_(True),
     "indisponible": Logement.disponible.is_(False),
     "brouillon": Logement.payment_pending.is_(True),
+    "a_verifier": Logement.statut_moderation == "en_attente",
+    "rejete": Logement.statut_moderation == "rejete",
     "bloque": Logement.visible_admin.is_(False),
 }
 
@@ -130,6 +133,43 @@ async def modifier_logement(logement_id: str, data: dict, db: AsyncSession = Dep
     lid = l.id
     apres_commit(db, lambda: cache.effacer_prefixe(f"pub:logements:un:{lid}"), "cache_logement")
     apres_commit(db, lambda: cache.effacer_prefixe("admin:stats"), "cache_stats")
+    return api_logement(l)
+
+
+@router.post("/logements/{logement_id}/moderation")
+async def moderer_logement(logement_id: str, data: dict, db: AsyncSession = Depends(get_db)):
+    """Valide ou refuse une annonce. Corps : {decision: "valider"|"rejeter",
+    motif?: str, verifie?: bool}. Le prestataire est prévenu par push."""
+    decision = (data or {}).get("decision")
+    if decision not in ("valider", "rejeter"):
+        raise HTTPException(400, "decision doit valoir « valider » ou « rejeter »")
+    motif = str((data or {}).get("motif") or "").strip()[:500]
+    if decision == "rejeter" and not motif:
+        raise HTTPException(400, "Motif de rejet requis")
+    l = await db.get(Logement, logement_id, with_for_update=True)
+    if l is None:
+        raise HTTPException(404, "Annonce introuvable")
+    titre = l.titre or l.type_bien or "votre annonce"
+    if decision == "valider":
+        l.statut_moderation, l.motif_rejet = "valide", None
+        # Valider vaut approbation (pharmacies : visibleAdmin restait à false).
+        l.visible_admin = True
+        if "verifie" in data:
+            l.est_verifie = bool(data["verifie"])
+        push_titre, corps = "✅ Annonce validée", f"« {titre} » a été validée par Horem+."
+    else:
+        l.statut_moderation, l.motif_rejet = "rejete", motif
+        push_titre, corps = "❌ Annonce refusée", f"« {titre} » a été refusée : {motif}"
+    await db.flush()
+    if l.disponible and not l.payment_pending and l.visible_admin_effectif and l.moderation_ok:
+        annonces.annonce_publiee(db, l.id, payee=False)
+    annonces.annonce_modifiee(db, l.uid_prestataire)
+    lid, uid = l.id, l.uid_prestataire
+    apres_commit(db, lambda: cache.effacer_prefixe(f"pub:logements:un:{lid}"), "cache_logement")
+    apres_commit(db, lambda: cache.effacer_prefixe("admin:stats"), "cache_stats")
+    apres_commit(db, lambda: push.notifier_utilisateur(
+        uid, push_titre, corps, {"type": "moderation", "logementId": lid,
+                                 "decision": decision}, pref="notif_moderation"), "push_moderation")
     return api_logement(l)
 
 

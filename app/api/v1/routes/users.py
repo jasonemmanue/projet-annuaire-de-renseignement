@@ -12,7 +12,8 @@ from app.models.models import Utilisateur
 router = APIRouter(prefix="/users", tags=["Utilisateurs"])
 
 # Ce que l'utilisateur peut changer lui-même (jamais rôle, premium, gratuit…).
-_MODIFIABLES = {"nom", "prenom", "telephone", "email", "photoUrl", "notifMessages", "fcmToken"}
+_MODIFIABLES = {"nom", "prenom", "telephone", "email", "photoUrl", "notifMessages", "notifModeration",
+                "notifFinSponsor", "fcmToken"}
 
 
 def profil(u: Utilisateur) -> dict:

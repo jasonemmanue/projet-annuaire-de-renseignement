@@ -18,6 +18,7 @@ from app.core import cache
 from app.core.serial import maintenant
 from app.db.session import AsyncSessionLocal
 from app.models.models import Logement, Message, PaiementWeb, Publicite
+from app.services import push
 
 logger = logging.getLogger("taches")
 _planificateur: AsyncIOScheduler | None = None
@@ -30,7 +31,8 @@ async def expirations() -> None:
     async with AsyncSessionLocal() as s:
         sponsors = (await s.execute(update(Logement).where(
             Logement.is_sponsored.is_(True), Logement.sponsored_until < t)
-            .values(is_sponsored=False, sponsored_until=None).returning(Logement.uid_prestataire))).scalars().all()
+            .values(is_sponsored=False, sponsored_until=None)
+            .returning(Logement.uid_prestataire, Logement.id, Logement.titre))).all()
         pubs = (await s.execute(update(Publicite).where(
             Publicite.actif.is_(True), Publicite.expires_at < t)
             .values(actif=False).returning(Publicite.prestataire_id))).scalars().all()
@@ -40,7 +42,12 @@ async def expirations() -> None:
         await s.commit()
     if sponsors:
         await cache.effacer_prefixe("pub:logements:")
-        await cache.changer(*{f"mes_logements:{u}" for u in sponsors})
+        await cache.changer(*{f"mes_logements:{u}" for u, _, _ in sponsors})
+        for uid, lid, titre in sponsors:
+            await push.notifier_utilisateur(
+                uid, "⏰ Fin de la mise en avant",
+                f"La mise en avant de « {titre or 'votre annonce'} » est terminée. Vous pouvez la renouveler.",
+                {"type": "fin_sponsorisation", "logementId": lid}, pref="notif_fin_sponsor")
     if pubs:
         await cache.effacer_prefixe("pub:stories")
         await cache.changer("stories", *{f"mes_pubs:{u}" for u in pubs})

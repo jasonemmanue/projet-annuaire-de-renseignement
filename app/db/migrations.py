@@ -24,6 +24,18 @@ MIGRATIONS: list[tuple[str, str]] = [
      "CREATE INDEX IF NOT EXISTS ix_utilisateurs_fcm ON utilisateurs (id) WHERE fcm_token IS NOT NULL"),
     ("Index urgences actives",
      "CREATE INDEX IF NOT EXISTS ix_urgences_actives ON urgences (type_bien, expires_at) WHERE actif"),
+    ("Logement : statut de modération",
+     "ALTER TABLE logements ADD COLUMN IF NOT EXISTS statut_moderation VARCHAR(20)"),
+    ("Logement : motif de rejet",
+     "ALTER TABLE logements ADD COLUMN IF NOT EXISTS motif_rejet TEXT"),
+    ("Index modération",
+     "CREATE INDEX IF NOT EXISTS ix_logements_statut_moderation ON logements (statut_moderation)"),
+    ("Logement : type de base (Autre)",
+     "ALTER TABLE logements ADD COLUMN IF NOT EXISTS type_bien_base VARCHAR(80)"),
+    ("Utilisateur : préférence push modération",
+     "ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS notif_moderation BOOLEAN NOT NULL DEFAULT TRUE"),
+    ("Utilisateur : préférence push fin de sponsorisation",
+     "ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS notif_fin_sponsor BOOLEAN NOT NULL DEFAULT TRUE"),
 ]
 
 

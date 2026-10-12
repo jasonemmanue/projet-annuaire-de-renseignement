@@ -74,8 +74,10 @@ async def envoyer_jeton(jeton: str | None, titre: str, corps: str, data: dict | 
 
 
 async def notifier_utilisateur(uid: str, titre: str, corps: str, data: dict | None = None,
-                               canal: str = CANAL_ANNONCES, respecter_pref_messages: bool = False) -> bool:
-    """Push à un utilisateur (silencieux s'il n'a pas de jeton)."""
+                               canal: str = CANAL_ANNONCES, respecter_pref_messages: bool = False,
+                               pref: str | None = None) -> bool:
+    """Push à un utilisateur (silencieux s'il n'a pas de jeton). `pref` : nom
+    d'une colonne booléenne de préférence (ex. notif_moderation) à respecter."""
     if not uid or uid.startswith("visiteur_"):
         return False
     async with AsyncSessionLocal() as s:
@@ -83,6 +85,8 @@ async def notifier_utilisateur(uid: str, titre: str, corps: str, data: dict | No
         if u is None or not u.fcm_token:
             return False
         if respecter_pref_messages and u.notif_messages is False:
+            return False
+        if pref and getattr(u, pref, True) is False:
             return False
         jeton = u.fcm_token
     return await envoyer_jeton(jeton, titre, corps, data, canal)

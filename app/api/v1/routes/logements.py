@@ -37,20 +37,21 @@ CONTENU = {
     "titre", "description", "prix", "typeLocation", "typeBien", "grade", "ville", "quartier",
     "latitude", "longitude", "photos", "surface", "nbPieces", "equipements",
     "prestatireNom", "prestatirePhone", "prestatirePhoto", "documentPdf",
-    "heureOuverture", "heureFermeture", "joursGarde",
+    "heureOuverture", "heureFermeture", "joursGarde", "typeBienBase",
 }
 # Champs gérés par le serveur : jamais acceptés d'un prestataire.
 GERES = {
     "uid_prestataire", "prestatireId", "estVerifie", "isSponsored", "estSponsorie",
     "sponsoredUntil", "sponsoredAt", "visibleAdmin", "paymentPending", "disponible",
     "publicationExpiry", "visibiliteExpiry", "vues", "nbVues", "contacts",
-    "vues_milestones_notified", "createdAt", "updatedAt",
+    "vues_milestones_notified", "createdAt", "updatedAt", "statutModeration", "motifRejet",
 }
 
 
 def api(l: Logement) -> dict:
     d = vers_api(l, Logement.CHAMPS)
     d["visibleAdmin"] = l.visible_admin_effectif
+    d["statutModeration"] = l.statut_moderation or "valide"
     return d
 
 
@@ -60,6 +61,7 @@ def _visible_visiteur():
         Logement.payment_pending.is_(False),
         or_(Logement.visible_admin.is_(True),
             and_(Logement.visible_admin.is_(None), Logement.type_bien != "Pharmacie")),
+        or_(Logement.statut_moderation.is_(None), Logement.statut_moderation == "valide"),
     )
 
 
@@ -265,6 +267,9 @@ async def creer(data: dict, db: AsyncSession = Depends(get_db), user: Utilisateu
     if not l.titre and not l.type_bien:
         raise HTTPException(400, "Titre ou type requis")
     l.is_sponsored = False
+    # Modération : visible des visiteurs seulement après validation admin
+    # (comptes admin et comptes offerts, créés par l'admin, validés d'office).
+    l.statut_moderation = "valide" if (user.role == "admin" or user.compte_gratuit) else "en_attente"
     if tarifs.est_pharmacie(l.type_bien):
         l.disponible, l.payment_pending = True, False
         l.visible_admin = bool(user.compte_gratuit)
@@ -284,7 +289,10 @@ async def modifier(logement_id: str, data: dict, db: AsyncSession = Depends(get_
     """Contenu de l'annonce + bascule « disponible » (règles de visibilité)."""
     l = await _charger(db, logement_id, verrou=True)
     _proprietaire(l, user)
-    appliquer(l, data, Logement.CHAMPS, autorises=CONTENU)
+    faits = appliquer(l, data, Logement.CHAMPS, autorises=CONTENU)
+    # Annonce refusée puis corrigée : elle repart en file de vérification.
+    if faits and l.statut_moderation == "rejete" and user.role != "admin":
+        l.statut_moderation, l.motif_rejet = "en_attente", None
     if "disponible" in data:
         await _basculer_disponible(l, bool(data["disponible"]), user)
     await db.flush()

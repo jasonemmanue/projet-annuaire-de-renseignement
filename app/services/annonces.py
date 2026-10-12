@@ -1,6 +1,8 @@
 # app/services/annonces.py
 # ─────────────────────────────────────────────────────────────────────────────
-# Effets d'une annonce qui devient visible (anciens déclencheurs Firestore) :
+# Effets d'une annonce qui devient visible (anciens déclencheurs Firestore).
+# Une annonce en attente de modération n'est pas diffusée : la validation
+# admin rappelle annonce_publiee().
 #   • push « Nouvelle annonce » à tous (une seule fois par annonce) ;
 #   • push immédiat aux visiteurs dont l'alerte prioritaire correspond ;
 #   • notification + e-mail admin pour une publication payée.
@@ -8,7 +10,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 import logging
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from app.core import cache
 from app.core.config import settings
@@ -32,7 +34,9 @@ async def _diffuser_nouvelle(logement_id: str) -> None:
         # UPDATE … WHERE annonce_diffusee = false : une seule diffusion même
         # si deux événements arrivent en même temps.
         res = await s.execute(
-            update(Logement).where(Logement.id == logement_id, Logement.annonce_diffusee.is_(False))
+            update(Logement).where(Logement.id == logement_id, Logement.annonce_diffusee.is_(False),
+                                   or_(Logement.statut_moderation.is_(None),
+                                       Logement.statut_moderation == "valide"))
             .values(annonce_diffusee=True).returning(Logement.titre, Logement.ville,
                                                      Logement.quartier, Logement.uid_prestataire))
         ligne = res.first()
@@ -50,7 +54,7 @@ async def _diffuser_nouvelle(logement_id: str) -> None:
 async def _alertes_urgence(logement_id: str) -> None:
     async with AsyncSessionLocal() as s:
         log = await s.get(Logement, logement_id)
-        if not log or not log.type_bien:
+        if not log or not log.type_bien or not log.moderation_ok:
             return
         prix = log.prix or 0
         alertes = (await s.execute(select(Urgence).where(

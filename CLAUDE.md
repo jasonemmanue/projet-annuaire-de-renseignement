@@ -3,7 +3,8 @@
 API Horem+ : FastAPI + PostgreSQL + Redis, déployée sur Railway (projet
 **Admin Horem+**, service `horem-api`, URL
 `https://horem-api-production.up.railway.app`). Structure calquée sur l'API
-Prepaxia.
+Prepaxia. Code versionné sur la branche **`horem-api`** du dépôt de l'app
+(`jasonemmanue/projet-annuaire-de-renseignement`).
 
 Elle remplace **Firestore** et les **Cloud Functions**. Firebase ne sert plus
 qu'à : l'authentification (jeton d'identité vérifié par l'API), le stockage
@@ -33,6 +34,17 @@ des fichiers (Firebase Storage, l'app envoie directement) et les push (FCM).
 - « Temps réel » = polling versionné : une route lue en boucle passe par
   `versionne()` et toute écriture qui la concerne appelle `marquer(db, clé)`.
 - Effets de bord (push, e-mails, cache) via `apres_commit`, jamais avant le commit.
+- **Modération** : `logements.statut_moderation` (`en_attente` | `valide` |
+  `rejete`, NULL = antérieure = validée). Création → `en_attente` (sauf admin
+  et compte offert). Les listes visiteurs filtrent `valide`/NULL ; la
+  diffusion « nouvelle annonce » et les alertes urgence attendent la
+  validation. `POST /admin/logements/{id}/moderation` `{decision: valider|rejeter,
+  motif?, verifie?}` → push `type: moderation` au prestataire. Filtres admin
+  `a_verifier` / `rejete`, compteur `annoncesAVerifier` dans `/admin/stats`.
+- **Préférences push** : `notif_messages`, `notif_moderation`,
+  `notif_fin_sponsor` (modifiables par `PUT /users/me`) ;
+  `push.notifier_utilisateur(..., pref="notif_xxx")` les respecte.
+  Fin de sponsorisation (tâche horaire) → push `type: fin_sponsorisation`.
 
 ## Commandes
 
@@ -41,6 +53,16 @@ railway up -s horem-api --detach          # déployer
 railway logs -s horem-api                 # journaux
 TEST_FAKEREDIS=1 .venv/Scripts/python -m pytest -q   # tests (Postgres embarqué pgserver)
 ```
+
+## Secrets (variables Railway du service API)
+
+Ils étaient dans le Secret Manager Firebase (Cloud Functions) ; à recopier :
+`GENIUSPAY_API_KEY`, `GENIUSPAY_SECRET_KEY`, `GENIUSPAY_WEBHOOK_SECRET`
+(`firebase functions:secrets:access NOM`), `FIREBASE_CREDENTIALS` (JSON du
+compte de service en base64 sur une ligne), `ADMIN_EMAILS`, `ADMIN_NOTIF_EMAIL`.
+E-mails : Railway bloque le SMTP, donc l'ancien couple Gmail
+`GMAIL_SENDER_EMAIL` / `GMAIL_APP_PASSWORD` ne sert plus ; poser soit
+`GMAIL_API_*` (OAuth, comme Prepaxia) soit `RESEND_API_KEY`.
 
 ## Reprise des données Firestore
 
