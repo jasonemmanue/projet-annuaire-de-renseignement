@@ -2,7 +2,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Tâches planifiées (remplacent les Cloud Functions onSchedule) :
 #   • toutes les heures : fin des sponsorisations et des publicités expirées,
-#     liens de paiement web expirés ;
+#     liens de paiement web expirés, rappel d'actualisation (J-2 avant le
+#     masquage des annonces non actualisées depuis 21 jours) ;
 #   • chaque semaine : suppression des messages de plus de 90 jours.
 # Plusieurs processus (workers / réplicas) tournent : un verrou Redis fait
 # qu'une seule exécution a lieu par créneau. Requêtes UPDATE/DELETE en masse
@@ -18,7 +19,7 @@ from app.core import cache
 from app.core.serial import maintenant
 from app.db.session import AsyncSessionLocal
 from app.models.models import Logement, Message, PaiementWeb, Publicite
-from app.services import push
+from app.services import push, tarifs
 
 logger = logging.getLogger("taches")
 _planificateur: AsyncIOScheduler | None = None
@@ -36,6 +37,12 @@ async def expirations() -> None:
         pubs = (await s.execute(update(Publicite).where(
             Publicite.actif.is_(True), Publicite.expires_at < t)
             .values(actif=False).returning(Publicite.prestataire_id))).scalars().all()
+        # Rappel unique à J-2 (remis à zéro à chaque actualisation).
+        a_rappeler = (await s.execute(update(Logement).where(
+            Logement.rappel_actualisation.is_(False), Logement.disponible.is_(True),
+            Logement.actualise_le < t - timedelta(days=tarifs.ACTUALISATION_JOURS - 2))
+            .values(rappel_actualisation=True)
+            .returning(Logement.uid_prestataire, Logement.id, Logement.titre))).all()
         await s.execute(update(PaiementWeb).where(
             PaiementWeb.statut.in_(("en_attente", "initie")), PaiementWeb.expires_at < t)
             .values(statut="expire"))
@@ -51,7 +58,13 @@ async def expirations() -> None:
     if pubs:
         await cache.effacer_prefixe("pub:stories")
         await cache.changer("stories", *{f"mes_pubs:{u}" for u in pubs})
-    logger.info("expirations : %s sponsorisations, %s publicités", len(sponsors), len(pubs))
+    for uid, lid, titre in a_rappeler:
+        await push.notifier_utilisateur(
+            uid, "🔄 Actualisez votre annonce",
+            f"« {titre or 'Votre annonce'} » sera masquée dans 2 jours si vous ne l'actualisez pas.",
+            {"type": "actualisation", "logementId": lid})
+    logger.info("expirations : %s sponsorisations, %s publicités, %s rappels d'actualisation",
+                len(sponsors), len(pubs), len(a_rappeler))
 
 
 async def purge_messages() -> None:

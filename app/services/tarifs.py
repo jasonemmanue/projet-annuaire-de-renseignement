@@ -105,3 +105,23 @@ def service_activation(type_: str, params: dict | None) -> dict:
         return {"montant": montant_visibilite(tb), "libelle": f"Visibilité annuelle ({tb})",
                 "description": f"Visibilité annuelle pour « {titre} »" if titre else "Visibilité annuelle"}
     raise ValueError(f"Type d'activation inconnu : {type_}")
+
+
+# ─── Actualisation et prix total ────────────────────────────────────────────
+# Une annonce non actualisée depuis ce délai est masquée aux visiteurs.
+ACTUALISATION_JOURS = 21
+
+
+def prix_total(type_location: str, prix: float, charges: float, frais_agence: float,
+               caution: float, mois_avance: int) -> float:
+    """Ce que le chercheur paie réellement à l'entrée.
+    Location : (loyer + charges) × mois d'avance + caution + frais d'agence.
+    Vente : prix + frais d'agence. Services : prix tel quel."""
+    prix, charges = max(prix or 0, 0), max(charges or 0, 0)
+    frais_agence, caution = max(frais_agence or 0, 0), max(caution or 0, 0)
+    if type_location == "location":
+        mois = min(max(int(mois_avance or 1), 1), 24)
+        return (prix + charges) * mois + caution + frais_agence
+    if type_location == "vente":
+        return prix + frais_agence
+    return prix

@@ -152,6 +152,8 @@ async def moderer_logement(logement_id: str, data: dict, db: AsyncSession = Depe
     titre = l.titre or l.type_bien or "votre annonce"
     if decision == "valider":
         l.statut_moderation, l.motif_rejet = "valide", None
+        # Le temps passé en file de vérification ne compte pas dans les 21 jours.
+        l.actualise_le, l.rappel_actualisation = maintenant(), False
         # Valider vaut approbation (pharmacies : visibleAdmin restait à false).
         l.visible_admin = True
         if "verifie" in data:
@@ -208,6 +210,12 @@ async def users(q: str | None = Query(None, max_length=120), role: str | None = 
         req = req.where(Utilisateur.is_verifie.is_(True))
     elif filtre == "suspendu":
         req = req.where(Utilisateur.suspendu.is_(True))
+    elif filtre == "cni_a_verifier":
+        # CNI déposée mais prestataire pas encore vérifié par l'admin.
+        req = req.where(Utilisateur.cni_recto.is_not(None), Utilisateur.is_verifie.is_(False))
+    elif filtre == "cni_manquante":
+        req = req.where(Utilisateur.role == "prestataire", Utilisateur.compte_gratuit.is_(False),
+                        or_(Utilisateur.cni_recto.is_(None), Utilisateur.cni_verso.is_(None)))
     if q:
         m = f"%{q}%"
         req = req.where(or_(Utilisateur.prenom.ilike(m), Utilisateur.nom.ilike(m),

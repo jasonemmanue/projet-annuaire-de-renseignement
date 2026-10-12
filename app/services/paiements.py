@@ -110,6 +110,7 @@ async def appliquer_reussite(db: AsyncSession, tx: Transaction) -> None:
                 corps = f"Votre annonce « {log.titre or 'votre annonce'} » est visible pendant {lib} (jusqu'au {_date_fr(fin)})."
             log.disponible = True
             log.payment_pending = False
+            log.actualise_le, log.rappel_actualisation = t, False
             # Une annonce payée est visible par défaut (l'admin peut la bloquer).
             if log.visible_admin is not True:
                 log.visible_admin = True

@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from app.api.v1.routes import (  # noqa: E402
-    admin, conversations, divers, logements, paiements, publicites, users,
+    admin, conversations, divers, logements, paiements, publicites, rendez_vous, users,
 )
 from app.core import cache  # noqa: E402
 from app.core.config import settings  # noqa: E402
@@ -92,7 +92,7 @@ async def erreur_http(request: Request, exc: HTTPException):
 
 
 PREFIXE = "/api/v1"
-for module in (users, logements, conversations, divers, publicites, paiements, admin):
+for module in (users, logements, conversations, divers, publicites, paiements, rendez_vous, admin):
     app.include_router(module.router, prefix=PREFIXE)
 
 

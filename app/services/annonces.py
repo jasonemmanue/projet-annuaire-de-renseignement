@@ -56,7 +56,7 @@ async def _alertes_urgence(logement_id: str) -> None:
         log = await s.get(Logement, logement_id)
         if not log or not log.type_bien or not log.moderation_ok:
             return
-        prix = log.prix or 0
+        prix = log.prix_total or log.prix or 0
         alertes = (await s.execute(select(Urgence).where(
             Urgence.actif.is_(True), Urgence.type_bien == log.type_bien,
             Urgence.expires_at > maintenant(), Urgence.prix_min <= prix))).scalars().all()

@@ -8,13 +8,19 @@
 #     une simple modification : création, paiement, activation gratuite
 #     (compte offert) ou admin ;
 #   • une annonce bloquée par l'admin ne peut pas être rendue visible ;
-#   • un bien immobilier standard expiré ne se réactive qu'en repayant.
+#   • un bien immobilier standard expiré ne se réactive qu'en repayant ;
+#   • une annonce non actualisée depuis 21 jours est masquée aux visiteurs
+#     (actualisation gratuite, toute modification compte) ;
+#   • prix_total (ce que paie le chercheur) est calculé ici, jamais reçu ;
+#   • pas deux annonces actives du même type et du même prix à moins de 10 m ;
+#   • un prestataire doit avoir déposé sa CNI pour publier.
 #
 # Montée en charge : la liste publique est servie depuis Redis (30 s), les
 # compteurs de vues sont incrémentés en SQL atomique (pas de lecture-écriture).
 # ─────────────────────────────────────────────────────────────────────────────
 import hashlib
 import json
+import math
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -25,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.routes._commun import limite, versionne
 from app.core import cache
 from app.core.dependencies import compte_requis
-from app.core.serial import appliquer, maintenant, nouvel_id, vers_api
+from app.core.serial import appliquer, date_vers_texte, maintenant, nouvel_id, vers_api
 from app.db.session import apres_commit, get_db, marquer
 from app.models.models import Conversation, Favori, Logement, Utilisateur, VueJournaliere
 from app.services import annonces, fichiers, tarifs
@@ -38,6 +44,7 @@ CONTENU = {
     "latitude", "longitude", "photos", "surface", "nbPieces", "equipements",
     "prestatireNom", "prestatirePhone", "prestatirePhoto", "documentPdf",
     "heureOuverture", "heureFermeture", "joursGarde", "typeBienBase",
+    "charges", "fraisAgence", "caution", "moisAvance",
 }
 # Champs gérés par le serveur : jamais acceptés d'un prestataire.
 GERES = {
@@ -45,19 +52,64 @@ GERES = {
     "sponsoredUntil", "sponsoredAt", "visibleAdmin", "paymentPending", "disponible",
     "publicationExpiry", "visibiliteExpiry", "vues", "nbVues", "contacts",
     "vues_milestones_notified", "createdAt", "updatedAt", "statutModeration", "motifRejet",
+    "prixTotal", "actualiseLe",
 }
+# Champs dont un changement impose de revérifier le doublon GPS.
+CHAMPS_DOUBLON = {"latitude", "longitude", "typeBien", "prix"}
+DOUBLON_RAYON_M = 10
 
 
 def api(l: Logement) -> dict:
     d = vers_api(l, Logement.CHAMPS)
     d["visibleAdmin"] = l.visible_admin_effectif
     d["statutModeration"] = l.statut_moderation or "valide"
+    if l.actualise_le:
+        fin = l.actualise_le + timedelta(days=tarifs.ACTUALISATION_JOURS)
+        d["expireActualisationLe"] = date_vers_texte(fin)
+        d["masqueeNonActualisee"] = fin <= maintenant()
+    if not d.get("prixTotal"):
+        d["prixTotal"] = l.prix or 0
     return d
+
+
+def _recalculer_prix(l: Logement) -> None:
+    l.prix_total = tarifs.prix_total(l.type_location, l.prix, l.charges, l.frais_agence,
+                                     l.caution, l.mois_avance)
+
+
+def _distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    r = 6_371_000
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+async def _verifier_doublon(db: AsyncSession, l: Logement) -> None:
+    """Refuse une 2e annonce active du même type et du même prix à moins de
+    10 m (les appartements différents d'un même immeuble restent possibles)."""
+    if not l.latitude or not l.longitude:
+        return
+    d_lat = DOUBLON_RAYON_M / 111_000 * 1.5
+    d_lng = d_lat / max(math.cos(math.radians(l.latitude)), 0.01)
+    lignes = (await db.execute(select(Logement.latitude, Logement.longitude).where(
+        Logement.id != l.id,
+        Logement.latitude.between(l.latitude - d_lat, l.latitude + d_lat),
+        Logement.longitude.between(l.longitude - d_lng, l.longitude + d_lng),
+        Logement.type_bien == l.type_bien,
+        Logement.prix == l.prix,
+        Logement.payment_pending.is_(False),
+        or_(Logement.statut_moderation.is_(None), Logement.statut_moderation != "rejete"),
+    ))).all()
+    if any(_distance_m(l.latitude, l.longitude, la, lo) <= DOUBLON_RAYON_M for la, lo in lignes):
+        raise HTTPException(409, {"code": "doublon_gps", "error":
+                                  "Ce bien est déjà publié à cette position (même type, même prix)."})
 
 
 def _visible_visiteur():
     return and_(
         Logement.disponible.is_(True),
+        Logement.actualise_le > maintenant() - timedelta(days=tarifs.ACTUALISATION_JOURS),
         Logement.payment_pending.is_(False),
         or_(Logement.visible_admin.is_(True),
             and_(Logement.visible_admin.is_(None), Logement.type_bien != "Pharmacie")),
@@ -127,10 +179,11 @@ async def lister(
         conds.append(Logement.type_bien == typeBien)
     if typeLocation:
         conds.append(Logement.type_location == typeLocation)
+    # Les filtres de prix portent sur le prix total payé par le chercheur.
     if prixMin is not None:
-        conds.append(Logement.prix >= prixMin)
+        conds.append(Logement.prix_total >= prixMin)
     if prixMax is not None:
-        conds.append(Logement.prix <= prixMax)
+        conds.append(Logement.prix_total <= prixMax)
     if None not in (latMin, latMax, lngMin, lngMax):
         conds += [Logement.latitude.between(latMin, latMax), Logement.longitude.between(lngMin, lngMax)]
     if q:
@@ -260,12 +313,18 @@ async def creer(data: dict, db: AsyncSession = Depends(get_db), user: Utilisateu
     compte offert). Autres types : brouillon en attente de paiement."""
     if user.role not in ("prestataire", "admin"):
         raise HTTPException(403, "Compte prestataire requis")
+    if user.role == "prestataire" and not user.compte_gratuit and not user.cni_complete:
+        raise HTTPException(403, {"code": "cni_requise",
+                                  "error": "Déposez votre carte nationale d'identité pour publier."})
     l = Logement(id=nouvel_id(), uid_prestataire=user.id, extra={}, photos=[], equipements=[],
                  jours_garde=[], vues_milestones=[], vues=0, contacts=0)
     appliquer(l, data, Logement.CHAMPS, autorises=CONTENU)
     _remplir_contact(l, user)
     if not l.titre and not l.type_bien:
         raise HTTPException(400, "Titre ou type requis")
+    _recalculer_prix(l)
+    l.actualise_le, l.rappel_actualisation = maintenant(), False
+    await _verifier_doublon(db, l)
     l.is_sponsored = False
     # Modération : visible des visiteurs seulement après validation admin
     # (comptes admin et comptes offerts, créés par l'admin, validés d'office).
@@ -290,6 +349,12 @@ async def modifier(logement_id: str, data: dict, db: AsyncSession = Depends(get_
     l = await _charger(db, logement_id, verrou=True)
     _proprietaire(l, user)
     faits = appliquer(l, data, Logement.CHAMPS, autorises=CONTENU)
+    if faits:
+        _recalculer_prix(l)
+        # Toute modification vaut actualisation (21 jours de plus).
+        l.actualise_le, l.rappel_actualisation = maintenant(), False
+        if CHAMPS_DOUBLON & set(faits):
+            await _verifier_doublon(db, l)
     # Annonce refusée puis corrigée : elle repart en file de vérification.
     if faits and l.statut_moderation == "rejete" and user.role != "admin":
         l.statut_moderation, l.motif_rejet = "en_attente", None
@@ -333,6 +398,18 @@ def _invalider_un(db: AsyncSession, l: Logement) -> None:
     lid = l.id
     apres_commit(db, lambda: cache.effacer_prefixe(f"pub:logements:un:{lid}"), "cache_logement")
     annonces.annonce_modifiee(db, l.uid_prestataire)
+
+
+@router.post("/{logement_id}/actualiser")
+async def actualiser(logement_id: str, db: AsyncSession = Depends(get_db),
+                     user: Utilisateur = Depends(compte_requis)):
+    """Actualisation gratuite : l'annonce reste visible 21 jours de plus."""
+    l = await _charger(db, logement_id, verrou=True)
+    _proprietaire(l, user)
+    l.actualise_le, l.rappel_actualisation = maintenant(), False
+    await db.flush()
+    _invalider_un(db, l)
+    return api(l)
 
 
 @router.post("/{logement_id}/activer-gratuit")

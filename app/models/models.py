@@ -51,6 +51,12 @@ class Utilisateur(Base):
     notif_moderation: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     notif_fin_sponsor: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     suspendu: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Carte nationale d'identité du prestataire (photos dans Firebase Storage).
+    # Jamais exposée publiquement : profil personnel et admin seulement.
+    cni_numero: Mapped[str | None] = mapped_column(String(40))
+    cni_recto: Mapped[str | None] = mapped_column(Text)
+    cni_verso: Mapped[str | None] = mapped_column(Text)
+    cni_soumise_le: Mapped[datetime | None] = _ts(nullable=True)
     anonyme: Mapped[bool] = mapped_column(Boolean, default=False)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = _ts(default=_maintenant, server_default=func.now())
@@ -76,9 +82,17 @@ class Utilisateur(Base):
         ("notifModeration", "notif_moderation", "b"),
         ("notifFinSponsor", "notif_fin_sponsor", "b"),
         ("suspendu", "suspendu", "b"),
+        ("cniNumero", "cni_numero", "s"),
+        ("cniRecto", "cni_recto", "u"),
+        ("cniVerso", "cni_verso", "u"),
+        ("cniSoumiseLe", "cni_soumise_le", "d"),
         ("createdAt", "created_at", "d"),
         ("updatedAt", "updated_at", "d"),
     ]
+
+    @property
+    def cni_complete(self) -> bool:
+        return bool(self.cni_numero and self.cni_recto and self.cni_verso)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -92,6 +106,13 @@ class Logement(Base):
     titre: Mapped[str] = mapped_column(String(300), default="")
     description: Mapped[str] = mapped_column(Text, default="")
     prix: Mapped[float] = mapped_column(Float, default=0)
+    # Détail du coût pour le chercheur (location) ; prix_total = ce qu'il paie
+    # à l'entrée, calculé par le serveur (services/tarifs.prix_total).
+    charges: Mapped[float] = mapped_column(Float, default=0)
+    frais_agence: Mapped[float] = mapped_column(Float, default=0)
+    caution: Mapped[float] = mapped_column(Float, default=0)
+    mois_avance: Mapped[int] = mapped_column(Integer, default=1)
+    prix_total: Mapped[float] = mapped_column(Float, default=0, index=True)
     type_location: Mapped[str] = mapped_column(String(40), default="location")
     type_bien: Mapped[str] = mapped_column(String(80), default="Studio", index=True)
     # « autre » quand typeBien est un texte libre saisi par le prestataire.
@@ -129,6 +150,9 @@ class Logement(Base):
     # modération, traitée comme validée.
     statut_moderation: Mapped[str | None] = mapped_column(String(20), index=True)
     motif_rejet: Mapped[str | None] = mapped_column(Text)
+    # Une annonce non actualisée depuis 21 jours est masquée aux visiteurs.
+    actualise_le: Mapped[datetime] = _ts(default=_maintenant, server_default=func.now(), index=True)
+    rappel_actualisation: Mapped[bool] = mapped_column(Boolean, default=False)
     # Vrai une fois la notification « nouvelle annonce » envoyée.
     annonce_diffusee: Mapped[bool] = mapped_column(Boolean, default=False)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)
@@ -141,6 +165,12 @@ class Logement(Base):
         ("titre", "titre", "s"),
         ("description", "description", "s"),
         ("prix", "prix", "f"),
+        ("charges", "charges", "f"),
+        ("fraisAgence", "frais_agence", "f"),
+        ("caution", "caution", "f"),
+        ("moisAvance", "mois_avance", "i"),
+        ("prixTotal", "prix_total", "f"),
+        ("actualiseLe", "actualise_le", "d"),
         ("typeLocation", "type_location", "s"),
         ("typeBien", "type_bien", "s"),
         ("typeBienBase", "type_bien_base", "s"),
@@ -386,6 +416,42 @@ class Transaction(Base):
 # ═════════════════════════════════════════════════════════════════════════════
 # Alertes prioritaires visiteurs (urgences)
 # ═════════════════════════════════════════════════════════════════════════════
+class RendezVous(Base):
+    """Demande de visite d'un bien : le chercheur propose une date et une
+    heure, le prestataire accepte ou refuse."""
+    __tablename__ = "rendez_vous"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    logement_id: Mapped[str] = mapped_column(String(64), index=True)
+    logement_titre: Mapped[str] = mapped_column(String(300), default="")
+    prestataire_id: Mapped[str] = mapped_column(String(128), index=True)
+    demandeur_id: Mapped[str] = mapped_column(String(128), index=True)  # compte ou visiteur_…
+    demandeur_nom: Mapped[str] = mapped_column(String(250), default="")
+    demandeur_telephone: Mapped[str] = mapped_column(String(40), default="")
+    date_heure: Mapped[datetime] = _ts()
+    message: Mapped[str] = mapped_column(Text, default="")
+    # en_attente | accepte | refuse | annule
+    statut: Mapped[str] = mapped_column(String(20), default="en_attente", index=True)
+    reponse: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = _ts(default=_maintenant, server_default=func.now())
+    updated_at: Mapped[datetime] = _ts(default=_maintenant, server_default=func.now(), onupdate=_maintenant)
+
+    CHAMPS = [
+        ("logementId", "logement_id", "s"),
+        ("logementTitre", "logement_titre", "s"),
+        ("prestataireId", "prestataire_id", "s"),
+        ("demandeurId", "demandeur_id", "s"),
+        ("demandeurNom", "demandeur_nom", "s"),
+        ("demandeurTelephone", "demandeur_telephone", "s"),
+        ("dateHeure", "date_heure", "d"),
+        ("message", "message", "s"),
+        ("statut", "statut", "s"),
+        ("reponse", "reponse", "s"),
+        ("createdAt", "created_at", "d"),
+        ("updatedAt", "updated_at", "d"),
+    ]
+
+
 class Urgence(Base):
     __tablename__ = "urgences"
 

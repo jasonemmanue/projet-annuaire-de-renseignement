@@ -36,6 +36,26 @@ MIGRATIONS: list[tuple[str, str]] = [
      "ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS notif_moderation BOOLEAN NOT NULL DEFAULT TRUE"),
     ("Utilisateur : préférence push fin de sponsorisation",
      "ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS notif_fin_sponsor BOOLEAN NOT NULL DEFAULT TRUE"),
+    ("Utilisateur : numéro CNI", "ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS cni_numero VARCHAR(40)"),
+    ("Utilisateur : CNI recto", "ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS cni_recto TEXT"),
+    ("Utilisateur : CNI verso", "ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS cni_verso TEXT"),
+    ("Utilisateur : date CNI", "ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS cni_soumise_le TIMESTAMPTZ"),
+    ("Logement : charges", "ALTER TABLE logements ADD COLUMN IF NOT EXISTS charges DOUBLE PRECISION NOT NULL DEFAULT 0"),
+    ("Logement : frais d'agence",
+     "ALTER TABLE logements ADD COLUMN IF NOT EXISTS frais_agence DOUBLE PRECISION NOT NULL DEFAULT 0"),
+    ("Logement : caution", "ALTER TABLE logements ADD COLUMN IF NOT EXISTS caution DOUBLE PRECISION NOT NULL DEFAULT 0"),
+    ("Logement : mois d'avance", "ALTER TABLE logements ADD COLUMN IF NOT EXISTS mois_avance INTEGER NOT NULL DEFAULT 1"),
+    ("Logement : prix total", "ALTER TABLE logements ADD COLUMN IF NOT EXISTS prix_total DOUBLE PRECISION NOT NULL DEFAULT 0"),
+    # Annonces antérieures au détail du prix : total = prix (idempotent).
+    ("Logement : prix total initial", "UPDATE logements SET prix_total = prix WHERE prix_total = 0 AND prix > 0"),
+    ("Index prix total", "CREATE INDEX IF NOT EXISTS ix_logements_prix_total ON logements (prix_total)"),
+    # Les annonces existantes repartent pour 21 jours à l'ajout de la colonne.
+    ("Logement : date d'actualisation",
+     "ALTER TABLE logements ADD COLUMN IF NOT EXISTS actualise_le TIMESTAMPTZ NOT NULL DEFAULT now()"),
+    ("Index actualisation", "CREATE INDEX IF NOT EXISTS ix_logements_actualise_le ON logements (actualise_le)"),
+    ("Logement : rappel d'actualisation",
+     "ALTER TABLE logements ADD COLUMN IF NOT EXISTS rappel_actualisation BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("Index téléphone utilisateur", "CREATE INDEX IF NOT EXISTS ix_utilisateurs_telephone ON utilisateurs (telephone)"),
 ]
 
 
