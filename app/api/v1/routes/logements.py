@@ -149,7 +149,8 @@ async def lister(
 
 @router.get("/sponsorises")
 async def sponsorises(limit: int = 3, db: AsyncSession = Depends(get_db)):
-    return await lister(sponsorises=True, limit=limite(limit, 3), db=db)
+    # Appel direct : les valeurs par défaut Query(...) ne sont pas résolues, q doit être passé.
+    return await lister(q=None, sponsorises=True, limit=limite(limit, 3), db=db)
 
 
 @router.get("/mes")
