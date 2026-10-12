@@ -1,9 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api_client.dart';
 
 // ============================================================
 // HANDLER BACKGROUND – fonction top-level obligatoire
@@ -16,13 +16,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final type  = message.data['type'] ?? 'message';
 
   final isAnnonce = type == 'annonce' || type == 'nouvelle_annonce';
-  final isPrix    = type == 'price_drop' || type == 'alerte_prix';
-
-  final catKey = isAnnonce
-      ? NotificationService.kNotifAnnonces
-      : isPrix
-          ? NotificationService.kNotifPrix
-          : NotificationService.kNotifMessages;
+  final catKey = NotificationService.categoriePourType(type);
 
   final defaultEnabled = catKey == NotificationService.kNotifPrix ? false : true;
   final enabled = prefs.getBool(catKey) ?? defaultEnabled;
@@ -80,7 +74,6 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 class NotificationService {
   static final _fcm = FirebaseMessaging.instance;
   static final _local = FlutterLocalNotificationsPlugin();
-  static final _db = FirebaseFirestore.instance;
 
   static const _chanMessages = 'sgkhome_messages';
   static const _chanAnnonces = 'sgkhome_annonces';
@@ -89,6 +82,27 @@ class NotificationService {
   static const kNotifAnnonces = 'notif_annonces';
   static const kNotifMessages = 'notif_messages';
   static const kNotifPrix     = 'notif_prix';
+  // Catégories propres au prestataire (#20).
+  static const kNotifPrestaModeration = 'notif_presta_moderation';
+  static const kNotifPrestaSponsor    = 'notif_presta_sponsor';
+
+  /// Catégorie de préférence d'un message push selon son champ `type`.
+  static String categoriePourType(String type) {
+    switch (type) {
+      case 'annonce':
+      case 'nouvelle_annonce':
+        return kNotifAnnonces;
+      case 'price_drop':
+      case 'alerte_prix':
+        return kNotifPrix;
+      case 'moderation':
+        return kNotifPrestaModeration;
+      case 'fin_sponsorisation':
+        return kNotifPrestaSponsor;
+      default:
+        return kNotifMessages;
+    }
+  }
 
   // ── FCM topics correspondants ──
   static const _topicAnnonces = 'new_listings';
@@ -171,7 +185,7 @@ class NotificationService {
     return prefs.getBool(category) ?? true;
   }
 
-  /// Persiste le choix, gère les topics FCM et synchronise Firestore.
+  /// Persiste le choix, gère les topics FCM et synchronise l'API.
   static Future<void> setCategory(String category, bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(category, enabled);
@@ -188,15 +202,20 @@ class NotificationService {
       } else {
         await _fcm.unsubscribeFromTopic(_topicPrix);
       }
-    } else if (category == kNotifMessages) {
-      // Synchronise dans Firestore pour que les Cloud Functions respectent
-      // la préférence lors de l'envoi de notifications push aux prestataires.
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null) {
-        await _db.collection('users').doc(uid).set(
-          {'notifMessages': enabled},
-          SetOptions(merge: true),
-        );
+    } else {
+      // Synchronise dans l'API : le serveur n'envoie pas les push d'une
+      // catégorie désactivée (messages, modération, fin de sponsorisation).
+      const champsApi = {
+        kNotifMessages: 'notifMessages',
+        kNotifPrestaModeration: 'notifModeration',
+        kNotifPrestaSponsor: 'notifFinSponsor',
+      };
+      final champ = champsApi[category];
+      final user = FirebaseAuth.instance.currentUser;
+      if (champ != null && user != null && !user.isAnonymous) {
+        try {
+          await ApiClient.instance.put('/users/me', {champ: enabled});
+        } catch (_) {}
       }
     }
   }
@@ -208,6 +227,8 @@ class NotificationService {
       kNotifAnnonces: prefs.getBool(kNotifAnnonces) ?? true,
       kNotifMessages: prefs.getBool(kNotifMessages) ?? true,
       kNotifPrix:     prefs.getBool(kNotifPrix)     ?? false,
+      kNotifPrestaModeration: prefs.getBool(kNotifPrestaModeration) ?? true,
+      kNotifPrestaSponsor:    prefs.getBool(kNotifPrestaSponsor)    ?? true,
     };
   }
 
@@ -220,13 +241,7 @@ class NotificationService {
     if (notif == null) return;
 
     final isAnnonce = type == 'annonce' || type == 'nouvelle_annonce';
-    final isPrix    = type == 'price_drop' || type == 'alerte_prix';
-
-    final category = isAnnonce
-        ? kNotifAnnonces
-        : isPrix
-            ? kNotifPrix
-            : kNotifMessages;
+    final category = categoriePourType(type);
 
     if (!await isCategoryEnabled(category)) return;
 
@@ -400,24 +415,21 @@ class NotificationService {
   static Future<void> saveToken(String uid) async {
     final token = await _fcm.getToken();
     if (token == null) return;
-    await _db.collection('users').doc(uid).set(
-      {'fcmToken': token},
-      SetOptions(merge: true),
-    );
+    try {
+      await ApiClient.instance.put('/users/me/fcm', {'token': token});
+    } catch (_) {}
     // Rafraîchissement automatique du token (rotation FCM)
     _fcm.onTokenRefresh.listen((t) async {
-      await _db
-          .collection('users')
-          .doc(uid)
-          .set({'fcmToken': t}, SetOptions(merge: true));
+      try {
+        await ApiClient.instance.put('/users/me/fcm', {'token': t});
+      } catch (_) {}
     });
   }
 
   static Future<void> clearToken(String uid) async {
-    await _db.collection('users').doc(uid).set(
-      {'fcmToken': null},
-      SetOptions(merge: true),
-    );
+    try {
+      await ApiClient.instance.put('/users/me/fcm', {'token': null});
+    } catch (_) {}
     await _fcm.deleteToken();
   }
 }

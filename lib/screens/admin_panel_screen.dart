@@ -1,29 +1,81 @@
-import 'dart:convert';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import '../theme/app_theme.dart';
 import '../models/models.dart';
-import '../services/logement_service.dart';
+import '../services/api_client.dart';
 import '../l10n/app_localizations.dart';
 
 // ============================================================
 // FICHIER : lib/screens/admin_panel_screen.dart
 // Panneau d'administration (accessible si role == 'admin').
-// Onglets : Signalements · Annonces · Utilisateurs · Analytics.
+// Onglets : Signalements · Annonces (file « À vérifier » = modération) ·
+// Utilisateurs · Analytics.
 //
-// ── CRÉER LE PREMIER ADMIN ──────────────────────────────────
-// 1. Créez un compte prestataire normal depuis l'app.
-// 2. Dans la console Firebase → Firestore → users/{uid},
-//    modifiez le champ "role" de "prestataire" en "admin".
-// 3. Reconnectez-vous : l'onglet Admin (bouclier) apparaît.
+// Données : API Horem+ (routes /admin, réservées au rôle admin).
+//
+// ── CRÉER UN ADMIN ──────────────────────────────────────────
+// Ajouter son e-mail à la variable ADMIN_EMAILS du service
+// horem-api sur Railway, puis se reconnecter : l'onglet Admin
+// (bouclier) apparaît.
 // ============================================================
 
-const String _kFunctionsBase =
-    'https://us-central1-sgk-home.cloudfunctions.net';
-const String _kCreerCompteGratuitUrl =
-    'https://creercomptegratuit-qhxw7o6nha-uc.a.run.app';
+final _api = ApiClient.instance;
+
+/// Liste admin « temps réel » (relue toutes les 10 s, partagée).
+Stream<List<Doc>> _fluxAdmin(String chemin, [Map<String, dynamic>? params]) =>
+    _api.sonder(chemin, Doc.liste,
+        intervalle: const Duration(seconds: 10),
+        params: {'limit': 200, ...?params});
+
+Future<void> _majAdmin(String chemin, Map<String, dynamic> champs) async {
+  await _api.patch(chemin, champs);
+  _api.rafraichir(chemin.substring(0, chemin.lastIndexOf('/')));
+}
+
+/// Modération d'une annonce : « valider » (visible des visiteurs) ou
+/// « rejeter » (motif obligatoire). Le prestataire est prévenu par push.
+Future<void> _moderer(BuildContext context, String logementId, String decision) async {
+  final l = AppLocalizations.of(context);
+  String? motif;
+  if (decision == 'rejeter') {
+    final ctrl = TextEditingController();
+    motif = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.t('admin_reject_title')),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 3,
+          decoration: InputDecoration(hintText: l.t('admin_reject_hint')),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.t('common_cancel'))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            child: Text(l.t('admin_reject')),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (motif == null || motif.isEmpty) return;
+  }
+  try {
+    await _api.post('/admin/logements/$logementId/moderation',
+        {'decision': decision, if (motif != null) 'motif': motif});
+    _api.rafraichir('/admin/logements');
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(l.t(decision == 'valider' ? 'admin_validated' : 'admin_rejected'))));
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur : $e'), backgroundColor: AppColors.error));
+    }
+  }
+}
 
 class AdminPanelScreen extends StatelessWidget {
   const AdminPanelScreen({super.key});
@@ -74,19 +126,15 @@ class _SignalementsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final stream = FirebaseFirestore.instance
-        .collection('signalements')
-        .where('statut', isEqualTo: 'en_attente')
-        .orderBy('dateSignalement', descending: true)
-        .snapshots();
+    final stream = _fluxAdmin('/admin/signalements', {'statut': 'en_attente'});
 
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<List<Doc>>(
       stream: stream,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        final docs = snap.data?.docs ?? [];
+        final docs = snap.data ?? const <Doc>[];
         if (docs.isEmpty) {
           return _EmptyTab(
               icon: Icons.flag_outlined, text: l.t('admin_no_reports'));
@@ -96,8 +144,7 @@ class _SignalementsTab extends StatelessWidget {
           itemCount: docs.length,
           separatorBuilder: (_, __) => const SizedBox(height: 10),
           itemBuilder: (_, i) {
-            final s = SignalementModel.fromMap(
-                docs[i].id, docs[i].data() as Map<String, dynamic>);
+            final s = SignalementModel.fromMap(docs[i].id, docs[i].data());
             return _SignalementCard(signalement: s);
           },
         );
@@ -112,10 +159,7 @@ class _SignalementCard extends StatelessWidget {
 
   Future<void> _traiter(BuildContext context) async {
     final l = AppLocalizations.of(context);
-    await FirebaseFirestore.instance
-        .collection('signalements')
-        .doc(signalement.id)
-        .update({'statut': 'traite'});
+    await _majAdmin('/admin/signalements/${signalement.id}', {'statut': 'traite'});
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l.t('admin_report_treated'))),
@@ -145,11 +189,8 @@ class _SignalementCard extends StatelessWidget {
     );
     if (ok != true) return;
     try {
-      await LogementService.deleteLogement(signalement.logementId);
-      await FirebaseFirestore.instance
-          .collection('signalements')
-          .doc(signalement.id)
-          .update({'statut': 'traite'});
+      await _api.delete('/admin/logements/${signalement.logementId}');
+      await _majAdmin('/admin/signalements/${signalement.id}', {'statut': 'traite'});
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(l.t('admin_listing_deleted'))),
@@ -242,26 +283,22 @@ class _AnnoncesTab extends StatefulWidget {
 
 class _AnnoncesTabState extends State<_AnnoncesTab> {
   final _searchCtrl = TextEditingController();
-  String _filtre = 'Toutes'; // Toutes | Sponsorisées | Signalées  (clés internes)
+  String _filtre = 'AVerifier'; // AVerifier | Toutes | Sponsorisées | Signalées  (clés internes)
   Set<String> _signaledIds = {};
 
   @override
   void initState() {
     super.initState();
     // Charge les IDs d'annonces signalées (en attente) pour le filtre.
-    FirebaseFirestore.instance
-        .collection('signalements')
-        .where('statut', isEqualTo: 'en_attente')
-        .snapshots()
-        .listen((snap) {
+    _fluxAdmin('/admin/signalements', {'statut': 'en_attente'}).listen((docs) {
       if (!mounted) return;
       setState(() {
-        _signaledIds = snap.docs
+        _signaledIds = docs
             .map((d) => (d.data()['logementId'] as String?) ?? '')
             .where((e) => e.isNotEmpty)
             .toSet();
       });
-    });
+    }, onError: (_) {});
   }
 
   @override
@@ -274,6 +311,7 @@ class _AnnoncesTabState extends State<_AnnoncesTab> {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final filterLabels = {
+      'AVerifier': l.t('admin_filter_to_review'),
       'Toutes': l.t('admin_filter_all'),
       'Sponsorisées': l.t('admin_filter_sponsored'),
       'Signalées': l.t('admin_filter_reported'),
@@ -298,7 +336,7 @@ class _AnnoncesTabState extends State<_AnnoncesTab> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
-            children: ['Toutes', 'Sponsorisées', 'Signalées'].map((f) {
+            children: ['AVerifier', 'Toutes', 'Sponsorisées', 'Signalées'].map((f) {
               final sel = _filtre == f;
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
@@ -312,20 +350,20 @@ class _AnnoncesTabState extends State<_AnnoncesTab> {
           ),
         ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('logements')
-                .orderBy('createdAt', descending: true)
-                .snapshots(),
+          child: StreamBuilder<List<Doc>>(
+            // File de modération filtrée par le serveur (toute la base).
+            stream: _filtre == 'AVerifier'
+                ? _fluxAdmin('/admin/logements', {'filtre': 'a_verifier'})
+                : _fluxAdmin('/admin/logements'),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
-              var docs = snap.data?.docs ?? [];
+              final docs = snap.data ?? const <Doc>[];
               final q = _searchCtrl.text.trim().toLowerCase();
 
               var liste = docs.where((d) {
-                final data = d.data() as Map<String, dynamic>;
+                final data = d.data();
                 final titre = (data['titre'] ?? '').toString().toLowerCase();
                 final ville = (data['ville'] ?? '').toString().toLowerCase();
                 if (q.isNotEmpty &&
@@ -344,8 +382,8 @@ class _AnnoncesTabState extends State<_AnnoncesTab> {
 
               if (liste.isEmpty) {
                 return _EmptyTab(
-                    icon: Icons.home_work_outlined,
-                    text: l.t('admin_no_listings'));
+                    icon: _filtre == 'AVerifier' ? Icons.verified_outlined : Icons.home_work_outlined,
+                    text: l.t(_filtre == 'AVerifier' ? 'admin_no_to_review' : 'admin_no_listings'));
               }
               return ListView.separated(
                 padding: const EdgeInsets.all(12),
@@ -365,20 +403,23 @@ class _AnnoncesTabState extends State<_AnnoncesTab> {
 }
 
 class _AdminAnnonceCard extends StatelessWidget {
-  final QueryDocumentSnapshot doc;
+  final Doc doc;
   final bool signalee;
   const _AdminAnnonceCard({required this.doc, required this.signalee});
 
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc.data();
     final titre = data['titre'] ?? 'Sans titre';
     final ville = data['ville'] ?? '';
     final photos = List<String>.from(data['photos'] ?? []);
-    final isVisible = data['isVisible'] != false; // défaut visible
+    // « Suspendre » = retirer l'autorisation admin (visibleAdmin).
+    final isVisible = data['visibleAdmin'] != false;
     final isSponsored = data['isSponsored'] == true;
-    final ref = doc.reference;
+    final statut = (data['statutModeration'] ?? 'valide') as String;
+    final estVerifie = data['estVerifie'] == true;
+    final chemin = '/admin/logements/${doc.id}';
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -409,8 +450,36 @@ class _AdminAnnonceCard extends StatelessWidget {
                 Text(ville,
                     style: TextStyle(
                         color: context.appTextSecondary, fontSize: 12)),
+                if (statut == 'en_attente') ...[
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _moderer(context, doc.id, 'valider'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            foregroundColor: Colors.white,
+                            visualDensity: VisualDensity.compact),
+                        child: Text(l.t('admin_validate')),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _moderer(context, doc.id, 'rejeter'),
+                        style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            visualDensity: VisualDensity.compact),
+                        child: Text(l.t('admin_reject')),
+                      ),
+                    ),
+                  ]),
+                ],
                 const SizedBox(height: 4),
-                Wrap(spacing: 6, children: [
+                Wrap(spacing: 6, runSpacing: 4, children: [
+                  if (statut == 'en_attente') _tag(l.t('moderation_pending'), AppColors.warning),
+                  if (statut == 'rejete') _tag(l.t('moderation_rejected'), AppColors.error),
+                  if (estVerifie) _tag(l.t('detail_verified'), AppColors.primary),
                   if (isSponsored) _tag(l.t('admin_tag_sponsored'), AppColors.success),
                   if (signalee) _tag(l.t('admin_tag_reported'), AppColors.error),
                   if (!isVisible) _tag(l.t('admin_suspended'), AppColors.textHint),
@@ -420,10 +489,14 @@ class _AdminAnnonceCard extends StatelessWidget {
           ),
           PopupMenuButton<String>(
             onSelected: (v) async {
-              if (v == 'suspendre') {
-                await ref.update({'isVisible': false});
+              if (v == 'valider' || v == 'rejeter') {
+                await _moderer(context, doc.id, v);
+              } else if (v == 'verifier') {
+                await _majAdmin(chemin, {'estVerifie': !estVerifie});
+              } else if (v == 'suspendre') {
+                await _majAdmin(chemin, {'visibleAdmin': false});
               } else if (v == 'reactiver') {
-                await ref.update({'isVisible': true});
+                await _majAdmin(chemin, {'visibleAdmin': true});
               } else if (v == 'supprimer') {
                 final ok = await showDialog<bool>(
                   context: context,
@@ -442,10 +515,20 @@ class _AdminAnnonceCard extends StatelessWidget {
                     ],
                   ),
                 );
-                if (ok == true) await LogementService.deleteLogement(doc.id);
+                if (ok == true) {
+                  await _api.delete(chemin);
+                  _api.rafraichir('/admin/logements');
+                }
               }
             },
             itemBuilder: (_) => [
+              if (statut != 'valide')
+                PopupMenuItem(value: 'valider', child: Text(l.t('admin_validate'))),
+              if (statut != 'rejete')
+                PopupMenuItem(value: 'rejeter', child: Text(l.t('admin_reject'))),
+              PopupMenuItem(
+                  value: 'verifier',
+                  child: Text(l.t(estVerifie ? 'admin_unverify' : 'admin_verify'))),
               if (isVisible)
                 PopupMenuItem(value: 'suspendre', child: Text(l.t('admin_suspend')))
               else
@@ -568,30 +651,23 @@ class _UtilisateursTabState extends State<_UtilisateursTab> {
     if (tel.isNotEmpty && !tel.startsWith('+')) tel = '+237$tel';
 
     try {
-      final token = await FirebaseAuth.instance.currentUser?.getIdToken() ?? '';
-      final resp = await http.post(
-        Uri.parse(_kCreerCompteGratuitUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-          'nom': nom,
-          'prenom': prenom,
-          'telephone': tel,
-        }),
-      );
+      await _api.post('/admin/comptes-gratuits', {
+        'email': email,
+        'password': password,
+        'nom': nom,
+        'prenom': prenom,
+        'telephone': tel,
+      });
+      _api.rafraichir('/admin/users');
       if (!mounted) return;
-      if (resp.statusCode == 200) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(l.t('admin_creer_gratuit_ok')),
+        backgroundColor: AppColors.success,
+      ));
+    } on ApiException catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(l.t('admin_creer_gratuit_ok')),
-          backgroundColor: AppColors.success,
-        ));
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${l.t('admin_creer_gratuit_error')} (${resp.statusCode})'),
+          content: Text('${l.t('admin_creer_gratuit_error')} (${e.statusCode}) ${e.message}'),
           backgroundColor: AppColors.error,
         ));
       }
@@ -641,20 +717,17 @@ class _UtilisateursTabState extends State<_UtilisateursTab> {
           ),
         ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .where('role', isEqualTo: 'prestataire')
-                .snapshots(),
+          child: StreamBuilder<List<Doc>>(
+            stream: _fluxAdmin('/admin/users', {'role': 'prestataire'}),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
-              var docs = snap.data?.docs ?? [];
+              final docs = snap.data ?? const <Doc>[];
               final q = _searchCtrl.text.trim().toLowerCase();
               final liste = docs.where((d) {
                 if (q.isEmpty) return true;
-                final data = d.data() as Map<String, dynamic>;
+                final data = d.data();
                 final nom =
                     '${data['prenom'] ?? ''} ${data['nom'] ?? ''}'.toLowerCase();
                 final email = (data['email'] ?? '').toString().toLowerCase();
@@ -681,21 +754,23 @@ class _UtilisateursTabState extends State<_UtilisateursTab> {
 }
 
 class _AdminUserCard extends StatelessWidget {
-  final QueryDocumentSnapshot doc;
+  final Doc doc;
   const _AdminUserCard({required this.doc});
 
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final data = doc.data() as Map<String, dynamic>;
+    final data = doc.data();
     final nom = '${data['prenom'] ?? ''} ${data['nom'] ?? ''}'.trim();
     final email = data['email'] ?? '';
     final tel = data['telephone'] ?? '';
     final isPremium = data['isPremium'] == true;
     final isVerifie = data['isVerifie'] == true;
-    final isSuspended = data['isSuspended'] == true;
+    // Un compte suspendu est refusé par l'API.
+    final isSuspended = data['suspendu'] == true;
     final isGratuit = data['compteGratuit'] == true;
-    final ref = doc.reference;
+    final chemin = '/admin/users/${doc.id}';
+    Future<void> maj(Map<String, dynamic> champs) => _majAdmin(chemin, champs);
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -743,26 +818,26 @@ class _AdminUserCard extends StatelessWidget {
           Wrap(spacing: 8, runSpacing: 4, children: [
             if (!isVerifie)
               _miniBtn(l.t('admin_verify_btn'), Icons.verified_outlined,
-                  () => ref.update({'isVerifie': true})),
+                  () => maj({'isVerifie': true})),
             if (!isPremium)
               _miniBtn(l.t('admin_activate_premium'), Icons.workspace_premium, () {
                 final expiry =
                     DateTime.now().add(const Duration(days: 30));
-                ref.update({
+                maj({
                   'isPremium': true,
-                  'premiumExpiry': Timestamp.fromDate(expiry),
+                  'premiumExpiry': apiDateTexte(expiry),
                 });
               }),
             isGratuit
                 ? _miniBtn(l.t('admin_gratuit_off_btn'), Icons.card_giftcard,
-                    () => ref.update({'compteGratuit': false}))
+                    () => maj({'compteGratuit': false}))
                 : _miniBtn(l.t('admin_gratuit_on_btn'), Icons.card_giftcard,
-                    () => ref.update({'compteGratuit': true})),
+                    () => maj({'compteGratuit': true})),
             isSuspended
                 ? _miniBtn(l.t('admin_activate_btn'), Icons.lock_open,
-                    () => ref.update({'isSuspended': false}))
+                    () => maj({'suspendu': false}))
                 : _miniBtn(l.t('admin_suspend_btn'), Icons.block,
-                    () => ref.update({'isSuspended': true})),
+                    () => maj({'suspendu': true})),
           ]),
         ],
       ),
@@ -808,55 +883,17 @@ class _AnalyticsTabState extends State<_AnalyticsTab> {
   }
 
   Future<Map<String, dynamic>> _charger() async {
-    final db = FirebaseFirestore.instance;
-    final now = DateTime.now();
-    final debutJour = DateTime(now.year, now.month, now.day);
-    final debutMois = DateTime(now.year, now.month, 1);
-
-    final annonces = await db.collection('logements').count().get();
-    final prestataires = await db
-        .collection('users')
-        .where('role', isEqualTo: 'prestataire')
-        .count()
-        .get();
-    final msgToday = await db
-        .collection('conversations')
-        .where('lastMessageTime',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(debutJour))
-        .count()
-        .get();
-    final signalements = await db
-        .collection('signalements')
-        .where('statut', isEqualTo: 'en_attente')
-        .count()
-        .get();
-
-    // Revenus du mois (transactions réussies)
-    final txReussies =
-        await db.collection('transactions').where('statut', isEqualTo: 'reussi').get();
-    double revenus = 0;
-    for (final d in txReussies.docs) {
-      final data = d.data();
-      final created = (data['createdAt'] as Timestamp?)?.toDate();
-      if (created != null && created.isAfter(debutMois)) {
-        revenus += (data['montant'] as num? ?? 0).toDouble();
-      }
-    }
-
-    // 5 dernières transactions
-    final last = await db
-        .collection('transactions')
-        .orderBy('createdAt', descending: true)
-        .limit(5)
-        .get();
-
+    // Comptages faits par le serveur (requêtes SQL agrégées).
+    final st = await _api.get('/admin/stats') as Map<String, dynamic>;
+    final last = ApiClient.items(
+        await _api.get('/admin/transactions', params: {'limit': 5}));
     return {
-      'annonces': annonces.count ?? 0,
-      'prestataires': prestataires.count ?? 0,
-      'msgToday': msgToday.count ?? 0,
-      'signalements': signalements.count ?? 0,
-      'revenus': revenus,
-      'last': last.docs.map((d) => d.data()).toList(),
+      'annonces': st['totalAnnonces'] ?? 0,
+      'prestataires': st['prestataires'] ?? 0,
+      'msgToday': st['conversationsAujourdhui'] ?? 0,
+      'signalements': st['signalementsEnAttente'] ?? 0,
+      'revenus': (st['revenusMois'] as num? ?? 0).toDouble(),
+      'last': last,
     };
   }
 
@@ -1054,19 +1091,9 @@ class _AnalyticsTabState extends State<_AnalyticsTab> {
 
   Future<bool> _envoyerNotifGlobale(String titre, String corps) async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return false;
-      final token = await user.getIdToken();
-      final res = await http.post(
-        Uri.parse('$_kFunctionsBase/envoyerNotifGlobale'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({'titre': titre, 'corps': corps}),
-      );
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      return res.statusCode == 200 && data['success'] == true;
+      final data = await _api.post('/admin/notification-globale',
+          {'titre': titre, 'corps': corps}) as Map<String, dynamic>;
+      return data['success'] == true;
     } catch (_) {
       return false;
     }

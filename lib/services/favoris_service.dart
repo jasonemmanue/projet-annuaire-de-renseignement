@@ -1,21 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
+import 'api_client.dart';
 import 'auth_service.dart';
 
 // ============================================================
 // FICHIER : lib/services/favoris_service.dart
-// Gestion des favoris : Firestore (connecté) + SharedPrefs (visiteur/offline)
+// Gestion des favoris : API (connecté) + SharedPrefs (visiteur/offline)
 // ✅ Visiteur anonyme → SharedPreferences clé "favoris_visiteur"
-// ✅ Prestataire connecté → users/{uid}/favoris/{logementId}
-// ✅ Fusion automatique visiteur → Firestore à la connexion
+// ✅ Prestataire connecté → API /favoris
+// ✅ Fusion automatique visiteur → compte à la connexion
+// ✅ isFavori lit un ensemble en mémoire (aucun appel réseau par carte)
 // ✅ Mode hors connexion : lecture depuis le cache local
 // ============================================================
 
-/// Snapshot minimal d'un favori tel que stocké en local ou Firestore.
+/// Snapshot minimal d'un favori tel que stocké en local ou dans l'API.
 class _FavoriData {
   final String logementId;
   final String titre;
@@ -56,27 +57,15 @@ class _FavoriData {
     addedAt: DateTime.parse(json['addedAt'] as String),
   );
 
-  // ── Conversion Firestore ─────────────────────────────────────────────────
-  Map<String, dynamic> toFirestore() => {
-    'logementId': logementId,
-    'titre': titre,
-    'prix': prix,
-    'ville': ville,
-    'quartier': quartier,
-    'photo': photo,
-    'addedAt': Timestamp.fromDate(addedAt),
-  };
-
-  factory _FavoriData.fromFirestore(Map<String, dynamic> data) => _FavoriData(
+  // ── Conversion API ───────────────────────────────────────────────────────
+  factory _FavoriData.fromApi(Map<String, dynamic> data) => _FavoriData(
     logementId: data['logementId'] as String,
-    titre: data['titre'] as String,
-    prix: (data['prix'] as num).toDouble(),
-    ville: data['ville'] as String,
-    quartier: data['quartier'] as String,
+    titre: data['titre'] as String? ?? '',
+    prix: (data['prix'] as num?)?.toDouble() ?? 0,
+    ville: data['ville'] as String? ?? '',
+    quartier: data['quartier'] as String? ?? '',
     photo: data['photo'] as String?,
-    addedAt: data['addedAt'] is Timestamp
-        ? (data['addedAt'] as Timestamp).toDate()
-        : DateTime.parse(data['addedAt'] as String),
+    addedAt: apiDate(data['addedAt']) ?? DateTime.now(),
   );
 
   /// Construit un _FavoriData à partir du modèle Logement complet.
@@ -126,11 +115,15 @@ class FavorisService {
   FavorisService._internal();
   static final FavorisService instance = FavorisService._internal();
 
-  final _db = FirebaseFirestore.instance;
+  final _api = ApiClient.instance;
   final _auth = AuthService.instance;
 
+  /// Identifiants favoris du compte connecté (null = pas encore chargés).
+  Set<String>? _ids;
+  String? _idsUid;
+
   // ── Stream de changements (visiteur / mode offline) ───────────────────────
-  // Permet à FavorisScreen de se rafraîchir sans StreamBuilder Firestore.
+  // Permet à FavorisScreen de se rafraîchir sans flux réseau.
   static final StreamController<void> _changeCtrl =
       StreamController<void>.broadcast();
   static Stream<void> get onFavoriChanged => _changeCtrl.stream;
@@ -140,8 +133,13 @@ class FavorisService {
   bool get _estConnecte => _auth.isLoggedIn;
   String? get _uid => _auth.currentUser?.id;
 
-  CollectionReference<Map<String, dynamic>> get _firestoreFavoris =>
-      _db.collection('users').doc(_uid!).collection('favoris');
+  Future<List<_FavoriData>> _lireApi() async {
+    final items = ApiClient.items(await _api.get('/favoris'));
+    final data = items.map(_FavoriData.fromApi).toList();
+    _ids = data.map((d) => d.logementId).toSet();
+    _idsUid = _uid;
+    return data;
+  }
 
   Future<bool> _hasInternet() async {
     final result = await Connectivity().checkConnectivity();
@@ -151,7 +149,7 @@ class FavorisService {
   // ─── LECTURE ──────────────────────────────────────────────────────────────
 
   /// Retourne la liste des favoris :
-  /// - Connecté + internet : Firestore en temps réel (Stream)
+  /// - Connecté + internet : API
   /// - Connecté + hors connexion : cache SharedPreferences
   /// - Visiteur : SharedPreferences
   ///
@@ -160,14 +158,14 @@ class FavorisService {
     if (_estConnecte) {
       final hasNet = await _hasInternet();
       if (hasNet) {
-        final snap = await _firestoreFavoris.orderBy('addedAt', descending: true).get();
-        final logements = snap.docs.map((d) {
-          final data = _FavoriData.fromFirestore(d.data());
-          return data.toLogement();
-        }).toList();
-        // Mise à jour du cache offline
-        await _saveCacheConnecte(snap.docs.map((d) => _FavoriData.fromFirestore(d.data())).toList());
-        return logements;
+        try {
+          final data = await _lireApi();
+          // Mise à jour du cache offline
+          await _saveCacheConnecte(data);
+          return data.map((d) => d.toLogement()).toList();
+        } catch (_) {
+          return _getFavorisDepuisCache();
+        }
       } else {
         // Mode hors connexion : lecture depuis le cache
         return _getFavorisDepuisCache();
@@ -177,27 +175,27 @@ class FavorisService {
     }
   }
 
-  /// Stream réactif (Firestore) pour les utilisateurs connectés.
-  /// Retourne null pour les visiteurs (utiliser [getFavoris] à la place).
+  /// Stream réactif pour les utilisateurs connectés (interrogation
+  /// versionnée). Retourne null pour les visiteurs ([getFavoris]).
   Stream<List<Logement>>? watchFavoris() {
     if (!_estConnecte) return null;
-    return _firestoreFavoris
-        .orderBy('addedAt', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) {
-      final data = _FavoriData.fromFirestore(d.data());
-      return data.toLogement();
-    }).toList());
+    return _api.sonder('/favoris', (rep) {
+      final data = ApiClient.items(rep).map(_FavoriData.fromApi).toList();
+      _ids = data.map((d) => d.logementId).toSet();
+      _idsUid = _uid;
+      return data.map((d) => d.toLogement()).toList();
+    });
   }
 
   // ─── ÉCRITURE ─────────────────────────────────────────────────────────────
 
-  /// Ajoute un logement aux favoris (Firestore ou SharedPrefs selon l'état).
+  /// Ajoute un logement aux favoris (API ou SharedPrefs selon l'état).
   Future<void> ajouterFavori(Logement logement) async {
     final data = _FavoriData.fromLogement(logement);
 
     if (_estConnecte) {
-      await _firestoreFavoris.doc(logement.id).set(data.toFirestore());
+      await _api.put('/favoris/${logement.id}', data.toJson());
+      _ids?.add(logement.id);
       await _updateCacheConnecte(logement.id, data, add: true);
     } else {
       await _saveVisiteurFavori(data);
@@ -208,7 +206,8 @@ class FavorisService {
   /// Supprime un favori par son ID.
   Future<void> supprimerFavori(String logementId) async {
     if (_estConnecte) {
-      await _firestoreFavoris.doc(logementId).delete();
+      await _api.delete('/favoris/$logementId');
+      _ids?.remove(logementId);
       await _updateCacheConnecte(logementId, null, add: false);
     } else {
       await _removeVisiteurFavori(logementId);
@@ -219,10 +218,16 @@ class FavorisService {
   /// Vérifie si un logement est dans les favoris.
   Future<bool> isFavori(String logementId) async {
     if (_estConnecte) {
+      if (_ids != null && _idsUid == _uid) return _ids!.contains(logementId);
       final hasNet = await _hasInternet();
       if (hasNet) {
-        final doc = await _firestoreFavoris.doc(logementId).get();
-        return doc.exists;
+        try {
+          await _lireApi();
+          return _ids!.contains(logementId);
+        } catch (_) {
+          final cached = await _getFavorisDepuisCache();
+          return cached.any((l) => l.id == logementId);
+        }
       } else {
         // Fallback sur le cache
         final cached = await _getFavorisDepuisCache();
@@ -237,21 +242,18 @@ class FavorisService {
     }
   }
 
-  // ─── FUSION VISITEUR → FIRESTORE ──────────────────────────────────────────
+  // ─── FUSION VISITEUR → COMPTE ─────────────────────────────────────────────
 
   /// À appeler juste après une connexion réussie.
-  /// Migre les favoris visiteur vers Firestore et nettoie SharedPreferences.
+  /// Migre les favoris visiteur vers le compte et nettoie SharedPreferences.
   Future<void> fusionnerFavorisVisiteur() async {
     final visiteurFavoris = await _getVisiteurFavorisData();
     if (visiteurFavoris.isEmpty) return;
 
-    final batch = _db.batch();
-    for (final data in visiteurFavoris) {
-      final ref = _firestoreFavoris.doc(data.logementId);
-      // SetOptions(merge: true) pour ne pas écraser un favori déjà présent
-      batch.set(ref, data.toFirestore(), SetOptions(merge: true));
-    }
-    await batch.commit();
+    // Un favori déjà présent dans le compte n'est pas écrasé.
+    await _api.post('/favoris/fusion',
+        {'items': visiteurFavoris.map((d) => d.toJson()).toList()});
+    _ids = null;
 
     // Nettoyage SharedPreferences visiteur
     final prefs = await SharedPreferences.getInstance();

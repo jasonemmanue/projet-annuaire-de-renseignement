@@ -7,7 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
-import '../services/notification_service.dart';
+import '../widgets/notifications_settings_widget.dart';
 import '../widgets/shared_widgets.dart' as sw;
 import 'auth/login_screen.dart';
 import 'aide_faq_screen.dart';
@@ -38,9 +38,6 @@ class ProfilScreen extends StatefulWidget {
 }
 
 class _ProfilScreenState extends State<ProfilScreen> {
-  bool _notifNouvellesAnnonces = true;
-  bool _notifMessages = true;
-  bool _notifAlertesPrix = false;
   late String _langue;
   late bool _modeSombre;
   String _version = '';
@@ -52,7 +49,6 @@ class _ProfilScreenState extends State<ProfilScreen> {
     _langue = AppController.instance.locale.languageCode == 'en'
         ? 'English'
         : 'Français';
-    _chargerPrefsNotifs();
     _chargerVersion();
   }
 
@@ -61,15 +57,6 @@ class _ProfilScreenState extends State<ProfilScreen> {
     if (mounted) setState(() => _version = info.version);
   }
 
-  Future<void> _chargerPrefsNotifs() async {
-    final prefs = await NotificationService.loadAllPreferences();
-    if (!mounted) return;
-    setState(() {
-      _notifNouvellesAnnonces = prefs[NotificationService.kNotifAnnonces]!;
-      _notifMessages          = prefs[NotificationService.kNotifMessages]!;
-      _notifAlertesPrix       = prefs[NotificationService.kNotifPrix]!;
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -191,47 +178,7 @@ class _ProfilScreenState extends State<ProfilScreen> {
               _Section(
                 title: l.t('profil_notifs'),
                 children: [
-                  SwitchListTile(
-                    secondary: const _NotifIcon(icon: Icons.home_outlined),
-                    title: Text(l.t('profil_new_listings'), style: AppTextStyles.bodyLarge),
-                    subtitle: Text(l.t('profil_new_listings_sub'), style: const TextStyle(fontSize: 12)),
-                    value: _notifNouvellesAnnonces,
-                    activeThumbColor: AppColors.primary,
-                    onChanged: (v) async {
-                      setState(() => _notifNouvellesAnnonces = v);
-                      await NotificationService.setCategory(
-                          NotificationService.kNotifAnnonces, v);
-                    },
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  const Divider(indent: 68, height: 1),
-                  SwitchListTile(
-                    secondary: const _NotifIcon(icon: Icons.chat_bubble_outline),
-                    title: Text(l.t('profil_messages_notif'), style: AppTextStyles.bodyLarge),
-                    subtitle: Text(l.t('profil_messages_notif_sub'), style: const TextStyle(fontSize: 12)),
-                    value: _notifMessages,
-                    activeThumbColor: AppColors.primary,
-                    onChanged: (v) async {
-                      setState(() => _notifMessages = v);
-                      await NotificationService.setCategory(
-                          NotificationService.kNotifMessages, v);
-                    },
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  const Divider(indent: 68, height: 1),
-                  SwitchListTile(
-                    secondary: const _NotifIcon(icon: Icons.trending_down),
-                    title: Text(l.t('profil_price_alerts'), style: AppTextStyles.bodyLarge),
-                    subtitle: Text(l.t('profil_price_alerts_sub'), style: const TextStyle(fontSize: 12)),
-                    value: _notifAlertesPrix,
-                    activeThumbColor: AppColors.primary,
-                    onChanged: (v) async {
-                      setState(() => _notifAlertesPrix = v);
-                      await NotificationService.setCategory(
-                          NotificationService.kNotifPrix, v);
-                    },
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
+                  const NotificationsSettingsWidget(categories: NotifCategorie.visiteur),
                 ],
               ),
 
@@ -475,18 +422,9 @@ class _EnteteProfil extends StatelessWidget {
           if (utilisateur != null)
             Text(utilisateur?.email ?? '', style: TextStyle(color: context.appTextSecondary, fontSize: 13)),
           const SizedBox(height: 8),
-          if (isPrestataire)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (utilisateur?.estVerifie == true)
-                  const _Badge(label: '✓ Vérifié', bg: AppColors.success, fg: Colors.white),
-                const SizedBox(width: 8),
-                if (utilisateur?.estPremium == true)
-                  _Badge(label: '★ Premium', bg: Colors.amber.shade600, fg: Colors.white),
-              ],
-            )
-          else
+          // Pas de badge « Vérifié » / « Premium » au niveau du prestataire :
+          // la vérification se porte sur les ANNONCES (« Vérifié par Horem+ »).
+          if (!isPrestataire)
             _Badge(label: AppLocalizations.of(context).t('profil_visitor_badge'), bg: AppColors.primary, fg: Colors.white),
         ],
       ),
@@ -597,18 +535,6 @@ class _InfoTile extends StatelessWidget {
 // ----------------------------------------------------------
 // ICÔNE NOTIFICATION
 // ----------------------------------------------------------
-class _NotifIcon extends StatelessWidget {
-  final IconData icon;
-  const _NotifIcon({required this.icon});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 36, height: 36,
-    decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
-    child: Icon(icon, color: AppColors.primary, size: 20),
-  );
-}
-
 // ----------------------------------------------------------
 // ÉCRAN MODIFICATION PROFIL
 // ----------------------------------------------------------

@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +8,7 @@ import 'firebase_options.dart';
 import 'app_controller.dart';
 import 'l10n/app_localizations.dart';
 import 'theme/app_theme.dart';
+import 'screens/prestataire_onboarding_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/accueil_screen.dart';
 import 'screens/carte_screen.dart';
@@ -25,6 +25,8 @@ import 'services/notification_service.dart';
 // import 'services/ads_service.dart'; // AdMob désactivé
 import 'widgets/shared_widgets.dart' as sw;
 import 'models/models.dart';
+import 'services/logement_service.dart';
+import 'services/messagerie_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,7 +51,7 @@ void main() async {
   // Émulateurs désactivés — mode production (vrais SMS Firebase)
   // Pour réactiver les émulateurs en local :
   // await FirebaseAuth.instance.useAuthEmulator('192.168.1.20', 9099);
-  // FirebaseFirestore.instance.useFirestoreEmulator('192.168.1.20', 8080);
+  // (Firestore n'est plus utilisé : données dans l'API Horem+)
 
   await AppController.instance.loadPrefs();
   await AuthService.instance.init();
@@ -172,11 +174,8 @@ class _ChatFromNotification extends StatelessWidget {
         ? auth.currentUser!.id
         : await getOrCreateVisitorId();
 
-    final doc = await FirebaseFirestore.instance
-        .collection('conversations')
-        .doc(conversationId)
-        .get();
-    final data = doc.data() ?? {};
+    final doc = await MessagerieService.getConversation(conversationId);
+    final data = doc?.data() ?? <String, dynamic>{};
     final participants = List<String>.from(data['participants'] ?? []);
     final otherId =
     participants.firstWhere((p) => p != currentUid, orElse: () => '');
@@ -187,7 +186,7 @@ class _ChatFromNotification extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────
 // Logement ouvert depuis une notification (annonce ou vues)
-// Charge le document Firestore par son ID puis affiche
+// Charge l'annonce depuis l'API par son ID puis affiche
 // DetailLogementScreen.
 // ─────────────────────────────────────────────────────────────
 class _LogementFromNotification extends StatelessWidget {
@@ -196,11 +195,8 @@ class _LogementFromNotification extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: FirebaseFirestore.instance
-          .collection('logements')
-          .doc(logementId)
-          .get(),
+    return FutureBuilder<Logement?>(
+      future: LogementService.getLogement(logementId),
       builder: (context, snap) {
         // ── Chargement ──
         if (snap.connectionState == ConnectionState.waiting) {
@@ -210,7 +206,7 @@ class _LogementFromNotification extends StatelessWidget {
         }
 
         // ── Logement introuvable ou supprimé ──
-        if (!snap.hasData || !snap.data!.exists) {
+        if (snap.data == null) {
           return Scaffold(
             appBar: AppBar(title: const Text('Annonce')),
             body: const Center(
@@ -220,8 +216,7 @@ class _LogementFromNotification extends StatelessWidget {
         }
 
         // ── Affiche le détail ──
-        final docData = snap.data!;
-        final logement = Logement.fromMap(logementId, docData.data()!);
+        final logement = snap.data!;
         return DetailLogementScreen(
           logement: logement,
         );
@@ -340,6 +335,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     if (AuthService.instance.isLoggedIn) {
       NotificationService.saveToken(AuthService.instance.currentUser!.id);
     }
+    // 1re connexion prestataire : tutoriel, puis retour sur le dashboard (#18).
+    if (isPresta) PrestataireOnboardingScreen.afficherSiPremiereFois(context);
   }
 
   @override

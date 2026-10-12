@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/activation_email_service.dart';
 import '../services/auth_service.dart';
+import '../services/logement_service.dart';
 import '../services/paiement_service.dart';
 import '../widgets/operateur_selector.dart';
 import '../widgets/silent_payment_webview.dart';
@@ -102,17 +102,7 @@ class _SponsorisationScreenState extends State<SponsorisationScreen> {
   Future<void> _activerGratuitement() async {
     setState(() => _loading = true);
     try {
-      const durees = {'1s': 7, '2s': 14, '1m': 30};
-      final jours = durees[_dureeCode] ?? 7;
-      final until = DateTime.now().add(Duration(days: jours));
-      await FirebaseFirestore.instance
-          .collection('logements')
-          .doc(widget.logementId)
-          .set({
-        'isSponsored': true,
-        'sponsoredUntil': Timestamp.fromDate(until),
-        'sponsoredAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await LogementService.sponsoriserGratuit(widget.logementId, _dureeCode);
       if (mounted) {
         setState(() {
           _loading = false;

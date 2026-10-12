@@ -10,7 +10,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -19,9 +18,11 @@ import 'package:fl_chart/fl_chart.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../models/user_model.dart';
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/geolocation_service.dart';
 import '../services/logement_service.dart';
+import '../services/messagerie_service.dart';
 import '../services/storage_service.dart';
 import '../app_controller.dart';
 import '../l10n/app_localizations.dart';
@@ -39,6 +40,8 @@ import 'aide_faq_screen.dart';
 import '../services/publicite_service.dart';
 import '../widgets/shared_widgets.dart' as sw;
 import '../services/notification_service.dart';
+import '../widgets/notifications_settings_widget.dart';
+import 'prestataire_onboarding_screen.dart';
 
 // ============================================================
 // CONSTANTES DE TRADUCTION (valeur FR Firestore → clé i18n)
@@ -382,8 +385,9 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
 
       if (_photosSelectionnees.isNotEmpty) {
         setState(() => _isUploadingPhotos = true);
+        // Dossier Storage : id de l'annonce, ou provisoire pour une nouvelle.
         final tempId = widget.logement?.id ??
-            FirebaseFirestore.instance.collection('logements').doc().id;
+            'n${DateTime.now().millisecondsSinceEpoch}';
         final urls = await StorageService.uploadMultiplePhotos(
             uid: uid, logementId: tempId, images: _photosSelectionnees);
         photoUrls.addAll(urls);
@@ -405,6 +409,8 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         'ville': _ville,
         'typeLocation': _isServiceType ? 'service' : _typeLocation,
         'typeBien': _typeBienFirestore,
+        // 'autre' : typeBien est alors le texte libre saisi (filtrage).
+        'typeBienBase': _isAutreType ? 'autre' : _typeBien,
         'grade': _gradeEffectif,
         'equipements': _isPharmacieType ? <String>[] : _equipements,
         'latitude': _positionSelectionnee!.latitude,
@@ -451,7 +457,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         if (mounted) {
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(_loc.t('form_published_ok')),
+              content: Text(_loc.t(isGratuit ? 'form_published_ok' : 'form_published_pending')),
               backgroundColor: AppColors.success,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))));
@@ -469,18 +475,8 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
 
       // ─── Compte gratuit → bypass paiement ─────────────────────────────────
       if (AuthService.instance.currentUser?.compteGratuit == true) {
-        final expiry = _isVisibiliteType
-            ? DateTime.now().add(const Duration(days: 365))
-            : DateTime.now().add(const Duration(days: 30));
-        await FirebaseFirestore.instance.collection('logements').doc(brouillonId).update({
-          'disponible': true,
-          'visibleAdmin': true,
-          'paymentPending': false,
-          if (_isVisibiliteType)
-            'visibiliteExpiry': Timestamp.fromDate(expiry)
-          else
-            'publicationExpiry': Timestamp.fromDate(expiry),
-        });
+        // Le serveur vérifie le compte offert et pose les expirations.
+        await LogementService.activerGratuit(brouillonId);
         if (mounted) {
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -562,8 +558,8 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
                 ? 'Payer et activer la visibilité'
                 : 'Payer et publier l\'annonce',
             succesMessage: _isVisibiliteType
-                ? 'Votre fiche est maintenant visible pendant 1 an sur Horem+.'
-                : 'Votre annonce est publiée et visible pendant 1 mois sur Horem+.',
+                ? 'Paiement reçu. Votre fiche sera visible pendant 1 an dès sa validation par Horem+.'
+                : 'Paiement reçu. Votre annonce sera visible pendant 1 mois dès sa validation par Horem+.',
             activationType: _isVisibiliteType
                 ? ActivationType.visibilite
                 : ActivationType.publication,
@@ -579,7 +575,7 @@ class _FormulaireAnnonceState extends State<FormulaireAnnonce> {
         if (mounted) {
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(_loc.t('form_published_ok')),
+              content: Text(_loc.t('form_published_pending')),
               backgroundColor: AppColors.success,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))));
@@ -1193,21 +1189,12 @@ class _DashboardPrestataireScreenState extends State<DashboardPrestataireScreen>
           tabs: [
             Tab(icon: const Icon(Icons.list_alt), text: _loc.t('dashboard_tab_listings')),
             Tab(
-              child: StreamBuilder<QuerySnapshot>(
+              child: StreamBuilder<int>(
                 stream: uid.isEmpty
                     ? const Stream.empty()
-                    : FirebaseFirestore.instance
-                    .collection('conversations')
-                    .where('participants', arrayContains: uid)
-                    .snapshots(),
+                    : MessagerieService.watchNonLus(),
                 builder: (ctx, snap) {
-                  int totalUnread = 0;
-                  if (snap.hasData) {
-                    for (final doc in snap.data!.docs) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      totalUnread += (data['unread_$uid'] as int? ?? 0);
-                    }
-                  }
+                  final int totalUnread = snap.data ?? 0;
                   return Stack(
                     clipBehavior: Clip.none,
                     alignment: Alignment.center,
@@ -1397,17 +1384,13 @@ class _NotificationBell extends StatelessWidget {
       );
     }
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('admin_notifications')
-          .where('uid_prestataire', isEqualTo: uid)
-          .orderBy('createdAt', descending: true)
-          .limit(50)
-          .snapshots(),
+    return StreamBuilder<List<Doc>>(
+      stream: ApiClient.instance.sonder('/notifications', Doc.liste,
+          intervalle: const Duration(seconds: 15)),
       builder: (ctx, snap) {
-        final docs = snap.data?.docs ?? [];
+        final docs = snap.data ?? const <Doc>[];
         final unreadCount = docs.where((d) {
-          final data = d.data() as Map<String, dynamic>;
+          final data = d.data();
           return data['lu'] != true;
         }).length;
 
@@ -1448,12 +1431,11 @@ class _NotificationBell extends StatelessWidget {
   }
 
   void _ouvrirNotifications(
-      BuildContext context, List<QueryDocumentSnapshot> docs, AppLocalizations loc) {
+      BuildContext context, List<Doc> docs, AppLocalizations loc) {
     // Marquer toutes comme lues
     for (final doc in docs) {
-      final data = doc.data() as Map<String, dynamic>;
-      if (data['lu'] != true) {
-        doc.reference.update({'lu': true});
+      if (doc.data()['lu'] != true) {
+        ApiClient.instance.post('/notifications/${doc.id}/lu').catchError((_) {});
       }
     }
 
@@ -1518,12 +1500,10 @@ class _NotificationBell extends StatelessWidget {
                   itemCount: docs.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
-                    final data = docs[i].data() as Map<String, dynamic>;
+                    final data = docs[i].data();
                     final type = data['type'] as String? ?? '';
                     final titre = data['titre'] as String? ?? '';
-                    final createdAt = data['createdAt'] is Timestamp
-                        ? (data['createdAt'] as Timestamp).toDate()
-                        : DateTime.now();
+                    final createdAt = apiDate(data['createdAt']) ?? DateTime.now();
                     final wasUnread = data['lu'] != true;
 
                     IconData icon;
@@ -1604,7 +1584,7 @@ class _MesAnnoncesTab extends StatefulWidget {
 class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
   late AppLocalizations _loc;
 
-  StreamSubscription<QuerySnapshot>? _sub;
+  StreamSubscription<List<Logement>>? _sub;
   Timer? _fallbackTimer;
   List<Logement> _logements = [];
   bool _loading = true;
@@ -1616,7 +1596,9 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
     // Filet de sécurité : toutes les 3 s on refait une lecture serveur pour
     // rattraper un éventuel changement admin que le snapshot listener local
     // aurait manqué (cache Firestore, réseau intermittent, écouteur figé).
-    _fallbackTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    // Filet de sécurité léger (le flux versionné de l'API suffit en temps
+    // normal) : relecture complète toutes les 60 s.
+    _fallbackTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       _forceRefresh();
     });
   }
@@ -1625,20 +1607,10 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
     debugPrint('[MesAnnonces] 🔌 _startListening for uid=${widget.uid}');
     _sub?.cancel();
     _sub = LogementService.getMesLogements(widget.uid).listen(
-      (snap) {
+      (logements) {
         if (!mounted) return;
-        debugPrint(
-            '[MesAnnonces] 📡 snapshot reçu — ${snap.docs.length} docs, fromCache=${snap.metadata.isFromCache}, hasPending=${snap.metadata.hasPendingWrites}');
-        for (final d in snap.docs) {
-          final data = d.data() as Map<String, dynamic>;
-          debugPrint(
-              '[MesAnnonces]    • ${d.id} type=${data['typeBien']} visibleAdmin=${data['visibleAdmin']} disponible=${data['disponible']}');
-        }
         setState(() {
-          _logements = snap.docs
-              .map((d) =>
-                  Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
-              .toList();
+          _logements = logements;
           _loading = false;
         });
       },
@@ -1651,24 +1623,10 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
 
   Future<void> _forceRefresh() async {
     try {
-      debugPrint('[MesAnnonces] 🔄 forceRefresh Source.server…');
-      final snap = await FirebaseFirestore.instance
-          .collection('logements')
-          .where('uid_prestataire', isEqualTo: widget.uid)
-          .orderBy('createdAt', descending: true)
-          .get(const GetOptions(source: Source.server));
-      debugPrint(
-          '[MesAnnonces] ✅ forceRefresh reçu ${snap.docs.length} docs (fromCache=${snap.metadata.isFromCache})');
-      for (final d in snap.docs) {
-        final data = d.data();
-        debugPrint(
-            '[MesAnnonces]    • ${d.id} type=${data['typeBien']} visibleAdmin=${data['visibleAdmin']} disponible=${data['disponible']}');
-      }
+      final logements = await LogementService.getMesLogementsMaintenant();
       if (!mounted) return;
       setState(() {
-        _logements = snap.docs
-            .map((d) => Logement.fromMap(d.id, d.data()))
-            .toList();
+        _logements = logements;
         _loading = false;
       });
     } catch (e) {
@@ -1803,78 +1761,30 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
 
   // Types à réactivation LIBRE (déjà payés par visibilité annuelle ou forfait
   // hébergement) — hors immobilier standard à commission %.
-  static const _typesForfaitToggle = <String>{
-    // Visibilité annuelle
-    'Entreprise',
-    'Restaurant / Snack',
-    'École',
-    // Hébergement forfaitaire par durée
-    'Meublé / Motel',
-    'Auberge',
-    'Hôtel',
-  };
-
   Future<void> _toggleDisponible(Logement l) async {
     final loc = AppLocalizations.of(context);
-    debugPrint(
-        '[Toggle] 👆 tap sur ${l.id} — Logement local: type=${l.typeBien} visibleAdmin=${l.visibleAdmin} disponible=${l.disponible}');
-
-    // Toujours relire l'état à jour depuis Firestore (le stream peut être en retard
-    // sur un changement admin récent).
-    final doc = await FirebaseFirestore.instance
-        .collection('logements')
-        .doc(l.id)
-        .get(const GetOptions(source: Source.server));
-    final data = doc.data() ?? {};
-    debugPrint(
-        '[Toggle] 🔍 lecture Firestore serveur: visibleAdmin=${data['visibleAdmin']} disponible=${data['disponible']}');
-    // Défaut type-aware : les pharmacies (créées gratuitement) sont bloquées
-    // tant que l'admin n'a pas explicitement approuvé leur visibilité.
-    final rawVisibleAdmin = data['visibleAdmin'];
-    final typeBien = (data['typeBien'] ?? l.typeBien).toString();
-    final visibleAdmin = rawVisibleAdmin is bool
-        ? rawVisibleAdmin
-        : typeBien != 'Pharmacie';
-    final currentlyDisponible = data['disponible'] as bool? ?? l.disponible;
-    final wantEnable = !currentlyDisponible;
-
-    final isGratuit =
-        AuthService.instance.currentUser?.compteGratuit == true;
-
-    // ── 1. Admin a bloqué la visibilité → refuser sauf comptes gratuits ────
-    if (!visibleAdmin && !isGratuit) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(loc.t('admin_visibility_required')),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          duration: const Duration(seconds: 4),
-        ));
+    final wantEnable = !l.disponible;
+    try {
+      // Le serveur applique les règles : blocage admin, comptes offerts,
+      // forfaits libres, republication payante d'un bien standard expiré.
+      await LogementService.updateLogement(l.id, {'disponible': wantEnable});
+      await _forceRefresh();
+    } on ApiException catch (e) {
+      if (e.code == 'paiement_requis') {
+        await _reactiverBienStandard(l);
+        return;
       }
-      return;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(e.code == 'admin_visibility_required'
+            ? loc.t('admin_visibility_required')
+            : e.message),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: const Duration(seconds: 4),
+      ));
     }
-
-    // ── 2. Désactivation → toujours libre ────────────────────────────────────
-    if (!wantEnable) {
-      await LogementService.updateLogement(l.id, {'disponible': false});
-      return;
-    }
-
-    // ── 3. Réactivation : pharmacie, visibilité annuelle et hébergement
-    //       forfaitaire → libres ─────────────────────────────────────────
-    final isPharmacie = l.typeBien == 'Pharmacie';
-    final isForfait = _typesForfaitToggle.contains(l.typeBien);
-    if (isPharmacie || isForfait) {
-      // Compte gratuit : forcer visibleAdmin si le champ était false (pharmacie)
-      final fields = <String, dynamic>{'disponible': true};
-      if (!visibleAdmin && isGratuit) fields['visibleAdmin'] = true;
-      await LogementService.updateLogement(l.id, fields);
-      return;
-    }
-
-    // ── 4. Bien standard (immobilier / Autre) → repaiement requis ───────────
-    await _reactiverBienStandard(l);
   }
 
   Future<void> _reactiverBienStandard(Logement l) async {
@@ -1882,13 +1792,7 @@ class _MesAnnoncesTabState extends State<_MesAnnoncesTab> {
 
     // Bypass pour comptes gratuits
     if (AuthService.instance.currentUser?.compteGratuit == true) {
-      await LogementService.updateLogement(l.id, {
-        'disponible': true,
-        'visibleAdmin': true,
-        'paymentPending': false,
-        'publicationExpiry': Timestamp.fromDate(
-            DateTime.now().add(const Duration(days: 30))),
-      });
+      await LogementService.activerGratuit(l.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(loc.t('form_published_ok')),
@@ -2090,10 +1994,14 @@ class _AnnonceCard extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: !l.visibleAdmin ? AppColors.warning : l.disponible ? AppColors.success : AppColors.textHint,
+                    color: l.estRejetee ? AppColors.error
+                        : (l.estEnAttenteModeration || !l.visibleAdmin) ? AppColors.warning
+                        : l.disponible ? AppColors.success : AppColors.textHint,
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text(!l.visibleAdmin ? loc.t('admin_pending_approval')
+                  child: Text(l.estRejetee ? loc.t('moderation_rejected')
+                      : l.estEnAttenteModeration ? loc.t('moderation_pending')
+                      : !l.visibleAdmin ? loc.t('admin_pending_approval')
                       : l.disponible ? loc.t('dashboard_listing_available') : loc.t('dashboard_listing_unavailable'),
                       style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
                 ),
@@ -2117,6 +2025,25 @@ class _AnnonceCard extends StatelessWidget {
               children: [
                 Text(l.titre, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                     maxLines: 1, overflow: TextOverflow.ellipsis),
+                // Modération : file d'attente ou motif du refus.
+                if (l.estEnAttenteModeration || l.estRejetee) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: (l.estRejetee ? AppColors.error : AppColors.warning).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      l.estRejetee
+                          ? '${loc.t('moderation_rejected_reason')} ${l.motifRejet ?? ''}\n${loc.t('moderation_rejected_hint')}'
+                          : loc.t('moderation_pending_hint'),
+                      style: TextStyle(fontSize: 12,
+                          color: l.estRejetee ? AppColors.error : AppColors.textSecondary),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Row(children: [
                   const Icon(Icons.location_on, size: 13, color: AppColors.textHint),
@@ -3077,8 +3004,6 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
   late AppLocalizations _loc;
   UserModel? _user;
 
-  bool _notifMessages = true;
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -3089,19 +3014,6 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
   void initState() {
     super.initState();
     _user = widget.user;
-    _loadNotifPrefs();
-  }
-
-  Future<void> _loadNotifPrefs() async {
-    final enabled = await NotificationService.isCategoryEnabled(
-        NotificationService.kNotifMessages);
-    if (!mounted) return;
-    setState(() => _notifMessages = enabled);
-  }
-
-  Future<void> _toggleNotifMessages(bool value) async {
-    setState(() => _notifMessages = value);
-    await NotificationService.setCategory(NotificationService.kNotifMessages, value);
   }
 
   Future<void> _deconnecter() async {
@@ -3145,8 +3057,7 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Wrap(spacing: 8, runSpacing: 8, children: [
-              if (u?.isVerifie == true) _BadgeProfil(label: _loc.t('prest_badge_verified'), bg: AppColors.success),
-              if (u?.isPremium == true) _BadgeProfil(label: _loc.t('prest_badge_premium'), bg: Colors.amber.shade600),
+              // Pas de badge « Vérifié » / « Premium » au niveau du prestataire (#22).
               _BadgeProfil(label: _loc.t('prest_badge_provider'), bg: AppColors.primary),
             ]),
           ),
@@ -3171,20 +3082,8 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
           ),
         ]),
         const SizedBox(height: 12),
-        _SectionProfil(title: _loc.t('profil_notifs'), children: [
-          SwitchListTile(
-            secondary: Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
-              child: const Icon(Icons.chat_bubble_outline, color: AppColors.primary, size: 20),
-            ),
-            title: Text(_loc.t('prest_notif_messages'), style: AppTextStyles.bodyLarge),
-            subtitle: Text(_loc.t('prest_notif_messages_sub'), style: const TextStyle(fontSize: 12)),
-            value: _notifMessages,
-            activeColor: AppColors.primary,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-            onChanged: _toggleNotifMessages,
-          ),
+        _SectionProfil(title: _loc.t('profil_notifs'), children: const [
+          NotificationsSettingsWidget(categories: NotifCategorie.prestataire),
         ]),
         const SizedBox(height: 12),
         _SectionProfil(title: _loc.t('profil_info_section'), children: [
@@ -3196,7 +3095,18 @@ class _ProfilPrestataireScreenState extends State<ProfilPrestataireScreen> {
             ),
             title: Text(_loc.t('profil_help')),
             trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textHint),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AideFaqScreen())),
+            onTap: () => Navigator.push(context, MaterialPageRoute(
+                builder: (_) => const AideFaqScreen(prestataire: true))),
+          ),
+          ListTile(
+            leading: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: context.appPrimaryLight, borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.school_outlined, color: AppColors.primary, size: 20),
+            ),
+            title: Text(_loc.t('presta_onb_replay')),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textHint),
+            onTap: () => PrestataireOnboardingScreen.afficher(context),
           ),
         ]),
         const SizedBox(height: 12),
@@ -3395,11 +3305,12 @@ class _FormulaireModificationProfilState extends State<_FormulaireModificationPr
     if (uid == null) return;
     setState(() => _saving = true);
     try {
-      await FirebaseFirestore.instance.collection('users').doc(uid).update({
+      await ApiClient.instance.put('/users/me', {
         'prenom': _prenomCtrl.text.trim(),
         'nom': _nomCtrl.text.trim(),
         'telephone': _telCtrl.text.trim(),
       });
+      await AuthService.instance.refreshCurrentUser();
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -3573,16 +3484,7 @@ class _MesPublicitesTabState extends State<_MesPublicitesTab> {
   Future<void> _reactiver(Publicite pub) async {
     // Bypass pour comptes gratuits
     if (AuthService.instance.currentUser?.compteGratuit == true) {
-      final until = DateTime.now()
-          .add(const Duration(days: PubliciteService.dureeJours));
-      await FirebaseFirestore.instance
-          .collection('publicites')
-          .doc(pub.id)
-          .update({
-        'actif': true,
-        'paymentPending': false,
-        'expiresAt': Timestamp.fromDate(until),
-      });
+      await PubliciteService.activerGratuit(pub.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Publicité réactivée gratuitement.'),
@@ -3636,7 +3538,7 @@ class _MesPublicitesTabState extends State<_MesPublicitesTab> {
         icon: const Icon(Icons.campaign_outlined),
         label: Text(_loc.t('pub_new_btn')),
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: StreamBuilder<List<Publicite>>(
         stream: PubliciteService.getPublicitesPrestataire(widget.uid),
         builder: (ctx, snap) {
           if (snap.hasError) {
@@ -3652,7 +3554,7 @@ class _MesPublicitesTabState extends State<_MesPublicitesTab> {
             return const Center(
                 child: CircularProgressIndicator(color: AppColors.primary));
           }
-          final docs = snap.data?.docs ?? [];
+          final docs = snap.data ?? const <Publicite>[];
           if (docs.isEmpty) {
             return Center(
               child: Padding(
@@ -3700,8 +3602,7 @@ class _MesPublicitesTabState extends State<_MesPublicitesTab> {
             itemCount: docs.length,
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (_, i) {
-              final pub = Publicite.fromMap(
-                  docs[i].id, docs[i].data() as Map<String, dynamic>);
+              final pub = docs[i];
               return _CartePublicite(
                 pub: pub,
                 onSupprimer: () => _confirmerSuppression(pub.id),

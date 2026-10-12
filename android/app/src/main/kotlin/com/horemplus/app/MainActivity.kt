@@ -1,4 +1,4 @@
-package com.example.app_renseignement
+package com.horemplus.app
 
 import io.flutter.embedding.android.FlutterActivity
 

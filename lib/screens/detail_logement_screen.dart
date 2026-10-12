@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
@@ -8,7 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/logement_service.dart';
 import '../services/messagerie_service.dart';
 import '../services/analytics_service.dart';
 import '../services/favoris_service.dart'; // ← ÉTAPE 1
@@ -161,17 +162,11 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     }
   }
 
-  /// Incrémente le champ `vues` dans Firestore de façon atomique
+  /// Compte une vue (le serveur incrémente de façon atomique et ne compte
+  /// qu'une vue par appareil toutes les 10 minutes).
   Future<void> _incrementerVues() async {
     if (l.id.isEmpty) return;
-    try {
-      await FirebaseFirestore.instance
-          .collection('logements')
-          .doc(l.id)
-          .update({'vues': FieldValue.increment(1)});
-    } catch (_) {
-      // Silencieux — non bloquant
-    }
+    await LogementService.incrementVues(l.id);
   }
 
   @override
@@ -494,6 +489,8 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Avertissement de prudence (#26)
+                  _BandeauVerification(verifie: l.estVerifie),
                   // EN-TETE
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -954,7 +951,8 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
             )
           ],
         ),
-        child: Row(children: [
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(children: [
           OutlinedButton.icon(
             onPressed: _partager,
             icon: const Icon(Icons.share),
@@ -977,6 +975,20 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
               style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14)),
             ),
+          ),
+        ]),
+        // Rappel court sous le bouton de contact si l'annonce n'est pas vérifiée.
+        if (!l.estVerifie)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(children: [
+              const Icon(Icons.info_outline, size: 14, color: AppColors.error),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(_loc.t('detail_unverified_reminder'),
+                    style: const TextStyle(fontSize: 11, color: AppColors.error)),
+              ),
+            ]),
           ),
         ]),
       ),
@@ -1106,11 +1118,7 @@ class _DetailLogementScreenState extends State<DetailLogementScreen>
     }
     if (l.prestatireId.isEmpty) return;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(l.prestatireId)
-          .get();
-      final data = snap.data();
+      final data = await MessagerieService.profilPublic(l.prestatireId);
       if (data == null || !mounted) return;
       final prenom = (data['prenom'] as String?)?.trim() ?? '';
       final nom = (data['nom'] as String?)?.trim() ?? '';
@@ -1238,9 +1246,7 @@ class _SignalementSheetState extends State<_SignalementSheet> {
         statut: 'en_attente',
       );
 
-      await FirebaseFirestore.instance
-          .collection('signalements')
-          .add(signalement.toMap());
+      await ApiClient.instance.post('/signalements', signalement.toMap());
 
       widget.onSignalementEnvoye();
 
@@ -1542,4 +1548,37 @@ class _ExpandableTextState extends State<_ExpandableText> {
         ),
     ],
   );
+}
+
+// ── Bandeau de prudence en tête du détail (#26) ─────────────────────────────
+class _BandeauVerification extends StatelessWidget {
+  final bool verifie;
+  const _BandeauVerification({required this.verifie});
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = AppLocalizations.of(context);
+    final couleur = verifie ? AppColors.success : AppColors.warning;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: couleur.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: couleur.withValues(alpha: 0.5)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(verifie ? Icons.verified_user_outlined : Icons.warning_amber_rounded,
+            color: couleur, size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            loc.t(verifie ? 'detail_verified_banner' : 'detail_unverified_banner'),
+            style: TextStyle(fontSize: 12.5, color: context.appTextPrimary, height: 1.35),
+          ),
+        ),
+      ]),
+    );
+  }
 }

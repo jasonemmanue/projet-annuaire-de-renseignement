@@ -1,5 +1,4 @@
 import 'dart:ui' as ui;
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/logement_service.dart';
@@ -58,6 +57,8 @@ class _CarteScreenState extends State<CarteScreen> {
   final Map<String, BitmapDescriptor> _iconCache = {};
   Set<Marker> _markers = {};
   List<Logement> _lastLogements = [];
+  // Flux gardé dans l'état : un seul abonnement, pas un par reconstruction.
+  final Stream<List<Logement>> _fluxLogements = LogementService.getLogements();
 
   static const LatLng _yaoundeCenter = LatLng(3.8480, 11.5021);
 
@@ -220,15 +221,11 @@ class _CarteScreenState extends State<CarteScreen> {
           ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: LogementService.getLogements(),
+      body: StreamBuilder<List<Logement>>(
+        stream: _fluxLogements,
         builder: (ctx, snap) {
           final logements = snap.hasData
-              ? snap.data!.docs
-                  .map((d) =>
-                      Logement.fromMap(d.id, d.data() as Map<String, dynamic>))
-                  .where((l) => l.estVisiblePourVisiteur)
-                  .toList()
+              ? snap.data!.where((l) => l.estVisiblePourVisiteur).toList()
               : <Logement>[];
 
           // Reconstruire les marqueurs si les données ont changé

@@ -11,7 +11,9 @@ const _kSupportEmail    = 'horemplus@gmail.com';
 const _kSupportWhatsApp = '237695236917';
 
 class AideFaqScreen extends StatelessWidget {
-  const AideFaqScreen({super.key});
+  /// Ajoute la section d'aide propre aux prestataires (#20).
+  final bool prestataire;
+  const AideFaqScreen({super.key, this.prestataire = false});
 
   Future<void> _openEmail(BuildContext ctx) async {
     final uri = Uri(
@@ -51,12 +53,22 @@ class AideFaqScreen extends StatelessWidget {
       (l.t('aide_q6'), l.t('aide_a6')),
       (l.t('aide_q7'), l.t('aide_a7')),
     ];
+    final questionsPresta = [
+      for (var i = 1; i <= 5; i++) (l.t('aide_presta_q$i'), l.t('aide_presta_a$i')),
+    ];
 
     return Scaffold(
       appBar: AppBar(title: Text(l.t('aide_title'))),
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
+          // ── FAQ prestataire ──────────────────────────────────
+          if (prestataire) ...[
+            _TitreSection(l.t('aide_presta_section')),
+            ...questionsPresta.map((qa) => _FaqTile(question: qa.$1, answer: qa.$2)),
+            const Divider(),
+            _TitreSection(l.t('aide_general_section')),
+          ],
           // ── FAQ ──────────────────────────────────────────────
           ...questions.map((qa) => _FaqTile(question: qa.$1, answer: qa.$2)),
 
@@ -64,18 +76,7 @@ class AideFaqScreen extends StatelessWidget {
           const Divider(),
 
           // ── Contact support ──────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text(
-              l.t('aide_contact_section').toUpperCase(),
-              style: const TextStyle(
-                color: AppColors.textHint,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.8,
-              ),
-            ),
-          ),
+          _TitreSection(l.t('aide_contact_section')),
           const SizedBox(height: 8),
 
           Padding(
@@ -105,6 +106,25 @@ class AideFaqScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TitreSection extends StatelessWidget {
+  final String texte;
+  const _TitreSection(this.texte);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        child: Text(
+          texte.toUpperCase(),
+          style: const TextStyle(
+            color: AppColors.textHint,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+          ),
+        ),
+      );
 }
 
 class _FaqTile extends StatelessWidget {

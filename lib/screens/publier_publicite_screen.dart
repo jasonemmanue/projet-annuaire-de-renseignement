@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,6 +8,7 @@ import '../utils/media_permission.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
+import '../services/logement_service.dart';
 import '../services/publicite_service.dart';
 import '../services/paiement_service.dart';
 import 'paiement_publication_screen.dart';
@@ -60,16 +60,10 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
       return;
     }
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('logements')
-          .where('uid_prestataire', isEqualTo: uid)
-          .orderBy('createdAt', descending: true)
-          .get();
+      final annonces = await LogementService.getMesLogementsMaintenant();
       if (!mounted) return;
       setState(() {
-        _mesAnnonces = snap.docs
-            .map((d) => Logement.fromMap(d.id, d.data()))
-            .toList();
+        _mesAnnonces = annonces;
         _loadingAnnonces = false;
       });
     } catch (_) {
@@ -247,16 +241,7 @@ class _PublierPubliciteScreenState extends State<PublierPubliciteScreen> {
 
       // Compte gratuit → bypass paiement publicité
       if (AuthService.instance.currentUser?.compteGratuit == true) {
-        final until = DateTime.now()
-            .add(const Duration(days: PubliciteService.dureeJours));
-        await FirebaseFirestore.instance
-            .collection('publicites')
-            .doc(pubId)
-            .update({
-          'actif': true,
-          'paymentPending': false,
-          'expiresAt': Timestamp.fromDate(until),
-        });
+        await PubliciteService.activerGratuit(pubId);
         if (mounted) {
           _showSnack(AppLocalizations.of(context).t('pub_success'));
           Navigator.pop(context, true);

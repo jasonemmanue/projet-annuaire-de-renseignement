@@ -1,9 +1,8 @@
-import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:http/http.dart' as http;
+import 'api_client.dart';
 
 /// Types de services activables via le flow email/web (iOS uniquement).
-/// Doit rester en phase avec `TYPES_ACTIVATION` dans functions/index.js.
+/// Doit rester en phase avec `TYPES_ACTIVATION` de l'API (app/services/tarifs.py).
 enum ActivationType {
   premium,
   publication,
@@ -45,9 +44,6 @@ class ActivationEmailService {
   ActivationEmailService._();
   static final ActivationEmailService instance = ActivationEmailService._();
 
-  static const String _suffix = 'qhxw7o6nha-uc.a.run.app';
-  static const String _envoyerLienUrl =
-      'https://envoyerlienpaiementemail-$_suffix';
 
   /// Envoie un email à [email] avec un lien pour activer le service.
   ///
@@ -76,42 +72,20 @@ class ActivationEmailService {
     }
 
     try {
-      final idToken = await user.getIdToken();
-      final body = <String, dynamic>{
+      final data = await ApiClient.instance.post('/paiements/lien-email', {
         'type': type.code,
         'email': email.trim(),
         if (targetId != null) 'targetId': targetId,
         if (params != null) 'params': params,
-      };
-
-      final resp = await http
-          .post(
-            Uri.parse(_envoyerLienUrl),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $idToken',
-            },
-            body: jsonEncode(body),
-          )
-          .timeout(const Duration(seconds: 30));
-
-      final data = resp.body.isNotEmpty
-          ? jsonDecode(resp.body) as Map<String, dynamic>
-          : <String, dynamic>{};
-
-      if (resp.statusCode == 200 && data['success'] == true) {
-        return ActivationEmailResult(
-          success: true,
-          token: data['token']?.toString(),
-          expiresAt: data['expiresAt']?.toString(),
-          message: 'Email envoyé.',
-        );
-      }
-
+      }) as Map<String, dynamic>;
       return ActivationEmailResult(
-        success: false,
-        message: data['error']?.toString() ?? 'Erreur inconnue',
+        success: data['success'] == true,
+        token: data['token']?.toString(),
+        expiresAt: data['expiresAt']?.toString(),
+        message: 'Email envoyé.',
       );
+    } on ApiException catch (e) {
+      return ActivationEmailResult(success: false, message: e.message);
     } catch (e) {
       return ActivationEmailResult(
         success: false,

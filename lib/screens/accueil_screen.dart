@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/api_client.dart';
 import 'package:intl/intl.dart';
 import '../l10n/app_localizations.dart';
 import '../services/logement_service.dart';
@@ -57,6 +57,8 @@ class _AccueilScreenState extends State<AccueilScreen> {
 
   // ── Messagerie ───────────────────────────────────────────────
   String? _currentUid;
+  // Flux gardé dans l'état : un seul abonnement, pas un par reconstruction.
+  Stream<List<Doc>>? _fluxConversations;
 
   // ── Filtres & recherche ──────────────────────────────────────
   String _filtreTypeActif = 'Tous';
@@ -127,7 +129,12 @@ class _AccueilScreenState extends State<AccueilScreen> {
     _initConnectivite();
     _chargerDonnees();
     resolveCurrentUid().then((uid) {
-      if (mounted) setState(() => _currentUid = uid);
+      if (mounted) {
+        setState(() {
+          _currentUid = uid;
+          _fluxConversations = MessagerieService.getConversations(uid);
+        });
+      }
     });
     _initRating();
   }
@@ -502,15 +509,13 @@ class _AccueilScreenState extends State<AccueilScreen> {
 
   // ── Bouton messagerie avec badge ─────────────────────────────
   Widget _buildMessagesBtn() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _currentUid != null
-          ? MessagerieService.getConversations(_currentUid!)
-          : const Stream.empty(),
+    return StreamBuilder<List<Doc>>(
+      stream: _fluxConversations ?? const Stream.empty(),
       builder: (context, snap) {
         int unread = 0;
         if (snap.hasData && _currentUid != null) {
-          for (final doc in snap.data!.docs) {
-            final d = doc.data() as Map<String, dynamic>;
+          for (final doc in snap.data!) {
+            final d = doc.data();
             if ((d['unread_$_currentUid'] as int? ?? 0) > 0) unread++;
           }
         }

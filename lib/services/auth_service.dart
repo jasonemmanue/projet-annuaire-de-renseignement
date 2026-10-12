@@ -1,10 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'analytics_service.dart';
+import 'api_client.dart';
 
 // ============================================================
 // FICHIER : lib/services/auth_service.dart
@@ -26,7 +26,7 @@ class AuthService extends ChangeNotifier {
   static final AuthService instance = AuthService._internal();
 
   final _auth = FirebaseAuth.instance;
-  final _db   = FirebaseFirestore.instance;
+  final _api  = ApiClient.instance;
 
   UserModel? _currentUser;
   UserModel? get currentUser => _currentUser;
@@ -68,18 +68,20 @@ class AuthService extends ChangeNotifier {
   Future<void> init() async {
     await _loadBruteForceState();
     final firebaseUser = _auth.currentUser;
-    if (firebaseUser != null) {
-      await _loadUserFromFirestore(firebaseUser.uid);
+    // Une session anonyme (visiteur qui a payé une alerte urgence) n'est
+    // pas un compte : le visiteur reste visiteur dans l'app.
+    if (firebaseUser != null && !firebaseUser.isAnonymous) {
+      await _chargerProfil(firebaseUser.uid);
     }
   }
 
-  /// Recharge le profil de l'utilisateur connecté depuis Firestore.
+  /// Recharge le profil de l'utilisateur connecté depuis l'API.
   /// À appeler après une opération qui modifie le profil côté serveur
   /// (ex. activation Premium via webhook GeniusPay) pour rafraîchir l'UI.
   Future<void> refreshCurrentUser() async {
     final firebaseUser = _auth.currentUser;
-    if (firebaseUser != null) {
-      await _loadUserFromFirestore(firebaseUser.uid);
+    if (firebaseUser != null && !firebaseUser.isAnonymous) {
+      await _chargerProfil(firebaseUser.uid);
     }
   }
 
@@ -132,26 +134,24 @@ class AuthService extends ChangeNotifier {
 
   // ─── CHARGEMENT UTILISATEUR ────────────────────────────────────────────
 
-  Future<void> _loadUserFromFirestore(String uid) async {
-    final doc = await _db.collection('users').doc(uid).get();
-    if (doc.exists) {
-      _setCurrentUser(UserModel.fromMap(doc.data()!));
-    } else {
+  /// Profil depuis l'API (créé côté serveur au premier appel, rôle
+  /// prestataire par défaut, comme avant avec Firestore).
+  Future<void> _chargerProfil(String uid) async {
+    try {
+      final rep = await _api.get('/users/me') as Map<String, dynamic>;
+      _setCurrentUser(UserModel.fromMap(rep));
+    } catch (e) {
+      debugPrint('[Auth] profil API indisponible : $e');
       final firebaseUser = _auth.currentUser;
-      if (firebaseUser != null) {
-        final minimal = UserModel(
+      if (firebaseUser != null && _currentUser?.id != uid) {
+        _setCurrentUser(UserModel(
           id: uid,
           email: firebaseUser.email,
           nom: '',
           prenom: '',
           telephone: firebaseUser.phoneNumber ?? '',
           role: UserRole.prestataire,
-        );
-        await _db.collection('users').doc(uid).set({
-          ...minimal.toMap(),
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        _setCurrentUser(minimal);
+        ));
       }
     }
 
@@ -161,6 +161,16 @@ class AuthService extends ChangeNotifier {
         ? 'prestataire'
         : 'visiteur';
     await AnalyticsService.instance.setUserRole(role);
+  }
+
+  /// Enregistre le jeton de notifications push auprès de l'API.
+  Future<void> _enregistrerJetonFcm() async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) await _api.put('/users/me/fcm', {'token': token});
+    } catch (e) {
+      debugPrint('[Auth] jeton FCM non enregistré : $e');
+    }
   }
 
   // ─── CONNEXION (EMAIL / MOT DE PASSE) ─────────────────────────────────
@@ -179,16 +189,10 @@ class AuthService extends ChangeNotifier {
         email: email.trim(),
         password: password,
       );
-      await _loadUserFromFirestore(cred.user!.uid);
+      await _chargerProfil(cred.user!.uid);
 
       // FCM token
-      final token = await FirebaseMessaging.instance.getToken();
-      if (token != null) {
-        await _db.collection('users').doc(cred.user!.uid).set(
-          {'fcmToken': token},
-          SetOptions(merge: true),
-        );
-      }
+      await _enregistrerJetonFcm();
 
       // Vérification du rôle — prestataires ET admins peuvent se connecter
       if (_currentUser?.role != UserRole.prestataire &&
@@ -273,9 +277,13 @@ class AuthService extends ChangeNotifier {
         isVerifie: false,
       );
 
-      await _db.collection('users').doc(cred.user!.uid).set({
-        ...user.toMap(),
-        'createdAt': FieldValue.serverTimestamp(),
+      await _api.put('/users/me', {
+        'email': email.trim(),
+        'nom': nom,
+        'prenom': prenom,
+        'telephone': telephone,
+        if (photoUrl != null) 'photoUrl': photoUrl,
+        if (token != null) 'fcmToken': token,
       });
 
       // Envoi du lien de vérification d'email (non bloquant).
@@ -447,15 +455,9 @@ class AuthService extends ChangeNotifier {
     required bool countFailure,
   }) async {
     final cred = await _auth.signInWithCredential(credential);
-    await _loadUserFromFirestore(cred.user!.uid);
+    await _chargerProfil(cred.user!.uid);
 
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token != null) {
-      await _db.collection('users').doc(cred.user!.uid).set(
-        {'fcmToken': token},
-        SetOptions(merge: true),
-      );
-    }
+    await _enregistrerJetonFcm();
 
     if (_currentUser?.role != UserRole.prestataire &&
         _currentUser?.role != UserRole.admin) {
@@ -465,15 +467,8 @@ class AuthService extends ChangeNotifier {
       return AuthResult.wrongCredentials;
     }
 
-    // Marque le téléphone vérifié la première fois seulement
+    // Marque le téléphone vérifié (en mémoire : flux OTP hérité, non utilisé)
     if (_currentUser?.phoneVerified != true) {
-      await _db.collection('users').doc(cred.user!.uid).set(
-        {
-          'phoneVerified':   true,
-          'phoneVerifiedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
       _setCurrentUser(UserModel(
         id:              _currentUser!.id,
         email:           _currentUser!.email,
@@ -499,7 +494,7 @@ class AuthService extends ChangeNotifier {
 
   // ─── MISE À JOUR PROFIL ───────────────────────────────────────────────
 
-  /// Met à jour les champs de profil passés (merge Firestore + cache mémoire).
+  /// Met à jour les champs de profil passés (API + cache mémoire).
   Future<void> updateProfile({
     String? nom,
     String? prenom,
@@ -514,10 +509,7 @@ class AuthService extends ChangeNotifier {
     if (photoUrl != null) updates['photoUrl'] = photoUrl;
     if (updates.isEmpty)  return;
 
-    await _db.collection('users').doc(_currentUser!.id).set(
-      updates,
-      SetOptions(merge: true),
-    );
+    await _api.put('/users/me', updates);
     _setCurrentUser(UserModel(
       id:              _currentUser!.id,
       email:           email    ?? _currentUser!.email,
@@ -538,13 +530,10 @@ class AuthService extends ChangeNotifier {
 
   // ─── MISE À JOUR PHOTO ────────────────────────────────────────────────
 
-  /// Met à jour la photo de profil dans Firestore et en mémoire.
+  /// Met à jour la photo de profil dans l'API et en mémoire.
   Future<void> updatePhotoUrl(String photoUrl) async {
     if (_currentUser == null) return;
-    await _db.collection('users').doc(_currentUser!.id).set(
-      {'photoUrl': photoUrl},
-      SetOptions(merge: true),
-    );
+    await _api.put('/users/me', {'photoUrl': photoUrl});
     _setCurrentUser(UserModel(
       id:              _currentUser!.id,
       email:           _currentUser!.email,

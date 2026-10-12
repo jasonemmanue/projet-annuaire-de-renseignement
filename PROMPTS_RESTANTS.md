@@ -3,6 +3,22 @@
 Fonctionnalités à implémenter, dans l'ordre conseillé.
 Coche chaque bloc une fois la fonctionnalité validée (critères ✅ satisfaits).
 
+> **État au 12/10/2026 : tout le backlog est codé.** `flutter analyze` : 0 erreur.
+> Reste la **recette finale** (bas de page) sur un téléphone, avec l'API en ligne.
+> - #6, #7, #9 à #15, #17, #24, #1, #2 : déjà présents dans le code (vérifiés).
+> - #18 : `prestataire_onboarding_screen.dart` (4 pages, clé `presta_onboarding_seen`,
+>   « Revoir le tutoriel » dans le profil prestataire).
+> - #20 : `widgets/notifications_settings_widget.dart` partagé visiteur / prestataire ;
+>   catégories prestataire messages, modération, fin de sponsorisation (respectées
+>   aussi par l'API) ; aide avec section prestataire (`AideFaqScreen(prestataire: true)`).
+> - #21 : modération côté **API** (Firestore n'est plus utilisé) : champ
+>   `statutModeration`, route `POST /admin/logements/{id}/moderation`, file
+>   « À vérifier » dans l'admin Next.js et le panneau admin Flutter.
+>   « Vérifié par Horem+ » = champ existant `estVerifie`.
+> - #22 : badges « Vérifié » / « Premium » retirés des profils prestataires.
+> - #25 : `typeBienBase` (« autre ») enregistré avec le texte libre.
+> - #26 : bandeau de prudence en tête du détail + rappel sous « Contacter ».
+
 ---
 
 ## ✅ FONCTIONNALITÉS LIVRÉES (sessions précédentes)
@@ -29,7 +45,7 @@ Coche chaque bloc une fois la fonctionnalité validée (critères ✅ satisfaits
 
 ## PHASE D — Carte & Recherche
 
-### [ ] #6 — Carte réelle : filtrage rayon, cercle, libellés km, >10 km
+### [x] #6 — Carte réelle : filtrage rayon, cercle, libellés km, >10 km
 
 **Fichier :** `lib/screens/carte_screen.dart`
 
@@ -77,7 +93,7 @@ flutter analyze à la fin. Montre le build() complet modifié.
 
 ---
 
-### [ ] #7 — Barre de recherche réelle + autocomplétion + filtres fonctionnels
+### [x] #7 — Barre de recherche réelle + autocomplétion + filtres fonctionnels
 
 **Fichiers :** `lib/screens/accueil_screen.dart`, `lib/widgets/shared_widgets.dart`,
 `lib/screens/liste_logements_screen.dart`, `lib/models/models.dart`
@@ -119,7 +135,7 @@ Ajoute les clés i18n FR/EN nécessaires. flutter analyze à la fin.
 
 ## PHASE E — Profil visiteur & informations
 
-### [ ] #9 — Activation réelle des notifications par type
+### [x] #9 — Activation réelle des notifications par type
 
 **Fichiers :** `lib/screens/profil_screen.dart`, `lib/services/notification_service.dart`
 
@@ -151,7 +167,7 @@ flutter analyze à la fin.
 
 ---
 
-### [ ] #10 — Aide & FAQ réelle + contact email / WhatsApp
+### [x] #10 — Aide & FAQ réelle + contact email / WhatsApp
 
 **Fichiers :** `lib/screens/profil_screen.dart`, créer `lib/screens/aide_faq_screen.dart`
 
@@ -174,7 +190,7 @@ Textes FR + EN. flutter analyze à la fin.
 
 ---
 
-### [ ] #11 — CGU + Confidentialité + écran d'acceptation 1er lancement
+### [x] #11 — CGU + Confidentialité + écran d'acceptation 1er lancement
 
 **Fichiers :** `lib/screens/profil_screen.dart`, `lib/main.dart`,
 créer `lib/screens/legal/politique_screen.dart`, `lib/screens/legal/cgu_screen.dart`,
@@ -203,7 +219,7 @@ Tout en FR + EN. flutter analyze à la fin.
 
 ---
 
-### [ ] #12 — Widget « Noter l'application » périodique
+### [x] #12 — Widget « Noter l'application » périodique
 
 **Fichiers :** `lib/screens/accueil_screen.dart`, créer `lib/services/rating_service.dart`
 
@@ -236,7 +252,7 @@ Textes FR + EN. flutter analyze à la fin.
 
 ---
 
-### [ ] #13 — Accès à la page d'évaluation du store
+### [x] #13 — Accès à la page d'évaluation du store
 
 **Fichier :** `lib/screens/profil_screen.dart`
 
@@ -255,7 +271,7 @@ flutter analyze à la fin.
 
 ---
 
-### [ ] #15 — Retirer « Sans Compte » du badge Mode visiteur
+### [x] #15 — Retirer « Sans Compte » du badge Mode visiteur
 
 **Fichier :** `lib/screens/profil_screen.dart`
 
@@ -273,7 +289,7 @@ Mets à jour la clé i18n FR et EN. Aucune autre modification.
 
 ## PHASE F — Mise en avant & inscription
 
-### [ ] #14 — Version visible + bouton prestataire élargi + question
+### [x] #14 — Version visible + bouton prestataire élargi + question
 
 **Fichiers :** `lib/main.dart` (`_ProfilAvecLoginScreen`), `lib/screens/profil_screen.dart`
 
@@ -307,7 +323,7 @@ flutter analyze à la fin.
 
 ---
 
-### [ ] #17 — Case CGU cochable obligatoire à l'inscription
+### [x] #17 — Case CGU cochable obligatoire à l'inscription
 
 **Fichier :** `lib/screens/auth/login_screen.dart`
 
@@ -336,7 +352,7 @@ Textes FR + EN. flutter analyze à la fin.
 
 ## PHASE G — Onboarding & espace prestataire
 
-### [ ] #18 — Onboarding post-connexion prestataire → espace direct
+### [x] #18 — Onboarding post-connexion prestataire → espace direct
 
 **Fichiers :** `lib/screens/auth/login_screen.dart`, `lib/main.dart`,
 créer `lib/screens/prestataire_onboarding_screen.dart`
@@ -369,7 +385,7 @@ S'inspire du style de visitor_onboarding_screen.dart. FR + EN. flutter analyze.
 
 ---
 
-### [ ] #20 — Prestataire : accès Notifications + Aide
+### [x] #20 — Prestataire : accès Notifications + Aide
 
 **Fichiers :** `lib/screens/dashboard_prestataire_screen.dart`,
 `lib/screens/aide_faq_screen.dart` (créé en #10)
@@ -399,7 +415,7 @@ FR + EN. flutter analyze à la fin.
 
 ## PHASE H — Annonces & détail
 
-### [ ] #24 — Retirer les étoiles dans le formulaire nouvelle annonce
+### [x] #24 — Retirer les étoiles dans le formulaire nouvelle annonce
 
 **Fichier :** `lib/screens/dashboard_prestataire_screen.dart`
 
@@ -419,7 +435,7 @@ flutter analyze à la fin.
 
 ---
 
-### [ ] #25 — Type de bien « Autre (préciser) »
+### [x] #25 — Type de bien « Autre (préciser) »
 
 **Fichier :** `lib/screens/dashboard_prestataire_screen.dart`
 
@@ -443,7 +459,7 @@ flutter analyze à la fin.
 
 ---
 
-### [ ] #22 — Retirer badges « non vérifié » / « Premium » sur les prestataires
+### [x] #22 — Retirer badges « non vérifié » / « Premium » sur les prestataires
 
 **Fichiers :** `lib/screens/profil_screen.dart`, `lib/screens/detail_logement_screen.dart`,
 `lib/screens/dashboard_prestataire_screen.dart`
@@ -462,7 +478,7 @@ Liste-moi les emplacements modifiés avant de modifier. flutter analyze à la fi
 
 ---
 
-### [ ] #26 — Bannière d'avertissement si annonce non vérifiée
+### [x] #26 — Bannière d'avertissement si annonce non vérifiée
 
 **Fichier :** `lib/screens/detail_logement_screen.dart`
 
@@ -491,7 +507,7 @@ Clés i18n FR + EN. flutter analyze à la fin.
 
 ## PHASE I — Administration
 
-### [ ] #21 — Admin : validation des annonces + statut « Vérifié par Horem+ »
+### [x] #21 — Admin : validation des annonces + statut « Vérifié par Horem+ »
 
 **Fichiers :** `lib/models/models.dart`, `lib/services/logement_service.dart`,
 `lib/screens/admin_panel_screen.dart`, `lib/screens/dashboard_prestataire_screen.dart`,
@@ -516,9 +532,7 @@ Mets en place un cycle de modération.
 
 4) PANNEAU ADMIN (admin_panel_screen.dart) : file « À vérifier » listant
    les annonces 'en_attente'. Par annonce : « Valider », « Rejeter » (+ motif),
-   toggle « Vérifié par Horem+ ». Ces actions écrivent dans Firestore.
-
-5) Rappelle de mettre à jour firestore.rules.
+   toggle « Vérifié par Horem+ ». Ces actions passent par l'API Horem+.
 
 Procède en commits séparés (modèle → publication → visibilité → panneau admin).
 flutter analyze après chacun.
@@ -533,7 +547,7 @@ flutter analyze après chacun.
 
 ## PHASES B (Paiements) — À faire quand la base est stable
 
-### [ ] #1 — Choix opérateur Orange/MTN à la sponsorisation
+### [x] #1 — Choix opérateur Orange/MTN à la sponsorisation
 
 **Fichier :** `lib/screens/sponsorisation_screen.dart`
 
@@ -554,7 +568,7 @@ flutter analyze à la fin.
 
 ---
 
-### [ ] #2 — Retirer « GeniusPay » UI → « Paiement Mobile Money sécurisé »
+### [x] #2 — Retirer « GeniusPay » UI → « Paiement Mobile Money sécurisé »
 
 **Fichiers :** `lib/screens/sponsorisation_screen.dart`,
 `lib/screens/paiement_premium_screen.dart`, `lib/screens/urgence_screen.dart`

@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/api_client.dart';
 
 enum UserRole { client, prestataire, admin }
 
@@ -61,12 +61,8 @@ class UserModel {
       isVerifie:     map['isVerifie']     ?? false,
       phoneVerified: map['phoneVerified'] ?? false,
       compteGratuit: map['compteGratuit'] ?? false,
-      premiumExpiry: map['premiumExpiry'] is Timestamp
-          ? (map['premiumExpiry'] as Timestamp).toDate()
-          : null,
-      phoneVerifiedAt: map['phoneVerifiedAt'] is Timestamp
-          ? (map['phoneVerifiedAt'] as Timestamp).toDate()
-          : null,
+      premiumExpiry: apiDate(map['premiumExpiry']),
+      phoneVerifiedAt: apiDate(map['phoneVerifiedAt']),
     );
   }
 
@@ -89,9 +85,9 @@ class UserModel {
       'phoneVerified': phoneVerified,
       'compteGratuit': compteGratuit,
       if (premiumExpiry   != null)
-        'premiumExpiry':   Timestamp.fromDate(premiumExpiry!),
+        'premiumExpiry':   apiDateTexte(premiumExpiry),
       if (phoneVerifiedAt != null)
-        'phoneVerifiedAt': Timestamp.fromDate(phoneVerifiedAt!),
+        'phoneVerifiedAt': apiDateTexte(phoneVerifiedAt),
     };
   }
 }

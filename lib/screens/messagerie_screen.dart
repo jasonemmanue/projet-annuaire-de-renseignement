@@ -12,12 +12,9 @@
 // ============================================================
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:uuid/uuid.dart';
 import 'package:flutter/services.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:video_player/video_player.dart';
@@ -25,6 +22,7 @@ import 'dart:io';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/messagerie_service.dart';
 import '../services/analytics_service.dart';
@@ -32,16 +30,9 @@ import '../services/logement_service.dart';
 import '../utils/media_permission.dart';
 
 // ─── UID visiteur persisté ────────────────────────────────────
-Future<String> getOrCreateVisitorId() async {
-  final prefs = await SharedPreferences.getInstance();
-  const key = 'visiteur_uid';
-  String? uid = prefs.getString(key);
-  if (uid == null) {
-    uid = 'visiteur_${const Uuid().v4()}';
-    await prefs.setString(key, uid);
-  }
-  return uid;
-}
+// (même clé SharedPreferences qu'avant : les visiteurs gardent leurs
+// conversations ; l'identifiant est envoyé à l'API dans X-Visiteur-Id)
+Future<String> getOrCreateVisitorId() => ApiClient.instance.visiteurId();
 
 // ─── UID actif selon l'état de connexion ─────────────────────
 // Connecté   → Auth UID seul
@@ -82,6 +73,8 @@ class MessagerieScreen extends StatefulWidget {
 class _MessagerieScreenState extends State<MessagerieScreen> {
   String? _uid;
   bool _isPrestataire = false;
+  // Flux gardé dans l'état : un seul abonnement, pas un par reconstruction.
+  Stream<List<Doc>>? _fluxConversations;
 
   @override
   void initState() {
@@ -94,6 +87,7 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
       setState(() {
         _uid = widget.forceUid;
         _isPrestataire = AuthService.instance.isLoggedIn;
+        _fluxConversations = MessagerieService.getConversations(_uid!);
       });
       return;
     }
@@ -102,6 +96,7 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
       setState(() {
         _uid = uid;
         _isPrestataire = AuthService.instance.isLoggedIn;
+        _fluxConversations = MessagerieService.getConversations(uid);
       });
     }
   }
@@ -135,8 +130,8 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
       ),
       body: _uid == null
           ? const Center(child: CircularProgressIndicator())
-          : StreamBuilder<QuerySnapshot>(
-              stream: MessagerieService.getConversations(_uid!),
+          : StreamBuilder<List<Doc>>(
+              stream: _fluxConversations,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -158,11 +153,11 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                   );
                 }
 
-                final docs = List.from(snapshot.data?.docs ?? []);
+                final docs = List<Doc>.from(snapshot.data ?? const <Doc>[]);
                 final now = DateTime.now();
-                bool urgenceActive(dynamic doc) {
-                  final u = (doc.data() as Map)['urgenceUntil'] as Timestamp?;
-                  return u != null && u.toDate().isAfter(now);
+                bool urgenceActive(Doc doc) {
+                  final u = apiDate(doc.data()['urgenceUntil']);
+                  return u != null && u.isAfter(now);
                 }
 
                 docs.sort((a, b) {
@@ -172,10 +167,8 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                   if (ua && !ub) return -1;
                   if (!ua && ub) return 1;
                   // Sinon : date du dernier message décroissante.
-                  final tA =
-                      (a.data() as Map)['lastMessageTime'] as Timestamp?;
-                  final tB =
-                      (b.data() as Map)['lastMessageTime'] as Timestamp?;
+                  final tA = apiDate(a.data()['lastMessageTime']);
+                  final tB = apiDate(b.data()['lastMessageTime']);
                   if (tA == null && tB == null) return 0;
                   if (tA == null) return 1;
                   if (tB == null) return -1;
@@ -210,8 +203,7 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                   separatorBuilder: (_, __) =>
                       const Divider(height: 1, indent: 80),
                   itemBuilder: (_, i) {
-                    final data =
-                        docs[i].data() as Map<String, dynamic>;
+                    final data = docs[i].data();
                     final convId = docs[i].id;
                     final unread =
                         (data['unread_${_uid!}'] as int?) ?? 0;
@@ -241,10 +233,9 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                     final contactLabel =
                         data['contact_label'] as String?;
 
-                    final urgenceUntilTs =
-                        data['urgenceUntil'] as Timestamp?;
-                    final estUrgent = urgenceUntilTs != null &&
-                        urgenceUntilTs.toDate().isAfter(now);
+                    final urgenceUntil = apiDate(data['urgenceUntil']);
+                    final estUrgent = urgenceUntil != null &&
+                        urgenceUntil.isAfter(now);
 
                     return _ConversationTile(
                       conversationId: convId,
@@ -255,13 +246,11 @@ class _MessagerieScreenState extends State<MessagerieScreen> {
                       contactLabel: contactLabel,
                       isOtherVisitor: isOtherVisitor,
                       lastMessage: data['lastMessage'] ?? '',
-                      lastMessageTime:
-                          (data['lastMessageTime'] as Timestamp?)
-                              ?.toDate(),
+                      lastMessageTime: apiDate(data['lastMessageTime']),
                       nbNonLus: unread,
                       currentUid: _uid!,
                       isCurrentUserPrestataire: _isPrestataire,
-                      urgenceUntil: urgenceUntilTs?.toDate(),
+                      urgenceUntil: urgenceUntil,
                       estUrgent: estUrgent,
                       onTap: () async {
                         // UID unique selon mode courant
@@ -347,16 +336,13 @@ class _ConversationTile extends StatelessWidget {
       return _buildTile(context, 'Inconnu', null, hasUnread);
     }
 
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .doc(otherId)
-          .get(),
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: MessagerieService.profilPublic(otherId),
       builder: (context, snap) {
         String name = 'Prestataire';
         String? photoUrl;
-        if (snap.hasData && snap.data!.exists) {
-          final d = snap.data!.data() as Map<String, dynamic>;
+        if (snap.data != null) {
+          final d = snap.data!;
           final n =
               '${d['prenom'] ?? ''} ${d['nom'] ?? ''}'.trim();
           if (n.isNotEmpty) name = n;
@@ -539,6 +525,11 @@ class _ChatScreenState extends State<ChatScreen> {
   ReplyTo? _pendingReply;
   String? _editingMessageId;
   String? _editingOriginalText;
+  // Flux des messages gardé dans l'état (un seul abonnement).
+  late final Stream<List<Doc>> _fluxMessages =
+      MessagerieService.getMessages(widget.conversationId);
+  // Nombre de messages affichés (détection du tout premier message).
+  int _nbMessages = -1;
 
   @override
   void initState() {
@@ -620,13 +611,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // Seuls les visiteurs (non-prestataires) génèrent le lead.
     if (!widget.isCurrentUserPrestataire) {
       try {
-        final snapshot = await FirebaseFirestore.instance
-            .collection('conversations')
-            .doc(widget.conversationId)
-            .collection('messages')
-            .limit(1)
-            .get();
-        if (snapshot.docs.isEmpty) {
+        if (_nbMessages == 0) {
           // C'est bien le tout premier message : on logue generate_lead
           AnalyticsService.instance.logContactPrestataire(
             widget.logementId ?? widget.conversationId,
@@ -866,15 +851,12 @@ class _ChatScreenState extends State<ChatScreen> {
           logementTitre: widget.logementTitre,
           isVisitor: false);
     }
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.otherId)
-          .get(),
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: MessagerieService.profilPublic(widget.otherId),
       builder: (context, snap) {
         String name = 'Prestataire';
-        if (snap.hasData && snap.data!.exists) {
-          final d = snap.data!.data() as Map<String, dynamic>;
+        if (snap.data != null) {
+          final d = snap.data!;
           final n =
               '${d['prenom'] ?? ''} ${d['nom'] ?? ''}'.trim();
           if (n.isNotEmpty) name = n;
@@ -954,16 +936,16 @@ class _ChatScreenState extends State<ChatScreen> {
               ]),
             ),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: MessagerieService.getMessages(
-                  widget.conversationId),
+            child: StreamBuilder<List<Doc>>(
+              stream: _fluxMessages,
               builder: (context, snapshot) {
                 if (snapshot.connectionState ==
                     ConnectionState.waiting) {
                   return const Center(
                       child: CircularProgressIndicator());
                 }
-                final docs = snapshot.data?.docs ?? [];
+                final docs = snapshot.data ?? const <Doc>[];
+                _nbMessages = docs.length;
                 if (docs.isNotEmpty) _scrollToBottom();
 
                 return ListView.builder(
@@ -972,8 +954,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       horizontal: 12, vertical: 8),
                   itemCount: docs.length,
                   itemBuilder: (_, i) {
-                    final data =
-                        docs[i].data() as Map<String, dynamic>;
+                    final data = docs[i].data();
                     final senderId =
                         data['senderId'] as String? ?? '';
 
@@ -981,9 +962,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     final isMe = _isMe(senderId);
 
                     final timestamp =
-                        (data['timestamp'] as Timestamp?)
-                                ?.toDate() ??
-                            DateTime.now();
+                        apiDate(data['timestamp']) ?? DateTime.now();
                     final isRead =
                         data['isRead'] as bool? ?? false;
                     final type =
@@ -991,14 +970,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
                     final showDate = i == 0 ||
                         !_sameDay(
-                          ((docs[i - 1].data()
-                                      as Map<String, dynamic>)[
-                                  'timestamp'] is Timestamp)
-                              ? ((docs[i - 1].data()
-                                      as Map<String, dynamic>)[
-                                      'timestamp'] as Timestamp)
-                                  .toDate()
-                              : DateTime.now(),
+                          apiDate(docs[i - 1].data()['timestamp']) ??
+                              DateTime.now(),
                           timestamp,
                         );
 

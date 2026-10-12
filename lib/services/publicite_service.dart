@@ -1,7 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/models.dart';
+import 'api_client.dart';
 
 // ============================================================
 // SERVICE : PubliciteService
@@ -9,7 +9,7 @@ import '../models/models.dart';
 // ============================================================
 
 class PubliciteService {
-  static final _db = FirebaseFirestore.instance;
+  static final _api = ApiClient.instance;
 
   /// Tarif & durée d'une période de diffusion publicitaire.
   static const int montantParPeriode = 500; // XAF
@@ -64,38 +64,31 @@ class PubliciteService {
     String? logementTitre,
     String? logementPhoto,
   }) async {
-    final docRef = _db.collection('publicites').doc();
-    final pubId = docRef.id;
+    // Dossier Storage provisoire (l'identifiant définitif vient de l'API).
+    final dossier = 'p${DateTime.now().millisecondsSinceEpoch}_$prestataireId';
 
     final photoUrls = await Future.wait(
-      photos.map((img) => _uploadPhoto(pubId, img)),
+      photos.map((img) => _uploadPhoto(dossier, img)),
     );
 
     String? videoUrl;
     if (video != null) {
-      videoUrl = await _uploadVideo(pubId, video);
+      videoUrl = await _uploadVideo(dossier, video);
     }
 
-    final pub = Publicite(
-      id: pubId,
-      prestataireId: prestataireId,
-      prestataireNom: prestataireNom,
-      prestatairePhone: prestatairePhone,
-      prestatairePhoto: prestatairePhoto,
-      titre: titre,
-      description: description,
-      photos: photoUrls,
-      videoUrl: videoUrl,
-      dateCreation: DateTime.now(),
-      actif: false,
-      paymentPending: true,
-      logementId: logementId,
-      logementTitre: logementTitre,
-      logementPhoto: logementPhoto,
-    );
-
-    await docRef.set(pub.toMap());
-    return pubId;
+    final rep = await _api.post('/publicites', {
+      'prestataireNom': prestataireNom,
+      'prestatairePhone': prestatairePhone,
+      if (prestatairePhoto != null) 'prestatairePhoto': prestatairePhoto,
+      'titre': titre,
+      'description': description,
+      'photos': photoUrls,
+      if (videoUrl != null) 'videoUrl': videoUrl,
+      if (logementId != null) 'logementId': logementId,
+      if (logementTitre != null) 'logementTitre': logementTitre,
+      if (logementPhoto != null) 'logementPhoto': logementPhoto,
+    }) as Map<String, dynamic>;
+    return rep['id'] as String;
   }
 
   // ── Mise à jour (gratuite, tant que la pub courante est active) ────
@@ -108,62 +101,41 @@ class PubliciteService {
     if (titre != null) updates['titre'] = titre;
     if (description != null) updates['description'] = description;
     if (updates.isEmpty) return;
-    await _db.collection('publicites').doc(pubId).update(updates);
+    await _api.patch('/publicites/$pubId', updates);
   }
 
   // ── Lecture ───────────────────────────────────────────────
 
-  /// Publicités diffusables côté visiteur : actif + non expirées.
-  /// Note : le filtrage `expiresAt > now` est fait côté client pour éviter
-  /// le besoin d'un index composite (actif + expiresAt).
-  static Stream<List<Publicite>> watchPublicitesDiffusables() {
-    return _db
-        .collection('publicites')
-        .where('actif', isEqualTo: true)
-        .orderBy('dateCreation', descending: true)
-        .snapshots()
-        .map((snap) {
-      final now = DateTime.now();
-      return snap.docs
-          .map((d) => Publicite.fromMap(d.id, d.data()))
-          .where((p) =>
-              !p.paymentPending &&
-              p.expiresAt != null &&
-              p.expiresAt!.isAfter(now))
-          .toList();
-    });
-  }
+  /// Publicités diffusables côté visiteur : actives, payées, non expirées.
+  static Stream<List<Publicite>> watchPublicitesDiffusables() => _api.sonder(
+        '/publicites/diffusables',
+        (rep) => ApiClient.items(rep)
+            .map((m) => Publicite.fromMap(m['id'] as String, m))
+            .where((p) => p.estDiffusable)
+            .toList(),
+        intervalle: const Duration(seconds: 30),
+      );
 
-  /// Toutes les publicités actives (legacy, conservée pour compat).
-  static Stream<QuerySnapshot> getPublicitesActives() =>
-      _db
-          .collection('publicites')
-          .where('actif', isEqualTo: true)
-          .orderBy('dateCreation', descending: true)
-          .snapshots();
+  /// Publicités du prestataire connecté (son dashboard).
+  static Stream<List<Publicite>> getPublicitesPrestataire(String uid) =>
+      _api.sonder(
+        '/publicites/mes',
+        (rep) => ApiClient.items(rep)
+            .map((m) => Publicite.fromMap(m['id'] as String, m))
+            .toList(),
+      );
 
-  /// Publicités d'un prestataire spécifique (pour son dashboard)
-  static Stream<QuerySnapshot> getPublicitesPrestataire(String uid) =>
-      _db
-          .collection('publicites')
-          .where('prestataireId', isEqualTo: uid)
-          .snapshots();
+  /// Compte offert : diffusion de 4 jours sans paiement.
+  static Future<void> activerGratuit(String id) =>
+      _api.post('/publicites/$id/activer-gratuit');
 
   // ── Admin ─────────────────────────────────────────────────
 
-  /// Active ou désactive une publicité (admin)
-  static Future<void> setActif(String id, bool actif) async =>
-      _db.collection('publicites').doc(id).update({'actif': actif});
+  /// Active ou désactive une publicité (admin).
+  static Future<void> setActif(String id, bool actif) =>
+      _api.patch('/admin/publicites/$id', {'actif': actif});
 
-  /// Supprime une publicité (prestataire propriétaire ou admin).
+  /// Supprime une publicité et ses médias (propriétaire ou admin).
   /// Aucun remboursement même si la pub était encore active.
-  static Future<void> supprimer(String id) async =>
-      _db.collection('publicites').doc(id).delete();
-
-  // Toutes les publicités (admin uniquement)
-  static Stream<QuerySnapshot> getToutesPublicites() =>
-      _db
-          .collection('publicites')
-          .orderBy('dateCreation', descending: true)
-          .snapshots();
+  static Future<void> supprimer(String id) => _api.delete('/publicites/$id');
 }

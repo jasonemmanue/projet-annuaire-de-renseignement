@@ -8,8 +8,60 @@
 
 **App :** horem_plus (titre affiché « Horem+ »)  
 **Domaine :** Petites annonces immobilières + services au Cameroun  
-**Stack :** Flutter + Firebase (Auth, Firestore, Storage, Messaging, Analytics) + Google Maps + Provider  
-**Package ID Android :** `com.example.horemplus`
+**Stack :** Flutter + **API Horem+** (`../horem-api`, FastAPI/PostgreSQL/Redis sur Railway) + Firebase (Auth, Storage, Messaging, Analytics uniquement) + Google Maps + Provider  
+**Package ID Android :** `com.horemplus.app`
+
+---
+
+## Backend : API Horem+ (depuis le 11/10/2026)
+
+- **Firestore et les Cloud Functions ne sont plus utilisés** (`cloud_firestore`
+  retiré du pubspec). Les sections plus bas qui parlent de collections
+  Firestore ou d'URL `…run.app` décrivent l'ANCIEN fonctionnement : les mêmes
+  règles sont désormais dans `horem-api` (voir son CLAUDE.md).
+- Client : `lib/services/api_client.dart` (`ApiClient.instance`, URL
+  `kApiBaseUrl`, surchargeable par `--dart-define=API_BASE_URL=…`).
+  Jeton Firebase envoyé automatiquement ; visiteur = `X-Visiteur-Id`.
+- « Temps réel » : `ApiClient.sonder()` (polling versionné partagé, une seule
+  requête par ressource quel que soit le nombre d'écrans). Les écrans lisent
+  des `Doc` (`doc.id`, `doc.data()`), dates via `apiDate()`.
+- Fichiers : toujours Firebase Storage (envoi direct par l'app).
+- Montants et état des annonces décidés par le serveur (compte offert :
+  `LogementService.activerGratuit`, `PubliciteService.activerGratuit`).
+- Paiements de test : variable `PAIEMENTS_SIMULES` de l'API (plus de
+  simulation côté app).
+
+### Modération des annonces (depuis le 12/10/2026)
+
+- Toute nouvelle annonce part en `statutModeration = 'en_attente'` (sauf
+  admin et comptes offerts : `'valide'` d'office). Les visiteurs ne voient
+  que les annonces validées ; les annonces antérieures (champ absent) sont
+  traitées comme validées.
+- L'admin valide ou refuse (motif obligatoire) via
+  `POST /admin/logements/{id}/moderation` : admin Next.js (filtre
+  « À vérifier ») et `admin_panel_screen.dart` (onglet Annonces, file
+  « À vérifier » par défaut). Le prestataire reçoit un push `type: moderation`.
+- Le prestataire voit l'état sur la carte de chaque annonce (en attente,
+  refusée + motif). Une annonce refusée repart en attente dès qu'il la modifie.
+- La diffusion « Nouvelle annonce » et les alertes urgence partent à la
+  validation, pas avant.
+- « Vérifié par Horem+ » reste le champ `estVerifie` (badge d'annonce,
+  distinct de la validation).
+
+### Notifications par catégorie
+
+`widgets/notifications_settings_widget.dart` (visiteur : annonces, messages,
+prix ; prestataire : messages, modération `notif_presta_moderation`, fin de
+sponsorisation `notif_presta_sponsor`). Préférences en SharedPreferences +
+synchronisées dans l'API (`notifMessages`, `notifModeration`,
+`notifFinSponsor`) : le serveur n'envoie pas les push désactivés.
+`NotificationService.categoriePourType()` mappe le `type` d'un push.
+
+### Onboarding prestataire
+
+`prestataire_onboarding_screen.dart` : 4 pages, ouvert une fois après la
+1re connexion prestataire (`_onLoginSuccess` dans `main.dart`, clé
+`presta_onboarding_seen`), re-jouable depuis le profil prestataire.
 
 ---
 
@@ -45,6 +97,7 @@
 `splash`, `accueil`, `carte`, `favoris`, `messagerie`, `profil`, `detail_logement`,
 `dashboard_prestataire`, `admin_panel`, `urgence`, `sponsorisation`,
 `paiement_publication_screen`, `publier_publicite_screen`, `aide_faq_screen`,
+`prestataire_onboarding_screen`,
 `visitor_onboarding`, `auth/login_screen`, `auth/diag_otp_screen`,
 `screens/legal/` (cgu_screen, politique_screen, consentement_screen)
 

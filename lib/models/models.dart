@@ -2,7 +2,7 @@
 // FICHIER : lib/models/models.dart
 // Modèle principal - Bien immobilier
 // ============================================================
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/api_client.dart';
 
 class Logement {
   final String id;
@@ -39,10 +39,20 @@ class Logement {
   final List<String> joursGarde;  // Jours de garde/ouverture ex: ['Lun','Mer','Ven']
   final DateTime? visibiliteExpiry; // Fin de la visibilité annuelle (entreprise/restaurant/école)
   final DateTime? publicationExpiry; // Fin de la visibilité 1 mois après publication (immobilier)
+  /// Modération admin : 'en_attente' | 'valide' | 'rejete'. Absent = 'valide'
+  /// (annonces antérieures à la modération).
+  final String statutModeration;
+  final String? motifRejet;
+  /// 'autre' quand typeBien est un texte libre saisi par le prestataire.
+  final String? typeBienBase;
 
-  /// Annonce visible côté visiteur : disponible et paiement validé.
+  bool get estEnAttenteModeration => statutModeration == 'en_attente';
+  bool get estRejetee => statutModeration == 'rejete';
+
+  /// Annonce visible côté visiteur : validée, disponible et paiement validé.
   /// Les annonces expirées restent visibles mais avec une priorité réduite.
-  bool get estVisiblePourVisiteur => disponible && visibleAdmin && !paymentPending;
+  bool get estVisiblePourVisiteur =>
+      statutModeration == 'valide' && disponible && visibleAdmin && !paymentPending;
 
   /// Publication standard encore dans sa période d'1 mois.
   bool get estPublicationActive {
@@ -96,6 +106,9 @@ class Logement {
     this.joursGarde = const [],
     this.visibiliteExpiry,
     this.publicationExpiry,
+    this.statutModeration = 'valide',
+    this.motifRejet,
+    this.typeBienBase,
   });
 
   bool get estOuvertMaintenant {
@@ -131,7 +144,7 @@ class Logement {
       typeLocation == 'location' ? '$prixFormate/mois' : prixFormate;
 
 
-  // ── Firestore ────────────────────────────────────────────
+  // ── API (mêmes clés que les anciens documents Firestore) ────────────────────────────────────────────
   factory Logement.fromMap(String docId, Map<String, dynamic> map) => Logement(
     id: docId,
     titre: map['titre'] ?? '',
@@ -154,9 +167,7 @@ class Logement {
     prestatireNom: map['prestatireNom'] ?? '',
     prestatirePhone: map['prestatirePhone'] ?? '',
     prestatirePhoto: map['prestatirePhoto'],
-    datePublication: map['createdAt'] != null
-        ? (map['createdAt'] as dynamic).toDate()
-        : DateTime.now(),
+    datePublication: apiDate(map['createdAt']) ?? DateTime.now(),
     nbVues: (map['vues'] as num?)?.toInt() ?? 0,
     disponible: map['disponible'] ?? true,
     // Défaut : pharmacies (gratuites) attendent l'approbation admin, les autres
@@ -165,18 +176,15 @@ class Logement {
         ((map['typeBien'] ?? '') != 'Pharmacie'),
     paymentPending: map['paymentPending'] ?? false,
     documentPdf: map['documentPdf'],
-    sponsoredUntil: map['sponsoredUntil'] is Timestamp
-        ? (map['sponsoredUntil'] as Timestamp).toDate()
-        : null,
+    sponsoredUntil: apiDate(map['sponsoredUntil']),
     heureOuverture: map['heureOuverture'],
     heureFermeture: map['heureFermeture'],
     joursGarde: List<String>.from(map['joursGarde'] ?? []),
-    visibiliteExpiry: map['visibiliteExpiry'] is Timestamp
-        ? (map['visibiliteExpiry'] as Timestamp).toDate()
-        : null,
-    publicationExpiry: map['publicationExpiry'] is Timestamp
-        ? (map['publicationExpiry'] as Timestamp).toDate()
-        : null,
+    visibiliteExpiry: apiDate(map['visibiliteExpiry']),
+    publicationExpiry: apiDate(map['publicationExpiry']),
+    statutModeration: map['statutModeration'] ?? 'valide',
+    motifRejet: map['motifRejet'],
+    typeBienBase: map['typeBienBase'],
   );
 
   factory Logement.fromJson(Map<String, dynamic> json) => Logement(
@@ -218,6 +226,9 @@ class Logement {
     publicationExpiry: json['publicationExpiry'] != null
         ? DateTime.tryParse(json['publicationExpiry'])
         : null,
+    statutModeration: json['statutModeration'] ?? 'valide',
+    motifRejet: json['motifRejet'],
+    typeBienBase: json['typeBienBase'],
   );
 
   Map<String, dynamic> toJson() => {
@@ -253,6 +264,9 @@ class Logement {
     'joursGarde': joursGarde,
     'visibiliteExpiry': visibiliteExpiry?.toIso8601String(),
     'publicationExpiry': publicationExpiry?.toIso8601String(),
+    'statutModeration': statutModeration,
+    'motifRejet': motifRejet,
+    'typeBienBase': typeBienBase,
   };
 }
 
@@ -301,12 +315,8 @@ class AlerteUrgence {
         prixMax: (map['prixMax'] as num?)?.toDouble() ?? 0,
         actif: map['actif'] ?? false,
         paymentPending: map['paymentPending'] ?? true,
-        expiresAt: map['expiresAt'] is Timestamp
-            ? (map['expiresAt'] as Timestamp).toDate()
-            : null,
-        createdAt: map['createdAt'] is Timestamp
-            ? (map['createdAt'] as Timestamp).toDate()
-            : DateTime.now(),
+        expiresAt: apiDate(map['expiresAt']),
+        createdAt: apiDate(map['createdAt']) ?? DateTime.now(),
       );
 
   Map<String, dynamic> toMap() => {
@@ -317,8 +327,8 @@ class AlerteUrgence {
         'prixMax': prixMax,
         'actif': actif,
         'paymentPending': paymentPending,
-        'expiresAt': expiresAt != null ? Timestamp.fromDate(expiresAt!) : null,
-        'createdAt': Timestamp.fromDate(createdAt),
+        'expiresAt': apiDateTexte(expiresAt),
+        'createdAt': apiDateTexte(createdAt),
       };
 }
 
@@ -610,13 +620,9 @@ class Publicite {
         description: map['description'] ?? '',
         photos: List<String>.from(map['photos'] ?? []),
         videoUrl: map['videoUrl'],
-        dateCreation: map['dateCreation'] is Timestamp
-            ? (map['dateCreation'] as Timestamp).toDate()
-            : DateTime.now(),
+        dateCreation: apiDate(map['dateCreation']) ?? DateTime.now(),
         actif: map['actif'] ?? true,
-        expiresAt: map['expiresAt'] is Timestamp
-            ? (map['expiresAt'] as Timestamp).toDate()
-            : null,
+        expiresAt: apiDate(map['expiresAt']),
         transactionRef: map['transactionRef'] as String?,
         paymentPending: map['paymentPending'] ?? false,
         logementId: map['logementId'] as String?,
@@ -633,9 +639,9 @@ class Publicite {
         'description': description,
         'photos': photos,
         if (videoUrl != null) 'videoUrl': videoUrl,
-        'dateCreation': Timestamp.fromDate(dateCreation),
+        'dateCreation': apiDateTexte(dateCreation),
         'actif': actif,
-        if (expiresAt != null) 'expiresAt': Timestamp.fromDate(expiresAt!),
+        if (expiresAt != null) 'expiresAt': apiDateTexte(expiresAt),
         if (transactionRef != null) 'transactionRef': transactionRef,
         'paymentPending': paymentPending,
         if (logementId != null) 'logementId': logementId,
@@ -680,7 +686,7 @@ class SignalementModel {
           'motifLibre': motifLibre,
         'signalePar': signalePar,
         'signaleParType': signaleParType,
-        'dateSignalement': Timestamp.fromDate(dateSignalement),
+        'dateSignalement': apiDateTexte(dateSignalement),
         'statut': statut,
       };
 
@@ -694,9 +700,7 @@ class SignalementModel {
         motifLibre: map['motifLibre'],
         signalePar: map['signalePar'] ?? '',
         signaleParType: map['signaleParType'] ?? 'visiteur',
-        dateSignalement: map['dateSignalement'] != null
-            ? (map['dateSignalement'] as Timestamp).toDate()
-            : DateTime.now(),
+        dateSignalement: apiDate(map['dateSignalement']) ?? DateTime.now(),
         statut: map['statut'] ?? 'en_attente',
       );
 

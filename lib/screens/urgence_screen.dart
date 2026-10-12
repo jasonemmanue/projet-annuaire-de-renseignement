@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../models/models.dart';
 import '../services/activation_email_service.dart';
-import '../services/auth_service.dart';
+import '../services/api_client.dart';
 import '../services/paiement_service.dart';
 import '../widgets/operateur_selector.dart';
 import '../widgets/silent_payment_webview.dart';
@@ -48,9 +48,9 @@ class UrgenceScreen extends StatefulWidget {
 
 class _UrgenceScreenState extends State<UrgenceScreen> {
   late AppLocalizations _loc;
-  final _db = FirebaseFirestore.instance;
-
-  String? get _uid => AuthService.instance.currentUser?.id;
+  final _api = ApiClient.instance;
+  // Flux gardé dans l'état : un seul abonnement, pas un par reconstruction.
+  late Stream<List<AlerteUrgence>> _fluxAlertes = _watchAlertes();
 
   @override
   void didChangeDependencies() {
@@ -58,17 +58,16 @@ class _UrgenceScreenState extends State<UrgenceScreen> {
     _loc = AppLocalizations.of(context);
   }
 
+  /// Alertes de la session Firebase courante (compte ou session anonyme
+  /// du visiteur), interrogation versionnée.
   Stream<List<AlerteUrgence>> _watchAlertes() {
-    final uid = _uid;
-    if (uid == null) return Stream.value([]);
-    return _db
-        .collection('urgences')
-        .where('uid', isEqualTo: uid)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => AlerteUrgence.fromMap(d.id, d.data()))
-            .toList());
+    if (FirebaseAuth.instance.currentUser == null) return Stream.value([]);
+    return _api.sonder(
+      '/urgences',
+      (rep) => ApiClient.items(rep)
+          .map((m) => AlerteUrgence.fromMap(m['id'] as String, m))
+          .toList(),
+    );
   }
 
   Future<void> _supprimerAlerte(AlerteUrgence alerte) async {
@@ -90,7 +89,8 @@ class _UrgenceScreenState extends State<UrgenceScreen> {
       ),
     );
     if (confirm != true) return;
-    await _db.collection('urgences').doc(alerte.id).delete();
+    await _api.delete('/urgences/${alerte.id}');
+    if (mounted) setState(() => _fluxAlertes = _watchAlertes());
   }
 
   void _ouvrirFormulaire({AlerteUrgence? existante}) {
@@ -99,7 +99,10 @@ class _UrgenceScreenState extends State<UrgenceScreen> {
       MaterialPageRoute(
         builder: (_) => _FormulaireAlerteScreen(alerte: existante),
       ),
-    );
+    ).then((_) {
+      // Une session anonyme a pu être ouverte par le formulaire.
+      if (mounted) setState(() => _fluxAlertes = _watchAlertes());
+    });
   }
 
   @override
@@ -112,7 +115,7 @@ class _UrgenceScreenState extends State<UrgenceScreen> {
       ),
       body: sw.SkylineBackground(
         child: StreamBuilder<List<AlerteUrgence>>(
-          stream: _watchAlertes(),
+          stream: _fluxAlertes,
           builder: (context, snap) {
             final alertes = snap.data ?? [];
             return CustomScrollView(
@@ -409,7 +412,7 @@ class _FormulaireAlerteScreen extends StatefulWidget {
 
 class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
   final _service = PaiementService.instance;
-  final _db = FirebaseFirestore.instance;
+  final _api = ApiClient.instance;
   late AppLocalizations _loc;
 
   _Etape _etape = _Etape.formulaire;
@@ -514,8 +517,9 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
       _loading = true;
     });
 
-    final uid = AuthService.instance.currentUser?.id;
-    if (uid == null) {
+    // Visiteur sans compte : session Firebase anonyme (identifiant stable).
+    final user = await _service.assurerAuth();
+    if (user == null) {
       setState(() {
         _loading = false;
         _erreurForm = 'Non connecté';
@@ -523,22 +527,26 @@ class _FormulaireAlerteScreenState extends State<_FormulaireAlerteScreen> {
       return;
     }
 
-    // Créer ou mettre à jour le document alerte
-    final docRef = _alerteDocId != null
-        ? _db.collection('urgences').doc(_alerteDocId)
-        : _db.collection('urgences').doc();
-    _alerteDocId = docRef.id;
-
-    await docRef.set({
-      'uid': uid,
+    // Créer ou mettre à jour l'alerte (activée par le paiement).
+    final corps = {
       'typeBien': _typeBienEffectif,
       'description': _descCtrl.text.trim(),
       'prixMin': pMin,
       'prixMax': pMax,
-      'actif': false,
-      'paymentPending': true,
-      'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    };
+    try {
+      final rep = _alerteDocId != null
+          ? await _api.patch('/urgences/$_alerteDocId', corps)
+          : await _api.post('/urgences', corps);
+      _alerteDocId = (rep as Map<String, dynamic>)['id'] as String;
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _erreurForm = e.message;
+      });
+      return;
+    }
 
     // iOS : bascule vers activation par email (App Store 3.1.1)
     if (isExternalActivationRequired) {
