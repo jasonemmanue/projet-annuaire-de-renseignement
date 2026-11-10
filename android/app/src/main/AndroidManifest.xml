@@ -23,7 +23,9 @@
         android:label="Horem+"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="false"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
 
         <!-- Clé API Google Maps -->
         <meta-data

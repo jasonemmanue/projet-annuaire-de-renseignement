@@ -2,25 +2,18 @@ name: Android Build (.aab + .apk)
 
 # Build l'App Bundle (.aab) et l'APK de release dans le cloud GitHub.
 # Déclenchement :
-#   - manuellement (onglet Actions → « Android Build » → Run workflow)
-#   - à chaque push sur la branche d'auth email/mot de passe
+#   - manuellement uniquement (onglet Actions → « Android Build » → Run workflow)
 #
 # Les artefacts (app-release.aab / app-release.apk) sont téléchargeables
 # depuis la page du run (section « Artifacts »). On ne commite AUCUN binaire
 # dans le dépôt : GitHub héberge les artefacts de build.
 #
-# ⚠️ Signature : la config actuelle signe les release avec la clé DEBUG
-# (android/app/build.gradle.kts → signingConfigs.getByName("debug")).
-# → l'.aab produit est parfait pour TESTER (install direct, partage interne)
-#   mais PAS pour un upload Google Play Store (qui exige une clé de release).
-# Pour un build Play Store, ajoutez un keystore + secrets et une vraie
-# signingConfig release (voir la doc en bas de ce fichier).
+# Signature : la clé de release n'est pas dans le dépôt. Ici, GitHub signe avec
+# la clé de débogage : l'.aab sert à vérifier la compilation et à tester, pas à
+# publier sur Google Play.
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - claude/email-password-auth-1ayjmx
 
 jobs:
   build-android:
@@ -43,7 +36,7 @@ jobs:
         with:
           # pubspec.lock exige Flutter >=3.38.4 / Dart >=3.10.3
           # (dépendance flutter_chat_ui). Ne pas redescendre sous 3.38.x.
-          flutter-version: '3.38.x'
+          flutter-version: '3.38.4'
           channel: stable
           cache: true
 
@@ -59,10 +52,10 @@ jobs:
         run: flutter analyze lib
 
       - name: Build App Bundle (release)
-        run: flutter build appbundle --release
+        run: flutter build appbundle --release --obfuscate --split-debug-info=build/symboles
 
       - name: Build APK (release)
-        run: flutter build apk --release
+        run: flutter build apk --release --obfuscate --split-debug-info=build/symboles
 
       - name: Upload App Bundle (.aab)
         if: success()
@@ -87,7 +80,6 @@ jobs:
 #        -keysize 2048 -validity 10000 -alias upload
 #   2. Ajouter les secrets GitHub (Settings → Secrets → Actions) :
 #      KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_PASSWORD, KEY_ALIAS
-#   3. Décoder le keystore + générer android/key.properties avant le build,
-#      et remplacer signingConfigs.getByName("debug") par une signingConfig
-#      release dans android/app/build.gradle.kts.
+#   3. Décoder le keystore + générer android/key.properties avant le build :
+#      android/app/build.gradle.kts l'utilise dès qu'il existe.
 # ──────────────────────────────────────────────────────────────────────────

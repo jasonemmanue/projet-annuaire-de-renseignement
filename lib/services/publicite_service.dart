@@ -1,4 +1,3 @@
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/models.dart';
 import 'api_client.dart';
@@ -18,31 +17,11 @@ class PubliciteService {
 
   // ── Upload médias ─────────────────────────────────────────
 
-  static FirebaseStorage get _storageRef => FirebaseStorage.instance;
+  static Future<String> _uploadPhoto(String pubId, XFile image) =>
+      _api.envoyerFichier('publicites', image.path, nom: 'photo.jpg');
 
-  static Future<String> _uploadPhoto(String pubId, XFile image) async {
-    final bytes = await image.readAsBytes();
-    final ref = _storageRef
-        .ref()
-        .child('publicites/$pubId/${DateTime.now().millisecondsSinceEpoch}.jpg');
-    final task = await ref.putData(
-      bytes,
-      SettableMetadata(contentType: 'image/jpeg'),
-    );
-    return task.ref.getDownloadURL();
-  }
-
-  static Future<String> _uploadVideo(String pubId, XFile video) async {
-    final bytes = await video.readAsBytes();
-    final ref = _storageRef
-        .ref()
-        .child('publicites/$pubId/video_${DateTime.now().millisecondsSinceEpoch}.mp4');
-    final task = await ref.putData(
-      bytes,
-      SettableMetadata(contentType: 'video/mp4'),
-    );
-    return task.ref.getDownloadURL();
-  }
+  static Future<String> _uploadVideo(String pubId, XFile video) =>
+      _api.envoyerFichier('publicites', video.path, nom: 'video.mp4');
 
   // ── Création brouillon (avant paiement) ─────────────────────
   //

@@ -1,93 +1,164 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  Horem+ : configuration Codemagic (calquée sur Prepaxia)
+#
+#  Les builds se lancent À LA MAIN dans Codemagic (Start new build) : aucun
+#  push ne démarre un build. Choisir la branche ios/testflight, puis :
+#
+#    Workflow           Compte Apple ?   Résultat
+#    ─────────────────  ───────────────  ─────────────────────────────
+#    ios-build-check    non              compile ? (non signé)
+#    ios-simulateur     non              app lancée + captures
+#    ios-testflight     OUI              IPA envoyée à TestFlight
+#    android-release    non              AAB (aussi sur tag v*)
+#
+#  Avant le premier build TestFlight :
+#    1. App ID `com.horemplus.app` et app créés dans App Store Connect ;
+#    2. Codemagic : clé App Store Connect nommée exactement « Horem ASC »,
+#       certificat Apple Distribution et profil App Store du bundle ;
+#    3. Firebase : app iOS `com.horemplus.app` et clé APNs (.p8) pour les push.
+# ═══════════════════════════════════════════════════════════════════════════
+
+definitions:
+  # Même Flutter qu'en local : pubspec.lock exige au moins 3.38.4.
+  environnement_ios: &environnement_ios
+    flutter: 3.38.4
+    xcode: latest
+    cocoapods: default
+    vars: &vars_communes
+      BUNDLE_ID: com.horemplus.app
+
+  scripts:
+    - &pub_get
+      name: Dépendances Flutter
+      script: flutter pub get
+    - &analyse
+      name: Analyse statique
+      # Seules les vraies erreurs arrêtent le build, pas les remarques de style.
+      script: flutter analyze lib --no-fatal-infos --no-fatal-warnings
+    - &pods
+      name: CocoaPods
+      script: |
+        cd ios
+        pod install --repo-update
+
 workflows:
 
-  # ── Build iOS sans signing (vérification que ça compile) ──────
   ios-build-check:
-    name: iOS Build Check
-    max_build_duration: 30
-    instance_type: mac_mini_m2
-    environment:
-      flutter: 3.27.4
-      xcode: latest
-      cocoapods: default
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: main
-          include: true
-    scripts:
-      - name: Get dependencies
-        script: flutter pub get
-      - name: Analyze
-        script: flutter analyze lib
-      - name: Install CocoaPods
-        script: cd ios && pod install
-      - name: Build iOS (no codesign)
-        script: flutter build ios --release --no-codesign
-    artifacts:
-      - build/ios/iphoneos/Runner.app
-
-  # ── Build + deploy sur TestFlight (pour installer sur iPad) ──
-  ios-testflight:
-    name: iOS TestFlight Deploy
+    name: iOS · Build check
     max_build_duration: 45
     instance_type: mac_mini_m2
     environment:
-      flutter: 3.27.4
+      <<: *environnement_ios
+    scripts:
+      - *pub_get
+      - *analyse
+      - *pods
+      - name: Build iOS (sans signature)
+        script: flutter build ios --release --no-codesign
+    artifacts:
+      - build/ios/iphoneos/Runner.app
+      - /tmp/xcodebuild_logs/*.log
+
+  # Un simulateur n'exécute que des builds de débogage.
+  ios-simulateur:
+    name: iOS · Simulateur
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      <<: *environnement_ios
+    scripts:
+      - *pub_get
+      - *pods
+      - name: Build pour simulateur
+        script: flutter build ios --simulator --debug
+      - name: Lancement dans un iPhone simulé
+        script: |
+          set -e
+          mkdir -p captures
+          UDID=$(xcrun simctl list devices available -j \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; l=[x for k in sorted(d) if "iOS" in k for x in d[k] if x["name"].startswith("iPhone")]; print(l[-1]["udid"])')
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" build/ios/iphonesimulator/Runner.app
+          xcrun simctl launch "$UDID" "$BUNDLE_ID"
+          sleep 15
+          xcrun simctl io "$UDID" screenshot captures/01_ouverture.png
+          sleep 25
+          xcrun simctl io "$UDID" screenshot captures/02_apres_40s.png
+          if ! xcrun simctl spawn "$UDID" launchctl list | grep -q "$BUNDLE_ID"; then
+            echo "L'application s'est arrêtée pendant le démarrage."
+            xcrun simctl spawn "$UDID" log show --last 2m --predicate 'process == "Runner"' | tail -200 || true
+            exit 1
+          fi
+      - name: Archive pour l'aperçu
+        script: |
+          cd build/ios/iphonesimulator
+          zip -qr ../../../Horem-simulateur.zip Runner.app
+    artifacts:
+      - Horem-simulateur.zip
+      - captures/*.png
+      - /tmp/xcodebuild_logs/*.log
+
+  ios-testflight:
+    name: iOS · TestFlight
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Horem ASC
+    environment:
+      flutter: 3.38.4
       xcode: latest
       cocoapods: default
-      groups:
-        - apple_credentials
-      vars:
-        BUNDLE_ID: com.horemplus.app
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.horemplus.app
-    triggering:
-      events:
-        - push
-        - tag
-      branch_patterns:
-        - pattern: release/*
-          include: true
-      tag_patterns:
-        - pattern: v*
-          include: true
+      vars:
+        <<: *vars_communes
     scripts:
-      - name: Get dependencies
-        script: flutter pub get
-
-      - name: Set up GoogleService-Info.plist
-        script: |
-          echo $GOOGLE_SERVICE_INFO | base64 --decode > ios/Runner/GoogleService-Info.plist
-
-      - name: Install CocoaPods
-        script: cd ios && pod install
-
-      - name: Set up code signing
+      - *pub_get
+      - *analyse
+      - *pods
+      - name: Profils de signature
         script: xcode-project use-profiles
-
-      - name: Increment build number
-        script: |
-          LATEST_BUILD=$(app-store-connect get-latest-testflight-build-number "$BUNDLE_ID" || echo 0)
-          agvtool new-version -all $((LATEST_BUILD + 1))
-
       - name: Build IPA
-        script: flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
-
+        # Numéro de build = dernier build TestFlight + 1. L'identifiant Apple
+        # de l'app est relu à partir du bundle.
+        script: |
+          APP_ID=$(app-store-connect apps list --bundle-id-identifier "$BUNDLE_ID" --strict-match-identifier --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+          DERNIER=$(app-store-connect get-latest-testflight-build-number "$APP_ID" || echo 0)
+          flutter build ipa --release \
+            --build-number=$((DERNIER + 1)) \
+            --export-options-plist=/Users/builder/export_options.plist \
+            --obfuscate --split-debug-info=build/symboles
     artifacts:
       - build/ios/ipa/*.ipa
+      - build/symboles/**
       - /tmp/xcodebuild_logs/*.log
-      - flutter_drive.log
-
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
     publishing:
       app_store_connect:
         auth: integration
-        submit_to_testflight: true
-        submit_to_app_store: false
-      email:
-        recipients:
-          - sakamemmanuel@gmail.com
-        notify:
-          success: true
-          failure: true
+        # false : test interne sans revue bêta d'Apple.
+        submit_to_testflight: false
+
+  android-release:
+    name: Android · Release
+    max_build_duration: 45
+    instance_type: linux_x2
+    environment:
+      flutter: 3.38.4
+      java: 17
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'v*'
+          include: true
+    scripts:
+      - *pub_get
+      - *analyse
+      - name: Build AAB
+        script: flutter build appbundle --release --obfuscate --split-debug-info=build/symboles
+    artifacts:
+      - build/app/outputs/bundle/release/*.aab
+      - build/symboles/**

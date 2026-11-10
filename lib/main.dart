@@ -30,6 +30,8 @@ import 'services/messagerie_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Rien dans `adb logcat` en version publiée.
+  if (kReleaseMode) debugPrint = (String? message, {int? wrapWidth}) {};
 
   try {
     await Firebase.initializeApp(

@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +12,8 @@ import 'api_client.dart';
 // ============================================================
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // Isolate séparé : le réglage de main() ne s'y applique pas.
+  if (kReleaseMode) debugPrint = (String? message, {int? wrapWidth}) {};
   // Vérifie la préférence dans SharedPreferences (accessible hors isolate).
   final prefs = await SharedPreferences.getInstance();
   final type  = message.data['type'] ?? 'message';

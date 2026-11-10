@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import 'lien_api.dart';
+
 // ============================================================
 // FICHIER : lib/services/api_client.dart
 // Client de l'API Horem+ (FastAPI + PostgreSQL sur Railway).
@@ -25,11 +27,10 @@ import 'package:uuid/uuid.dart';
 // dizaines de milliers d'utilisateurs.
 // ============================================================
 
-/// Adresse de l'API (surchargeable : --dart-define=API_BASE_URL=…).
-const String kApiBaseUrl = String.fromEnvironment(
-  'API_BASE_URL',
-  defaultValue: 'https://horem-api-production.up.railway.app/api/v1',
-);
+/// Adresse de l'API : rangée chiffrée (voir lien_api.dart). Le define ne sert
+/// qu'au développement : il serait compilé en clair dans une version publiée.
+const String _kApiDev = String.fromEnvironment('API_BASE_URL');
+final String kApiBaseUrl = _kApiDev.isNotEmpty ? _kApiDev : lienApiDefinitif();
 
 class ApiException implements Exception {
   final int statusCode;
@@ -148,6 +149,17 @@ class ApiClient {
         .delete(_uri(chemin), headers: await _entetes(json: false))
         .timeout(const Duration(seconds: 25));
     return _decoder(r);
+  }
+
+  /// Envoie un fichier sur le stockage de l'API. Renvoie son adresse.
+  Future<String> envoyerFichier(String dossier, String chemin, {String? nom}) async {
+    final req = http.MultipartRequest('POST', _uri('/fichiers'))
+      ..headers.addAll(await _entetes(json: false))
+      ..fields['dossier'] = dossier
+      ..files.add(await http.MultipartFile.fromPath('fichier', chemin, filename: nom));
+    final envoi = await _http.send(req).timeout(const Duration(minutes: 10));
+    final rep = _decoder(await http.Response.fromStream(envoi)) as Map<String, dynamic>;
+    return rep['url'] as String;
   }
 
   /// Liste `items` d'une réponse { items: [...] }.

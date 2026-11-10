@@ -48,9 +48,15 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // Jamais d'app publiée signée avec la clé de débogage : sans
+            // android/key.properties, la release échoue sur ce poste. Seule la
+            // CI (qui n'a pas la clé) garde ce repli pour vérifier la compilation.
+            signingConfig = if (rootProject.file("key.properties").exists())
+                signingConfigs.getByName("release")
+            else if (System.getenv("CI") != null)
+                signingConfigs.getByName("debug")
+            else
+                throw GradleException("android/key.properties absent : la release doit être signée avec la clé Horem+.")
         }
     }
 }

@@ -1,4 +1,3 @@
-import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'api_client.dart';
 import 'notification_service.dart';
@@ -15,7 +14,6 @@ import '../models/models.dart';
 
 class MessagerieService {
   static final _api = ApiClient.instance;
-  static final _storage = FirebaseStorage.instance;
 
   // ============================================================
   // Créer ou récupérer une conversation (l'appelant est le client :
@@ -114,12 +112,8 @@ class MessagerieService {
     } catch (_) {}
   }
 
-  static Future<String> _televerser(
-      String chemin, File fichier, String? typeMime) async {
-    final task = await _storage.ref().child(chemin).putFile(
-        fichier, typeMime != null ? SettableMetadata(contentType: typeMime) : null);
-    return task.ref.getDownloadURL();
-  }
+  static Future<String> _televerser(File fichier, String nom) =>
+      _api.envoyerFichier('messages', fichier.path, nom: nom);
 
   // ============================================================
   // Envoyer une image (prestataire uniquement)
@@ -130,10 +124,7 @@ class MessagerieService {
     required String recipientId,
     required File imageFile,
   }) async {
-    final safeId = senderId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
-    final fileName = '${DateTime.now().millisecondsSinceEpoch}_$safeId.jpg';
-    final url = await _televerser(
-        'messages/$conversationId/images/$fileName', imageFile, 'image/jpeg');
+    final url = await _televerser(imageFile, 'image.jpg');
     await _poster(conversationId, {'type': 'image', 'imageUrl': url});
   }
 
@@ -147,9 +138,7 @@ class MessagerieService {
     required File file,
     required String fileName,
   }) async {
-    final safeFileName = '${DateTime.now().millisecondsSinceEpoch}_$fileName';
-    final url = await _televerser(
-        'messages/$conversationId/files/$safeFileName', file, null);
+    final url = await _televerser(file, fileName);
     await _poster(conversationId,
         {'type': 'file', 'fileUrl': url, 'fileName': fileName});
   }
@@ -163,10 +152,7 @@ class MessagerieService {
     required String recipientId,
     required File videoFile,
   }) async {
-    final safeId = senderId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
-    final fileName = '${DateTime.now().millisecondsSinceEpoch}_$safeId.mp4';
-    final url = await _televerser(
-        'messages/$conversationId/videos/$fileName', videoFile, 'video/mp4');
+    final url = await _televerser(videoFile, 'video.mp4');
     await _poster(conversationId, {'type': 'video', 'videoUrl': url});
   }
 
