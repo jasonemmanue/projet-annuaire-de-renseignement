@@ -63,8 +63,10 @@ async def _charger(db: AsyncSession, claims: dict) -> Utilisateur:
         ).on_conflict_do_nothing(index_elements=["id"]))
         await db.flush()
         user = await db.get(Utilisateur, uid)
-    # Administrateurs déclarés dans ADMIN_EMAILS (Railway).
-    if email and email in settings.admin_emails and user.role != "admin":
+    # Administrateurs déclarés dans ADMIN_EMAILS (Railway) : l'adresse du jeton
+    # doit être vérifiée, sinon n'importe qui pourrait s'inscrire avec elle.
+    if email and claims.get("email_verified") is True and email in settings.admin_emails \
+            and user.role != "admin":
         user.role = "admin"
     if email and not user.email:
         user.email = email

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import cache
 from app.core.dependencies import utilisateur_courant
-from app.core.serial import appliquer, maintenant, vers_api
+from app.core.serial import appliquer, lien_prive, maintenant, vers_api
 from app.db.session import apres_commit, get_db
 from app.models.models import Logement, Utilisateur
 from app.services import annonces
@@ -48,6 +48,7 @@ async def telephone_pris(db: AsyncSession, numero: str, sauf_uid: str | None = N
 def profil(u: Utilisateur) -> dict:
     d = vers_api(u, Utilisateur.CHAMPS)
     d.pop("fcmToken", None)
+    d["cniRecto"], d["cniVerso"] = lien_prive(u.cni_recto), lien_prive(u.cni_verso)
     return d
 
 

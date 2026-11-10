@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.routes._commun import versionne
 from app.core import cache
 from app.core.dependencies import Appelant, appelant
-from app.core.serial import appliquer, maintenant, nouvel_id, vers_api
+from app.core.serial import appliquer, maintenant, masquer_visiteur, nouvel_id, vers_api
 from app.db.session import apres_commit, get_db, marquer
 from app.models.models import Conversation, Message, Urgence, Utilisateur
 from app.services import push
@@ -29,17 +29,31 @@ TYPES = {"text", "image", "video", "file", "audio"}
 APERCU = {"image": "📷 Photo", "video": "🎬 Vidéo", "audio": "🎤 Message vocal"}
 
 
-def api_conv(c: Conversation) -> dict:
+def api_conv(c: Conversation, pour: str | None = None, masquer: bool = True) -> dict:
+    """`pour` = l'appelant : l'identifiant des autres visiteurs lui est masqué.
+    `masquer=False` est réservé au back-office."""
     d = vers_api(c, Conversation.CHAMPS)
     for uid, n in (c.unread or {}).items():
         d[f"unread_{uid}"] = n
     for p in c.participants or []:
         d.setdefault(f"unread_{p}", 0)
+    if not masquer:
+        return d
+    d["participants"] = [masquer_visiteur(p, pour) for p in c.participants or []]
+    for cle in ("client_uid", "visitor_uid"):
+        d[cle] = masquer_visiteur(d.get(cle), pour)
+    for cle in [k for k in d if k.startswith("unread_visiteur_")]:
+        alias = f"unread_{masquer_visiteur(cle[len('unread_'):], pour)}"
+        if alias != cle:
+            d[alias] = d.pop(cle)
     return d
 
 
-def api_msg(m: Message) -> dict:
-    return vers_api(m, Message.CHAMPS)
+def api_msg(m: Message, pour: str | None = None, masquer: bool = True) -> dict:
+    d = vers_api(m, Message.CHAMPS)
+    if masquer:
+        d["senderId"] = masquer_visiteur(d.get("senderId"), pour)
+    return d
 
 
 async def _conv(db: AsyncSession, conv_id: str, qui: Appelant, verrou: bool = False) -> Conversation:
@@ -62,7 +76,7 @@ async def mes_conversations(request: Request, db: AsyncSession = Depends(get_db)
         lignes = (await db.execute(
             select(Conversation).where(Conversation.participants.contains([qui.id]))
             .order_by(Conversation.last_message_time.desc().nulls_last()).limit(300))).scalars().all()
-        return {"items": [api_conv(c) for c in lignes]}
+        return {"items": [api_conv(c, qui.id) for c in lignes]}
     return await versionne(request, f"inbox:{qui.id}", produire)
 
 
@@ -94,7 +108,7 @@ async def ouvrir(data: dict, db: AsyncSession = Depends(get_db), qui: Appelant =
         Conversation.participants.contains([qui.id, prest]),
         Conversation.logement_id == logement_id).limit(1))).scalar_one_or_none()
     if existante:
-        return api_conv(existante)
+        return api_conv(existante, qui.id)
 
     label, numero = None, None
     if qui.id.startswith("visiteur_"):
@@ -123,12 +137,12 @@ async def ouvrir(data: dict, db: AsyncSession = Depends(get_db), qui: Appelant =
     db.add(c)
     await db.flush()
     marquer(db, f"inbox:{qui.id}", f"inbox:{prest}", "admin_conversations")
-    return api_conv(c)
+    return api_conv(c, qui.id)
 
 
 @router.get("/{conv_id}")
 async def une(conv_id: str, db: AsyncSession = Depends(get_db), qui: Appelant = Depends(appelant)):
-    return api_conv(await _conv(db, conv_id, qui))
+    return api_conv(await _conv(db, conv_id, qui), qui.id)
 
 
 @router.get("/{conv_id}/messages")
@@ -143,7 +157,7 @@ async def messages(conv_id: str, request: Request, db: AsyncSession = Depends(ge
     async def produire():
         lignes = (await db.execute(select(Message).where(Message.conversation_id == conv_id)
                                    .order_by(Message.timestamp.desc()).limit(500))).scalars().all()
-        return {"items": [api_msg(m) for m in reversed(lignes)]}
+        return {"items": [api_msg(m, qui.id) for m in reversed(lignes)]}
     return await versionne(request, f"conv:{conv_id}", produire)
 
 
@@ -187,7 +201,7 @@ async def envoyer(conv_id: str, data: dict, db: AsyncSession = Depends(get_db),
             dest, f"💬 {nom}", corps,
             {"type": "message", "conversationId": conv_id, "logementTitre": titre_log},
             canal=push.CANAL_MESSAGES, respecter_pref_messages=True), "push_message")
-    return api_msg(m)
+    return api_msg(m, qui.id)
 
 
 @router.patch("/{conv_id}/messages/{msg_id}")
@@ -202,7 +216,7 @@ async def modifier_message(conv_id: str, msg_id: str, data: dict, db: AsyncSessi
     m.text = str((data or {}).get("text") or "")[:5000]
     m.edited = True
     marquer(db, f"conv:{conv_id}")
-    return api_msg(m)
+    return api_msg(m, qui.id)
 
 
 @router.delete("/{conv_id}/messages/{msg_id}")

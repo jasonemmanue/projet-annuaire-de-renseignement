@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from app.api.v1.routes import (  # noqa: E402
-    admin, conversations, divers, logements, paiements, publicites, rendez_vous, users,
+    admin, conversations, divers, fichiers, logements, paiements, publicites, rendez_vous, users,
 )
 from app.core import cache  # noqa: E402
 from app.core.config import settings  # noqa: E402
@@ -72,7 +72,9 @@ async def contexte(request: Request, call_next):
     # Limite globale anti-abus : 600 requêtes / minute par adresse IP.
     ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or \
         (request.client.host if request.client else "?")
-    if request.url.path.startswith("/api/") and not request.url.path.endswith("/webhook") \
+    # Les images affichées ne comptent pas : une page en charge des dizaines.
+    lecture_fichier = request.method in ("GET", "HEAD") and request.url.path.startswith("/api/v1/fichiers/")
+    if request.url.path.startswith("/api/") and not request.url.path.endswith("/webhook") and not lecture_fichier \
             and await cache.depasse_limite(f"ip:{ip}", 600, 60):
         return JSONResponse({"detail": "Trop de requêtes, réessayez dans un instant."}, status_code=429)
     return await call_next(request)
@@ -92,7 +94,7 @@ async def erreur_http(request: Request, exc: HTTPException):
 
 
 PREFIXE = "/api/v1"
-for module in (users, logements, conversations, divers, publicites, paiements, rendez_vous, admin):
+for module in (users, logements, conversations, divers, publicites, paiements, rendez_vous, fichiers, admin):
     app.include_router(module.router, prefix=PREFIXE)
 
 

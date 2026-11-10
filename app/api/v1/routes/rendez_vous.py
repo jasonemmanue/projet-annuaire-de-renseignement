@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.routes._commun import versionne
 from app.core.dependencies import Appelant, appelant
-from app.core.serial import maintenant, nouvel_id, texte_vers_date, vers_api
+from app.core.serial import maintenant, masquer_visiteur, nouvel_id, texte_vers_date, vers_api
 from app.db.session import apres_commit, get_db, marquer
 from app.models.models import Logement, RendezVous
 from app.services import push
@@ -23,8 +23,10 @@ router = APIRouter(prefix="/rendez-vous", tags=["Rendez-vous"])
 MAX_EN_ATTENTE_PAR_ANNONCE = 3
 
 
-def api(r: RendezVous) -> dict:
-    return vers_api(r, RendezVous.CHAMPS)
+def api(r: RendezVous, pour: str) -> dict:
+    d = vers_api(r, RendezVous.CHAMPS)
+    d["demandeurId"] = masquer_visiteur(d.get("demandeurId"), pour)
+    return d
 
 
 def _date_fr(d) -> str:
@@ -40,7 +42,7 @@ async def mes_rendez_vous(request: Request, db: AsyncSession = Depends(get_db),
             select(RendezVous).where(or_(RendezVous.demandeur_id == qui.id,
                                          RendezVous.prestataire_id == qui.id))
             .order_by(RendezVous.date_heure.desc()).limit(200))).scalars().all()
-        return {"items": [api(r) for r in lignes]}
+        return {"items": [api(r, qui.id) for r in lignes]}
     return await versionne(request, f"rdv:{qui.id}", produire)
 
 
@@ -80,7 +82,7 @@ async def demander(data: dict, db: AsyncSession = Depends(get_db), qui: Appelant
         prest, "📅 Demande de visite",
         f"{qui_nom} souhaite visiter « {titre} » le {quand_txt}.",
         {"type": "rendez_vous", "rendezVousId": r.id, "logementId": r.logement_id}), "push_rdv")
-    return api(r)
+    return api(r, qui.id)
 
 
 @router.patch("/{rdv_id}")
@@ -112,5 +114,5 @@ async def repondre(rdv_id: str, data: dict, db: AsyncSession = Depends(get_db),
     apres_commit(db, lambda: push.notifier_utilisateur(
         dest, titres[statut], corps,
         {"type": "rendez_vous", "rendezVousId": r.id, "logementId": r.logement_id}), "push_rdv")
-    return api(r)
+    return api(r, qui.id)
 

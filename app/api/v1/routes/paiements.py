@@ -203,11 +203,14 @@ async def statut(reference: str, request: Request, db: AsyncSession = Depends(ge
 
 @router.post("/webhook")
 async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    """Webhook GeniusPay : signature HMAC, re-vérification API, effet métier."""
+    """Webhook GeniusPay. Son contenu n'est JAMAIS cru : il sert seulement à
+    savoir quelle transaction relire chez GeniusPay avec nos clés. Un faux
+    appel ne peut donc rien activer."""
     brut = await request.body()
-    if not geniuspay.signature_valide(brut, request.headers.get("x-geniuspay-signature", "")):
-        logger.warning("webhook : signature invalide")
-        return PlainTextResponse("Signature invalide", status_code=401)
+    signature = request.headers.get("x-webhook-signature") or request.headers.get("x-geniuspay-signature")
+    etat = geniuspay.etat_signature(brut, signature, request.headers.get("x-webhook-timestamp"))
+    if etat != "valide":
+        logger.warning("webhook : signature %s, statut relu chez GeniusPay", etat)
     try:
         corps = json.loads(brut or b"{}")
     except ValueError:
@@ -223,17 +226,10 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
         return PlainTextResponse("OK (transaction inconnue)")
     if tx.statut in ("reussi", "echoue"):
         return PlainTextResponse("OK (déjà traité)")
-    evenement = str(corps.get("event") or corps.get("type") or "").lower()
-    statut_payload = str(d.get("status") or d.get("state") or d.get("payment_status") or "").lower()
-    derive = ""
-    if "success" in evenement or statut_payload in ("success", "completed", "paid"):
-        derive = "COMPLETED"
-    elif any(m in evenement for m in ("fail", "cancel")) or statut_payload in (
-            "failed", "cancelled", "expired", "declined"):
-        derive = "FAILED"
-    statut_api = await geniuspay.verifier_paiement(str(reference))
-    final = statut_api if statut_api in geniuspay.SUCCES | geniuspay.ECHECS else (derive or statut_api)
-    await paiements.finaliser(db, str(reference), final)
+    # Limite les relectures qu'un appel forgé pourrait provoquer.
+    if await cache.depasse_limite(f"webhook:{tx.id}", 5, 60):
+        return PlainTextResponse("OK (limite)")
+    await paiements.finaliser(db, str(reference), await geniuspay.verifier_paiement(str(reference)))
     return PlainTextResponse("OK")
 
 

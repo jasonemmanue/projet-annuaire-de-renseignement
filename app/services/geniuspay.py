@@ -153,10 +153,13 @@ async def verifier_paiement(reference: str) -> str:
     return "PENDING"
 
 
-def signature_valide(corps_brut: bytes, recue: str) -> bool:
+def etat_signature(corps_brut: bytes, recue: str | None, horodatage: str | None = None) -> str:
+    """« valide » | « invalide » | « absente ». Format GeniusPay :
+    HMAC-SHA256(horodatage + "." + corps), en-têtes X-Webhook-Signature et
+    X-Webhook-Timestamp (corps seul si aucun horodatage n'est fourni)."""
     secret = settings.GENIUSPAY_WEBHOOK_SECRET
     if not secret or not recue:
-        logger.warning("GeniusPay : vérification de signature désactivée.")
-        return True
-    attendue = hmac.new(secret.encode(), corps_brut, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(attendue, recue.replace("sha256=", "").strip())
+        return "absente"
+    signe = f"{horodatage}.".encode() + corps_brut if horodatage else corps_brut
+    attendue = hmac.new(secret.encode(), signe, hashlib.sha256).hexdigest()
+    return "valide" if hmac.compare_digest(attendue, recue.replace("sha256=", "").strip()) else "invalide"

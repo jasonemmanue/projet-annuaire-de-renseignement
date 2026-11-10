@@ -13,8 +13,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 import string
+import time
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -35,6 +38,16 @@ def nouvel_id(n: int = 20) -> str:
 
 def maintenant() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def masquer_visiteur(identifiant: Any, pour: str | None) -> Any:
+    """L'identifiant d'un visiteur vaut mot de passe (en-tête X-Visiteur-Id) :
+    il n'est montré qu'à lui-même. Les autres reçoivent un alias stable, non
+    réversible, qui garde le préfixe attendu par l'app mais n'identifie
+    personne (il ne passe pas le contrôle de X-Visiteur-Id)."""
+    if isinstance(identifiant, str) and identifiant.startswith("visiteur_") and identifiant != pour:
+        return "visiteur_masque_" + hashlib.sha256(identifiant.encode()).hexdigest()[:32]
+    return identifiant
 
 
 def poser_base_requete(base: str) -> None:
@@ -60,12 +73,35 @@ def lien_interne(v: Any) -> Any:
     """Adresse complète d'un fichier de l'API → chemin interne (stockage)."""
     if isinstance(v, str):
         i = v.find(PREFIXE_FICHIER)
-        if i > 0:
-            return v[i:]
+        if i >= 0:
+            return v[i:].split("?", 1)[0]  # sans la signature d'un lien privé
         return v
     if isinstance(v, list):
         return [lien_interne(x) for x in v]
     return v
+
+
+def _cle_liens() -> bytes:
+    return hashlib.sha256(b"liens-prives:" + settings.FIREBASE_CREDENTIALS.encode()).digest()
+
+
+def _signature(chemin: str, exp: int) -> str:
+    return hmac.new(_cle_liens(), f"{chemin}|{exp}".encode(), hashlib.sha256).hexdigest()
+
+
+def lien_prive(v: Any, duree_s: int = 900) -> Any:
+    """Lien signé de courte durée vers un fichier privé (CNI). Les anciens
+    liens externes sont rendus tels quels."""
+    if not isinstance(v, str) or not v.startswith(PREFIXE_FICHIER):
+        return v
+    exp = int(time.time()) + duree_s
+    return f"{base_publique()}{v}?exp={exp}&sig={_signature(v[len(PREFIXE_FICHIER):], exp)}"
+
+
+def lien_signe_valide(chemin: str, exp: int, sig: str) -> bool:
+    if not settings.FIREBASE_CREDENTIALS or exp < time.time():
+        return False
+    return hmac.compare_digest(_signature(chemin, exp), sig)
 
 
 # ─── Dates ───────────────────────────────────────────────────────────────────

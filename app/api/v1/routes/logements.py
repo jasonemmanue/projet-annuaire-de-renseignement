@@ -24,7 +24,7 @@ import math
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import and_, case, delete, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +33,7 @@ from app.core import cache
 from app.core.dependencies import compte_requis
 from app.core.serial import appliquer, date_vers_texte, maintenant, nouvel_id, vers_api
 from app.db.session import apres_commit, get_db, marquer
-from app.models.models import Conversation, Favori, Logement, Utilisateur, VueJournaliere
+from app.models.models import Conversation, Favori, Logement, Transaction, Utilisateur, VueJournaliere
 from app.services import annonces, fichiers, tarifs
 
 router = APIRouter(prefix="/logements", tags=["Annonces"])
@@ -57,6 +57,12 @@ GERES = {
 # Champs dont un changement impose de revérifier le doublon GPS.
 CHAMPS_DOUBLON = {"latitude", "longitude", "typeBien", "prix"}
 DOUBLON_RAYON_M = 10
+# Contenu dont un changement impose une nouvelle validation par l'admin.
+_A_REVERIFIER = {
+    "titre", "description", "prix", "typeLocation", "typeBien", "ville", "quartier", "latitude",
+    "longitude", "photos", "documentPdf", "charges", "fraisAgence", "caution", "moisAvance",
+}
+_ATTR = {cle: attr for cle, attr, _ in Logement.CHAMPS}
 
 
 def api(l: Logement) -> dict:
@@ -104,6 +110,32 @@ async def _verifier_doublon(db: AsyncSession, l: Logement) -> None:
     if any(_distance_m(l.latitude, l.longitude, la, lo) <= DOUBLON_RAYON_M for la, lo in lignes):
         raise HTTPException(409, {"code": "doublon_gps", "error":
                                   "Ce bien est déjà publié à cette position (même type, même prix)."})
+
+
+async def _verifier_montant_paye(db: AsyncSession, l: Logement, prix_avant: float | None,
+                                 type_avant: str | None, user: Utilisateur) -> None:
+    """La commission de publication dépend du prix : une annonce payée ne peut
+    pas monter à un prix qui aurait coûté plus cher, ni changer de grille."""
+    if user.role == "admin" or user.compte_gratuit:
+        return
+    a_tarif_propre = lambda t: tarifs.est_pharmacie(t) or t in tarifs.TYPES_FORFAIT  # noqa: E731
+    if l.type_bien != type_avant and not l.payment_pending \
+            and (a_tarif_propre(type_avant) or a_tarif_propre(l.type_bien)):
+        raise HTTPException(402, {"code": "paiement_requis",
+                                  "error": "Ce changement de type demande une nouvelle publication."})
+    if (l.prix or 0) <= (prix_avant or 0) or a_tarif_propre(type_avant):
+        return
+    du, _ = tarifs.montant_publication(type_avant, l.prix, None)
+    if l.payment_pending:
+        # Brouillon : seul un paiement déjà lancé fixe le montant.
+        paye = (await db.execute(select(func.max(Transaction.montant)).where(
+            Transaction.logement_id == l.id, Transaction.type == "publication",
+            Transaction.statut == "en_attente"))).scalar_one_or_none()
+    else:
+        paye, _ = tarifs.montant_publication(type_avant, prix_avant, None)
+    if paye is not None and du > paye:
+        raise HTTPException(402, {"code": "paiement_requis", "error":
+                                  "Ce nouveau prix dépasse celui de votre publication. Republiez l'annonce."})
 
 
 def _visible_visiteur():
@@ -348,13 +380,22 @@ async def modifier(logement_id: str, data: dict, db: AsyncSession = Depends(get_
     """Contenu de l'annonce + bascule « disponible » (règles de visibilité)."""
     l = await _charger(db, logement_id, verrou=True)
     _proprietaire(l, user)
+    avant = {cle: getattr(l, _ATTR[cle]) for cle in _A_REVERIFIER}
+    prix_avant, type_avant = l.prix, l.type_bien
     faits = appliquer(l, data, Logement.CHAMPS, autorises=CONTENU)
     if faits:
+        await _verifier_montant_paye(db, l, prix_avant, type_avant, user)
         _recalculer_prix(l)
         # Toute modification vaut actualisation (21 jours de plus).
         l.actualise_le, l.rappel_actualisation = maintenant(), False
         if CHAMPS_DOUBLON & set(faits):
             await _verifier_doublon(db, l)
+    # Annonce validée dont le contenu change : elle repasse devant l'admin.
+    # L'app renvoie tout le formulaire, on compare donc les valeurs réelles.
+    if any((avant[c] or None) != (getattr(l, _ATTR[c]) or None) for c in _A_REVERIFIER) \
+            and user.role != "admin" and not user.compte_gratuit \
+            and l.statut_moderation in (None, "valide"):
+        l.statut_moderation = "en_attente"
     # Annonce refusée puis corrigée : elle repart en file de vérification.
     if faits and l.statut_moderation == "rejete" and user.role != "admin":
         l.statut_moderation, l.motif_rejet = "en_attente", None

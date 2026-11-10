@@ -50,7 +50,7 @@ async def _faux_jeton(jeton: str) -> dict:
         claims["firebase"]["sign_in_provider"] = "anonymous"
     for m in morceaux[2:]:
         if "@" in m:
-            claims["email"] = m
+            claims["email"], claims["email_verified"] = m, True
     return claims
 
 

@@ -16,7 +16,7 @@ from app.api.v1.routes.logements import api as api_logement, supprimer_logement
 from app.core import cache
 from app.core.dependencies import admin_requis
 from app.core.firebase import a_compte_service
-from app.core.serial import appliquer, maintenant, vers_api
+from app.core.serial import appliquer, lien_prive, maintenant, vers_api
 from app.db.session import apres_commit, get_db, marquer
 from app.models.models import (
     Conversation, Logement, Message, NotificationAdmin, Publicite, Signalement, Transaction,
@@ -191,6 +191,7 @@ async def supprimer_logement_admin(logement_id: str, db: AsyncSession = Depends(
 def _user(u: Utilisateur) -> dict:
     d = vers_api(u, Utilisateur.CHAMPS)
     d["aJetonPush"] = bool(u.fcm_token)
+    d["cniRecto"], d["cniVerso"] = lien_prive(u.cni_recto), lien_prive(u.cni_verso)
     d.pop("fcmToken", None)
     return d
 
@@ -314,7 +315,7 @@ async def conversations(q: str | None = None, limit: int = 50, offset: int = 0,
         req = req.where(or_(Conversation.logement_titre.ilike(m), Conversation.last_message.ilike(m),
                             Conversation.contact_label.ilike(m)))
     rep = await _liste(db, req.order_by(Conversation.last_message_time.desc().nulls_last()),
-                       api_conv, limit, offset)
+                       lambda c: api_conv(c, masquer=False), limit, offset)
     # Noms des participants en une requête.
     ids = {p for c in rep["items"] for p in c.get("participants") or [] if not p.startswith("visiteur_")}
     noms, infos = {}, {}
@@ -334,7 +335,7 @@ async def conversation_messages(conv_id: str, request: Request, db: AsyncSession
     async def produire():
         lignes = (await db.execute(select(Message).where(Message.conversation_id == conv_id)
                                    .order_by(Message.timestamp.desc()).limit(500))).scalars().all()
-        return {"items": [api_msg(m) for m in reversed(lignes)]}
+        return {"items": [api_msg(m, masquer=False) for m in reversed(lignes)]}
     return await versionne(request, f"conv:{conv_id}", produire)
 
 

@@ -73,7 +73,10 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "Horem+ <onboarding@resend.dev>"
 
-    # Bucket Firebase Storage (les fichiers restent dans Firebase Storage ;
+    # Fichiers envoyés : dossier sur le volume Railway du service API.
+    STOCKAGE_DIR: str = "/data/fichiers"
+
+    # Bucket Firebase Storage (anciens fichiers seulement ;
     # l'API supprime ceux d'une annonce / pub supprimée).
     FIREBASE_STORAGE_BUCKET: str = "sgk-home.firebasestorage.app"
 

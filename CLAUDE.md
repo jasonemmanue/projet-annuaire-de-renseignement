@@ -7,8 +7,10 @@ Prepaxia. Code versionné sur la branche **`horem-api`** du dépôt de l'app
 (`jasonemmanue/projet-annuaire-de-renseignement`).
 
 Elle remplace **Firestore** et les **Cloud Functions**. Firebase ne sert plus
-qu'à : l'authentification (jeton d'identité vérifié par l'API), le stockage
-des fichiers (Firebase Storage, l'app envoie directement) et les push (FCM).
+qu'à : l'authentification (jeton d'identité vérifié par l'API) et les push
+(FCM). Les fichiers sont sur le **volume Railway** monté sur `/data` du service
+API (`POST /fichiers`, `routes/fichiers.py`) ; les anciens restent lisibles sur
+Firebase Storage par leur lien d'origine.
 
 ## Arborescence
 
