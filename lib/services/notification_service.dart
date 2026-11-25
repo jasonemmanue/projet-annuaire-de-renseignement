@@ -29,7 +29,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // automatiquement — on ne double pas. On n'intervient que pour les data-only.
   if (message.notification != null) return;
 
-  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const androidInit = AndroidInitializationSettings('@drawable/ic_stat_notification');
   final local = FlutterLocalNotificationsPlugin();
   await local.initialize(const InitializationSettings(android: androidInit));
 
@@ -56,7 +56,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         chanId, chanName,
         importance: isAnnonce ? Importance.high : Importance.max,
         priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
+        icon: '@drawable/ic_stat_notification',
         color: const Color(0xFF0071C2),
         styleInformation: BigTextStyleInformation(body),
       ),
@@ -142,7 +142,7 @@ class NotificationService {
       alert: true, badge: true, sound: true,
     );
 
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidInit = AndroidInitializationSettings('@drawable/ic_stat_notification');
     const iosInit = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -258,7 +258,7 @@ class NotificationService {
           isAnnonce ? 'Nouvelles annonces' : 'Messages',
           importance: isAnnonce ? Importance.high : Importance.max,
           priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_stat_notification',
           color: const Color(0xFF0071C2),
           styleInformation: BigTextStyleInformation(notif.body ?? ''),
           ticker: notif.title,
@@ -290,7 +290,7 @@ class NotificationService {
           _chanMessages, 'Messages',
           importance: Importance.max,
           priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_stat_notification',
           color: const Color(0xFF0071C2),
           subText: logementTitre,
           styleInformation: BigTextStyleInformation(messageText),
@@ -323,7 +323,7 @@ class NotificationService {
           _chanAnnonces, 'Nouvelles annonces',
           importance: Importance.high,
           priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_stat_notification',
           color: const Color(0xFF0071C2),
           styleInformation:
           BigTextStyleInformation('$titre\n📍 $quartier, $ville'),

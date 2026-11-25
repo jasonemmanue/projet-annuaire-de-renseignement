@@ -222,7 +222,6 @@ class _ConnexionTabState extends State<_ConnexionTab> {
   }
 
   Future<void> _motDePasseOublie() async {
-    final l = AppLocalizations.of(context);
     final ctrl = TextEditingController(text: _emailCtrl.text.trim());
     await showModalBottomSheet<void>(
       context: context,

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icône de notification référencée par son nom (push FCM et notifications locales) : à garder au rétrécissement des ressources. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_notification" />
