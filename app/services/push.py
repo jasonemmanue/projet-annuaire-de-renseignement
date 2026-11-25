@@ -21,6 +21,8 @@ logger = logging.getLogger("push")
 
 CANAL_MESSAGES = "sgkhome_messages"
 CANAL_ANNONCES = "sgkhome_annonces"
+ICONE_NOTIFICATION = "ic_stat_notification"
+COULEUR_NOTIFICATION = "#0071C2"
 _JETONS_MORTS = ("registration-token-not-registered", "invalid-registration-token",
                  "NOT_FOUND", "UNREGISTERED", "INVALID_ARGUMENT")
 
@@ -34,7 +36,10 @@ def _message(titre: str, corps: str, data: dict, canal: str):
         android=messaging.AndroidConfig(
             priority="high",
             notification=messaging.AndroidNotification(
-                channel_id=canal, click_action="FLUTTER_NOTIFICATION_CLICK", sound="default"),
+                channel_id=canal, click_action="FLUTTER_NOTIFICATION_CLICK", sound="default",
+                # Silhouette blanche (res/drawable-*/ic_stat_notification.png de l'app) :
+                # l'icône couleur du lanceur s'afficherait en carré blanc.
+                icon=ICONE_NOTIFICATION, color=COULEUR_NOTIFICATION),
         ),
         apns=messaging.APNSConfig(payload=messaging.APNSPayload(
             aps=messaging.Aps(alert=messaging.ApsAlert(title=titre, body=corps),

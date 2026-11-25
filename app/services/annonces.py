@@ -10,7 +10,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 import logging
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 
 from app.core import cache
 from app.core.config import settings
@@ -59,7 +59,7 @@ async def _alertes_urgence(logement_id: str) -> None:
         prix = log.prix_total or log.prix or 0
         alertes = (await s.execute(select(Urgence).where(
             Urgence.actif.is_(True), Urgence.type_bien == log.type_bien,
-            Urgence.expires_at > maintenant(), Urgence.prix_min <= prix))).scalars().all()
+            Urgence.expires_at > maintenant(), func.coalesce(Urgence.prix_min, 0) <= prix))).scalars().all()
         cibles = [(a.id, a.uid) for a in alertes if not (a.prix_max and prix > a.prix_max)]
         titre, ville, type_bien = log.titre or "Nouveau bien", log.ville or "", log.type_bien
     for alerte_id, uid in cibles:

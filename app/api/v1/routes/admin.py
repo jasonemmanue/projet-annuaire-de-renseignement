@@ -12,14 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.routes._commun import versionne
 from app.api.v1.routes.conversations import api_conv, api_msg
-from app.api.v1.routes.logements import api as api_logement, supprimer_logement
+from app.api.v1.routes.logements import _recalculer_prix, api as api_logement, supprimer_logement
 from app.core import cache
 from app.core.dependencies import admin_requis
 from app.core.firebase import a_compte_service
 from app.core.serial import appliquer, lien_prive, maintenant, vers_api
 from app.db.session import apres_commit, get_db, marquer
 from app.models.models import (
-    Conversation, Logement, Message, NotificationAdmin, Publicite, Signalement, Transaction,
+    Conversation, Favori, Logement, Message, NotificationAdmin, Publicite, Signalement, Transaction,
     Urgence, Utilisateur,
 )
 from app.services import annonces, fichiers, push
@@ -123,7 +123,8 @@ async def modifier_logement(logement_id: str, data: dict, db: AsyncSession = Dep
     if l is None:
         raise HTTPException(404, "Annonce introuvable")
     etait_visible = l.disponible and not l.payment_pending and l.visible_admin_effectif
-    appliquer(l, data, Logement.CHAMPS, interdits={"createdAt", "updatedAt"})
+    appliquer(l, data, Logement.CHAMPS, interdits={"createdAt", "updatedAt", "prixTotal"})
+    _recalculer_prix(l)
     if "isSponsored" in data and not l.is_sponsored:
         l.sponsored_until = None
     await db.flush()
@@ -245,8 +246,23 @@ async def modifier_user(uid: str, data: dict, db: AsyncSession = Depends(get_db)
 
 
 @router.delete("/users/{uid}")
-async def supprimer_user(uid: str, db: AsyncSession = Depends(get_db)):
+async def supprimer_user(uid: str, db: AsyncSession = Depends(get_db),
+                         admin: Utilisateur = Depends(admin_requis)):
+    """Profil + annonces + publicités + favoris (sinon ses annonces restaient
+    en ligne sans propriétaire). Le compte Firebase n'est pas touché."""
+    if uid == admin.id:
+        raise HTTPException(400, "Impossible de supprimer votre propre compte")
+    for l in (await db.execute(select(Logement).where(Logement.uid_prestataire == uid))).scalars().all():
+        await supprimer_logement(db, l)
+    for p in (await db.execute(select(Publicite).where(Publicite.prestataire_id == uid))).scalars().all():
+        liens = list(p.photos or []) + [p.video_url]
+        apres_commit(db, lambda liens=liens: fichiers.supprimer_liens(None, liens), "storage")
+        await db.delete(p)
+    await db.execute(delete(Favori).where(Favori.utilisateur_id == uid))
     await db.execute(delete(Utilisateur).where(Utilisateur.id == uid))
+    marquer(db, "stories")
+    apres_commit(db, lambda: cache.effacer_prefixe(f"pub:user:{uid}"), "cache_profil")
+    apres_commit(db, lambda: cache.effacer_prefixe("admin:stats"), "cache_stats")
     return {"success": True}
 
 

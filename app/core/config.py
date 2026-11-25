@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     PAIEMENT_ERROR_URL: str = ""
 
     # Page web de paiement iOS (dashboard admin) : https://<admin>/pay
-    WEB_PAY_BASE_URL: str = "https://immoconnect-admin.up.railway.app/pay"
+    WEB_PAY_BASE_URL: str = "https://horem-a-admin-production.up.railway.app/pay"
 
     # E-mails : Railway bloque le SMTP sortant → API HTTP Gmail ou Resend.
     GMAIL_API_CLIENT_ID: str = ""
