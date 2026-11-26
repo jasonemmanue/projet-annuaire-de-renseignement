@@ -12,6 +12,7 @@ import 'rendez_vous_screen.dart';
 import '../widgets/shared_widgets.dart' as sw;
 import 'auth/login_screen.dart';
 import 'aide_faq_screen.dart';
+import 'admin_panel_screen.dart';
 import 'legal/cgu_screen.dart';
 import 'legal/politique_screen.dart';
 
@@ -94,7 +95,24 @@ class _ProfilScreenState extends State<ProfilScreen> {
 
               const SizedBox(height: 12),
 
-              if (!widget.isPrestataire)
+              // Compte admin : accès au panneau d'administration (modération,
+              // signalements, utilisateurs, statistiques).
+              if (AuthService.instance.currentUser?.isAdmin == true) ...[
+                _Section(
+                  title: l.t('admin_title'),
+                  children: [
+                    _OptionTile(
+                      icon: Icons.admin_panel_settings_outlined,
+                      label: l.t('admin_title'),
+                      onTap: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const AdminPanelScreen())),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              if (!widget.isPrestataire && AuthService.instance.currentUser?.isAdmin != true)
                 _Section(
                   title: l.t('profil_prestataire_account'),
                   children: [
