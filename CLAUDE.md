@@ -88,3 +88,12 @@ E-mails : Railway bloque le SMTP, donc l'ancien couple Gmail
 `POST /api/v1/admin/migration-firestore` (admin connecté, `FIREBASE_CREDENTIALS`
 posé), suivi par `GET` sur la même route. Idempotente : à relancer juste avant
 la diffusion de la nouvelle app pour récupérer ce que l'ancienne a écrit.
+
+## Mises à jour du 26/11/2026
+
+- Push : icône `ic_stat_notification` + couleur `#0071C2` (`push.py`), l'icône est dans l'app.
+- Alertes urgence : `prix_min` NULL traité comme 0.
+- `PATCH /admin/logements/{id}` recalcule `prix_total`.
+- `DELETE /admin/users/{uid}` supprime aussi annonces, publicités et favoris (pas soi-même ; le compte Firebase reste).
+- `WEB_PAY_BASE_URL` par défaut = `https://horem-a-admin-production.up.railway.app/pay`.
+- La page `/pay/[token]` de l'admin plantait (500, `use(params)` de Next 15 sous Next 14) : corrigée.
